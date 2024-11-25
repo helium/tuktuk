@@ -1,0 +1,31 @@
+[package]
+name = "tuktuk-sdk"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+
+build = "build.rs"
+
+[lib]
+name = "tuktuk_sdk"
+path = "src/lib.rs"
+
+[dependencies]
+anchor-lang = { workspace = true }
+solana-client = { workspace = true }
+thiserror = "1"
+solana-sdk = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+solana-account-decoder = "1.18.22"
+futures-core = "0.3.30"
+futures = "0.3.30"
+bincode = "1.3.3"
+itertools = { workspace = true }
+async-trait = "0"
+spl-associated-token-account = { workspace = true }
+spl-token = { workspace = true }
+
+[features]
+default=[]
