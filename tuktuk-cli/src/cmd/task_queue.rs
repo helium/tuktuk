@@ -33,7 +33,7 @@ pub enum Cmd {
         #[arg(long)]
         name: String,
         #[arg(long, help = "Initial funding amount in bones")]
-        funding_amount: Option<u64>,
+        funding_amount: u64,
     },
     Get {
         #[command(flatten)]
@@ -103,6 +103,14 @@ impl TaskQueueCmd {
             &tuktuk_config.network_mint,
         );
 
+        let init_idemp =
+            spl_associated_token_account::instruction::create_associated_token_account_idempotent(
+                &client.payer.pubkey(),
+                task_queue_key,
+                &tuktuk_config.network_mint,
+                &spl_token::id(),
+            );
+
         let ix = spl_token::instruction::transfer(
             &spl_token::id(),
             &payer_ata,
@@ -116,7 +124,7 @@ impl TaskQueueCmd {
             client.rpc_client.clone(),
             &client.payer,
             client.opts.ws_url().as_str(),
-            vec![ix],
+            vec![init_idemp, ix],
             &[],
         )
         .await
@@ -147,9 +155,18 @@ impl TaskQueueCmd {
                 .await?;
 
                 // Fund if amount specified
-                if let Some(amount) = funding_amount {
-                    Self::fund_task_queue(&client, &key, *amount).await?;
+                let config: TuktukConfigV0 = client
+                    .as_ref()
+                    .anchor_account(&tuktuk::config_key())
+                    .await?
+                    .ok_or_else(|| anyhow::anyhow!("Tuktuk config account not found"))?;
+                if *funding_amount < config.min_deposit {
+                    return Err(anyhow::anyhow!(
+                        "Funding amount must be greater than the minimum deposit: {}",
+                        config.min_deposit
+                    ));
                 }
+                Self::fund_task_queue(&client, &key, config.min_deposit).await?;
 
                 send_instructions(
                     client.rpc_client.clone(),
