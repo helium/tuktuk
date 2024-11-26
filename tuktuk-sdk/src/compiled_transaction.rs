@@ -101,10 +101,13 @@ pub fn compile_transaction(
 
     let remaining_accounts = sorted_accounts
         .iter()
-        .map(|k| AccountMeta {
+        .enumerate()
+        .map(|(index, k)| AccountMeta {
             pubkey: *k,
             is_signer: false,
-            is_writable: false,
+            is_writable: index < num_rw_signers as usize
+                || (index >= num_rw_signers as usize + num_ro_signers as usize
+                    && index < num_rw_signers as usize + num_ro_signers as usize + num_rw as usize),
         })
         .collect();
 
