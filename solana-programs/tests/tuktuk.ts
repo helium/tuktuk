@@ -32,7 +32,7 @@ import {
 } from "@solana/spl-token";
 const { expect } = chai;
 
-describe("node-manager", () => {
+describe("tuktuk", () => {
   // Configure the client to use the local cluster.
   anchor.setProvider(anchor.AnchorProvider.local("http://127.0.0.1:8899"));
 
@@ -69,13 +69,14 @@ describe("node-manager", () => {
   });
 
   describe("with a task queue", () => {
-    const name = makeid(10);
+    let name: string;
     let taskQueue: PublicKey;
     let transaction: CompiledTransactionArgV0;
     let remainingAccounts: AccountMeta[];
     const crankReward: anchor.BN = new anchor.BN(1000000000);
 
     beforeEach(async () => {
+      name = makeid(10);
       if (!(await program.account.tuktukConfigV0.fetchNullable(tuktukConfig))) {
         await program.methods
           .initializeTuktukConfigV0({
