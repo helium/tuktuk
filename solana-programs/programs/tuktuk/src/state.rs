@@ -7,6 +7,7 @@ pub struct TuktukConfigV0 {
     pub min_task_queue_id: u32,
     pub next_task_queue_id: u32,
     pub authority: Pubkey,
+    pub min_deposit: u64,
     pub bump_seed: u8,
 }
 
@@ -23,6 +24,8 @@ pub struct TaskQueueV0 {
     pub bump_seed: u8,
     // A 1 in this bitmap indicates there's a job at that ID, a 0 indicates there's not. Each idx corresponds to an ID.
     pub task_bitmap: Vec<u8>,
+    pub created_at: i64,
+    pub updated_at: i64,
     pub name: String,
 }
 

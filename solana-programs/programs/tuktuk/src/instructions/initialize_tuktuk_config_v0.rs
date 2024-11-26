@@ -7,6 +7,11 @@ pub const TESTING: bool = std::option_env!("TESTING").is_some();
 
 pub static APPROVER: Pubkey = pubkey!("hprdnjkbziK8NqhThmAn5Gu4XqrBbctX8du4PfJdgvW");
 
+#[derive(Debug, Clone, AnchorSerialize, AnchorDeserialize)]
+pub struct InitializeTuktukConfigArgsV0 {
+    pub min_deposit: u64,
+}
+
 #[derive(Accounts)]
 pub struct InitializeTuktukConfigV0<'info> {
     #[account(mut)]
@@ -29,13 +34,17 @@ pub struct InitializeTuktukConfigV0<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn handler(ctx: Context<InitializeTuktukConfigV0>) -> Result<()> {
+pub fn handler(
+    ctx: Context<InitializeTuktukConfigV0>,
+    args: InitializeTuktukConfigArgsV0,
+) -> Result<()> {
     ctx.accounts.tuktuk_config.set_inner(TuktukConfigV0 {
         network_mint: ctx.accounts.network_mint.key(),
         authority: ctx.accounts.authority.key(),
         bump_seed: ctx.bumps.tuktuk_config,
         min_task_queue_id: 0,
         next_task_queue_id: 0,
+        min_deposit: args.min_deposit,
     });
     Ok(())
 }

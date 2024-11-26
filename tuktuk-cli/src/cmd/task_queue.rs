@@ -32,6 +32,8 @@ pub enum Cmd {
         capacity: u16,
         #[arg(long)]
         name: String,
+        #[arg(long, help = "Initial funding amount in bones")]
+        funding_amount: Option<u64>,
     },
     Get {
         #[command(flatten)]
@@ -42,6 +44,10 @@ pub enum Cmd {
         task_queue: TaskQueueArg,
         #[arg(long, help = "Amount to fund the task queue with, in bones")]
         amount: u64,
+    },
+    Close {
+        #[command(flatten)]
+        task_queue: TaskQueueArg,
     },
 }
 
@@ -81,6 +87,41 @@ impl TaskQueueArg {
 }
 
 impl TaskQueueCmd {
+    async fn fund_task_queue(client: &CliClient, task_queue_key: &Pubkey, amount: u64) -> Result {
+        let tuktuk_config: TuktukConfigV0 = client
+            .as_ref()
+            .anchor_account(&tuktuk::config_key())
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Tuktuk config account not found"))?;
+
+        let task_queue_ata = spl_associated_token_account::get_associated_token_address(
+            task_queue_key,
+            &tuktuk_config.network_mint,
+        );
+        let payer_ata = spl_associated_token_account::get_associated_token_address(
+            &client.payer.pubkey(),
+            &tuktuk_config.network_mint,
+        );
+
+        let ix = spl_token::instruction::transfer(
+            &spl_token::id(),
+            &payer_ata,
+            &task_queue_ata,
+            &client.payer.pubkey(),
+            &[],
+            amount,
+        )?;
+
+        send_instructions(
+            client.rpc_client.clone(),
+            &client.payer,
+            client.opts.ws_url().as_str(),
+            vec![ix],
+            &[],
+        )
+        .await
+    }
+
     pub async fn run(&self, opts: Opts) -> Result {
         match &self.cmd {
             Cmd::Create {
@@ -88,6 +129,7 @@ impl TaskQueueCmd {
                 update_authority,
                 capacity,
                 name,
+                funding_amount,
             } => {
                 let client = opts.client().await?;
 
@@ -103,13 +145,17 @@ impl TaskQueueCmd {
                     *update_authority,
                 )
                 .await?;
-                let ixs = vec![ix];
+
+                // Fund if amount specified
+                if let Some(amount) = funding_amount {
+                    Self::fund_task_queue(&client, &key, *amount).await?;
+                }
 
                 send_instructions(
                     client.rpc_client.clone(),
                     &client.payer,
                     client.opts.ws_url().as_str(),
-                    ixs,
+                    vec![ix],
                     &[],
                 )
                 .await?;
@@ -188,32 +234,24 @@ impl TaskQueueCmd {
                         "Must provide task-queue-name, task-queue-id, or task-queue-pubkey"
                     )
                 })?;
-                let tuktuk_config_key = tuktuk::config_key();
-                let tuktuk_config: TuktukConfigV0 = client
-                    .as_ref()
-                    .anchor_account(&tuktuk_config_key)
-                    .await?
-                    .ok_or_else(|| anyhow::anyhow!("Tuktuk config account not found"))?;
-                let network_mint = tuktuk_config.network_mint;
 
-                let task_queue_ata = spl_associated_token_account::get_associated_token_address(
-                    &task_queue_key,
-                    &network_mint,
-                );
-                let payer_ata = spl_associated_token_account::get_associated_token_address(
-                    &client.payer.pubkey(),
-                    &network_mint,
-                );
+                Self::fund_task_queue(&client, &task_queue_key, *amount).await?;
+            }
+            Cmd::Close { task_queue } => {
+                let client = opts.client().await?;
+                let task_queue_key = task_queue.get_pubkey(&client).await?.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Must provide task-queue-name, task-queue-id, or task-queue-pubkey"
+                    )
+                })?;
 
-                let ix = spl_token::instruction::transfer(
-                    &spl_token::id(),
-                    &payer_ata,
-                    &task_queue_ata,
-                    &client.payer.pubkey(),
-                    &[],
-                    *amount,
-                )?;
-
+                let ix = tuktuk::task_queue::close(
+                    client.rpc_client.as_ref(),
+                    task_queue_key,
+                    client.payer.pubkey(),
+                    client.payer.pubkey(),
+                )
+                .await?;
                 send_instructions(
                     client.rpc_client.clone(),
                     &client.payer,

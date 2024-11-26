@@ -51,7 +51,9 @@ describe("node-manager", () => {
   it("initializes a tuktuk config", async () => {
     if (!(await program.account.tuktukConfigV0.fetchNullable(tuktukConfig))) {
       await program.methods
-        .initializeTuktukConfigV0()
+        .initializeTuktukConfigV0({
+          minDeposit: new anchor.BN(100000000),
+        })
         .accounts({
           networkMint: hnt,
           authority: me,
@@ -76,7 +78,9 @@ describe("node-manager", () => {
     beforeEach(async () => {
       if (!(await program.account.tuktukConfigV0.fetchNullable(tuktukConfig))) {
         await program.methods
-          .initializeTuktukConfigV0()
+          .initializeTuktukConfigV0({
+            minDeposit: new anchor.BN(100000000),
+          })
           .accounts({
             networkMint: hnt,
             authority: me,
@@ -154,6 +158,21 @@ describe("node-manager", () => {
       expect(taskAcc.id).to.eq(0);
       expect(taskAcc.trigger.now).to.not.be.undefined;
       expect(taskAcc.crankReward.toString()).to.eq(crankReward.toString());
+    });
+
+    it("allows closing a task queue", async () => {
+      await program.methods
+        .closeTaskQueueV0()
+        .accounts({
+          taskQueue,
+          refund: me,
+          taskQueueNameMapping: taskQueueNameMappingKey(tuktukConfig, name)[0],
+        })
+        .rpc({ skipPreflight: true });
+      const taskQueueAcc = await program.account.taskQueueV0.fetchNullable(
+        taskQueue
+      );
+      expect(taskQueueAcc).to.be.null;
     });
 
     describe("with a task", () => {

@@ -15,7 +15,7 @@ pub struct InitializeTaskQueueArgsV0 {
     pub capacity: u16,
 }
 
-fn hash_name(name: &str) -> [u8; 32] {
+pub fn hash_name(name: &str) -> [u8; 32] {
     hash(name.as_bytes()).to_bytes()
 }
 
@@ -59,6 +59,7 @@ pub struct InitializeTaskQueueV0<'info> {
         payer = payer,
         associated_token::mint = network_mint,
         associated_token::authority = task_queue,
+        constraint = rewards_source.amount >= tuktuk_config.min_deposit
     )]
     pub rewards_source: Box<Account<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,
@@ -80,6 +81,8 @@ pub fn handler(ctx: Context<InitializeTaskQueueV0>, args: InitializeTaskQueueArg
         task_bitmap: vec![0; ((args.capacity + 7) / 8) as usize],
         name: args.name.clone(),
         bump_seed: ctx.bumps.task_queue,
+        created_at: Clock::get()?.unix_timestamp,
+        updated_at: Clock::get()?.unix_timestamp,
     });
     ctx.accounts
         .task_queue_name_mapping

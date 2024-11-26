@@ -38,6 +38,7 @@ pub struct RunTaskV0<'info> {
 }
 
 pub fn handler(ctx: Context<RunTaskV0>) -> Result<()> {
+    ctx.accounts.task_queue.updated_at = Clock::get()?.unix_timestamp;
     ctx.accounts
         .task_queue
         .set_task_exists(ctx.accounts.task.id as usize, false);

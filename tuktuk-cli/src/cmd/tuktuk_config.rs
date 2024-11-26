@@ -2,6 +2,7 @@ use clap::{Args, Subcommand};
 use serde::Serialize;
 use solana_sdk::{program_pack::Pack, pubkey::Pubkey, signature::Keypair, signer::Signer};
 use spl_token::state::Mint;
+use tuktuk::types::InitializeTuktukConfigArgsV0;
 use tuktuk_sdk::prelude::*;
 
 use crate::{
@@ -26,6 +27,8 @@ pub enum Cmd {
         authority: Option<Pubkey>,
         #[arg(long)]
         network_mint: Option<Pubkey>,
+        #[arg(long, help = "Minimum deposit in bones to create a task queue")]
+        min_deposit: u64,
     },
 }
 
@@ -35,6 +38,7 @@ impl TuktukConfigCmd {
             Cmd::Create {
                 network_mint,
                 authority,
+                min_deposit,
             } => {
                 let client = opts.client().await?;
                 let tuktuk_config_key = tuktuk::config_key();
@@ -100,6 +104,9 @@ impl TuktukConfigCmd {
                     client.payer.pubkey(),
                     network_mint_actual,
                     *authority,
+                    InitializeTuktukConfigArgsV0 {
+                        min_deposit: *min_deposit,
+                    },
                 )?);
 
                 send_instructions(

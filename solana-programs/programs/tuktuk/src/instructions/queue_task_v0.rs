@@ -77,6 +77,7 @@ pub fn handler(ctx: Context<QueuetaskV0>, args: QueueTaskArgsV0) -> Result<()> {
     ctx.accounts
         .task_queue
         .set_task_exists(args.id as usize, true);
+    ctx.accounts.task_queue.updated_at = Clock::get()?.unix_timestamp;
 
     resize_to_fit(
         &ctx.accounts.payer.to_account_info(),

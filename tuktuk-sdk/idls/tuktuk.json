@@ -8,6 +8,120 @@
   },
   "instructions": [
     {
+      "name": "close_task_queue_v0",
+      "discriminator": [196, 228, 35, 71, 131, 69, 175, 176],
+      "accounts": [
+        {
+          "name": "refund",
+          "writable": true
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "update_authority",
+          "signer": true,
+          "relations": ["task_queue"]
+        },
+        {
+          "name": "tuktuk_config",
+          "writable": true,
+          "relations": ["task_queue"]
+        },
+        {
+          "name": "network_mint",
+          "relations": ["tuktuk_config"]
+        },
+        {
+          "name": "task_queue",
+          "writable": true
+        },
+        {
+          "name": "rewards_source",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "task_queue"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6, 221, 246, 225, 215, 101, 161, 147, 217, 203, 225, 70, 206,
+                  235, 121, 172, 28, 180, 133, 237, 95, 91, 55, 145, 58, 140,
+                  245, 133, 126, 255, 0, 169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "network_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142,
+                13, 131, 11, 90, 19, 153, 218, 255, 16, 132, 4, 142, 123, 216,
+                219, 233, 248, 89
+              ]
+            }
+          }
+        },
+        {
+          "name": "rewards_refund",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "refund"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6, 221, 246, 225, 215, 101, 161, 147, 217, 203, 225, 70, 206,
+                  235, 121, 172, 28, 180, 133, 237, 95, 91, 55, 145, 58, 140,
+                  245, 133, 126, 255, 0, 169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "network_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142,
+                13, 131, 11, 90, 19, 153, 218, 255, 16, 132, 4, 142, 123, 216,
+                219, 233, 248, 89
+              ]
+            }
+          }
+        },
+        {
+          "name": "task_queue_name_mapping",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "dequeue_task_v0",
       "discriminator": [92, 141, 249, 132, 219, 109, 215, 126],
       "accounts": [
@@ -157,7 +271,16 @@
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "InitializeTuktukConfigArgsV0"
+            }
+          }
+        }
+      ]
     },
     {
       "name": "queue_task_v0",
@@ -280,6 +403,11 @@
       "code": 6005,
       "name": "TaskNotReady",
       "msg": "Task not ready"
+    },
+    {
+      "code": 6006,
+      "name": "TaskQueueNotEmpty",
+      "msg": "Task queue not empty"
     }
   ],
   "types": [
@@ -424,6 +552,18 @@
       }
     },
     {
+      "name": "InitializeTuktukConfigArgsV0",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "min_deposit",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "QueueTaskArgsV0",
       "type": {
         "kind": "struct",
@@ -519,6 +659,14 @@
             "type": "bytes"
           },
           {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "updated_at",
+            "type": "i64"
+          },
+          {
             "name": "name",
             "type": "string"
           }
@@ -608,6 +756,10 @@
           {
             "name": "authority",
             "type": "pubkey"
+          },
+          {
+            "name": "min_deposit",
+            "type": "u64"
           },
           {
             "name": "bump_seed",

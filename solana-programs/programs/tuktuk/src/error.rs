@@ -14,4 +14,6 @@ pub enum ErrorCode {
     InvalidDataIncrease,
     #[msg("Task not ready")]
     TaskNotReady,
+    #[msg("Task queue not empty")]
+    TaskQueueNotEmpty,
 }

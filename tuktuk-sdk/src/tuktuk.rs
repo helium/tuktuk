@@ -16,6 +16,7 @@ pub use self::tuktuk::{
     accounts::{TaskQueueNameMappingV0, TaskQueueV0, TaskV0, TuktukConfigV0},
     client, types,
 };
+use self::types::InitializeTuktukConfigArgsV0;
 
 fn hash_name(name: &str) -> [u8; 32] {
     hash(name.as_bytes()).to_bytes()
@@ -47,6 +48,7 @@ pub fn create_config(
     payer: Pubkey,
     network_mint: Pubkey,
     authority: Option<Pubkey>,
+    args: InitializeTuktukConfigArgsV0,
 ) -> Result<Instruction, Error> {
     let config_key = config_key();
 
@@ -61,7 +63,7 @@ pub fn create_config(
             system_program: solana_sdk::system_program::ID,
         }
         .to_account_metas(None),
-        data: tuktuk::client::args::InitializeTuktukConfigV0 {}.data(),
+        data: tuktuk::client::args::InitializeTuktukConfigV0 { args }.data(),
     };
     Ok(create_ix)
 }
@@ -128,6 +130,44 @@ pub mod task_queue {
                 data: tuktuk::client::args::InitializeTaskQueueV0 { args }.data(),
             },
         ))
+    }
+
+    pub async fn close<C: GetAnchorAccount>(
+        client: &C,
+        task_queue_key: Pubkey,
+        payer: Pubkey,
+        refund: Pubkey,
+    ) -> Result<Instruction, Error> {
+        let config_key = config_key();
+        let config: TuktukConfigV0 = client
+            .anchor_account(&config_key)
+            .await?
+            .ok_or_else(|| Error::AccountNotFound)?;
+
+        let queue: TaskQueueV0 = client
+            .anchor_account(&task_queue_key)
+            .await?
+            .ok_or_else(|| Error::AccountNotFound)?;
+
+        Ok(Instruction {
+            program_id: ID,
+            accounts: tuktuk::client::accounts::CloseTaskQueueV0 {
+                task_queue: task_queue_key,
+                refund,
+                rewards_refund: get_associated_token_address(&refund, &config.network_mint),
+                rewards_source: get_associated_token_address(&task_queue_key, &config.network_mint),
+                task_queue_name_mapping: task_queue_name_mapping_key(&config_key, &queue.name),
+                payer,
+                system_program: solana_sdk::system_program::ID,
+                tuktuk_config: config_key,
+                network_mint: config.network_mint,
+                associated_token_program: spl_associated_token_account::ID,
+                token_program: spl_token::id(),
+                update_authority: queue.update_authority,
+            }
+            .to_account_metas(None),
+            data: tuktuk::client::args::CloseTaskQueueV0 {}.data(),
+        })
     }
 
     pub async fn on_new<'a, C: GetAnchorAccount>(

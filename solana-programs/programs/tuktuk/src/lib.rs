@@ -12,8 +12,11 @@ declare_id!("tukpKuBbnQwG6yQbYRbeDM9Dk3D9fDkUpc6sytJsyGC");
 pub mod tuktuk {
     use super::*;
 
-    pub fn initialize_tuktuk_config_v0(ctx: Context<InitializeTuktukConfigV0>) -> Result<()> {
-        initialize_tuktuk_config_v0::handler(ctx)
+    pub fn initialize_tuktuk_config_v0(
+        ctx: Context<InitializeTuktukConfigV0>,
+        args: InitializeTuktukConfigArgsV0,
+    ) -> Result<()> {
+        initialize_tuktuk_config_v0::handler(ctx, args)
     }
 
     pub fn initialize_task_queue_v0(
@@ -33,5 +36,9 @@ pub mod tuktuk {
 
     pub fn dequeue_task_v0(ctx: Context<DequeuetaskV0>) -> Result<()> {
         dequeue_task_v0::handler(ctx)
+    }
+
+    pub fn close_task_queue_v0(ctx: Context<CloseTaskQueueV0>) -> Result<()> {
+        close_task_queue_v0::handler(ctx)
     }
 }
