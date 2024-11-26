@@ -1,0 +1,147 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths: ['solana-programs/**', '.github/workflows/solana-programs.yml']
+  
+env:
+  SOLANA_CLI_VERSION: 1.18.15
+  NODE_VERSION: 18.12.1
+
+jobs:
+  test-rust-lint:
+    name: Test Rust Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: solana-programs
+    steps:
+      - name: Setup | Cancel Previous Runs
+        uses: styfle/cancel-workflow-action@0.12.1
+        with:
+          access_token: ${{ github.token }}
+      - uses: actions/checkout@v2
+      - uses: ./.github/actions/setup/
+      - uses: actions/cache@v2
+        name: Cache Cargo registry + index
+        id: cache-cargo-build
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: cargo-${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+      - run: cargo fmt -- --check
+        working-directory: solana-programs
+      - run: cargo clippy --all-targets -- -D warnings -A clippy::result_large_err -A clippy::too_many_arguments -A clippy::uninlined-format-args -A ambiguous_glob_reexports
+        working-directory: solana-programs
+
+  test-unit:
+    name: Rust Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: ./.github/actions/setup/
+      - uses: actions/cache@v2
+        name: Cache Cargo registry + index
+        id: cache-cargo-build
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: cargo-${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+      - run: cargo test --lib
+        working-directory: solana-programs
+
+  build:
+    defaults:
+      run:
+        working-directory: solana-programs
+    name: Build Anchor
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: ./.github/actions/build-anchor/
+        with:
+          testing: true
+
+  # test-docker-builds:
+  #   needs: build
+  #   name: Test Docker Builds
+  #   runs-on: ubuntu-latest
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       test:
+  #         - packages/vsr-metadata-service
+  #   steps:
+  #     - uses: actions/checkout@v3
+  #     - run: cd $DOCKER_PATH && docker build .
+  #       env:
+  #         DOCKER_PATH: ${{ matrix.test }}
+
+  # test-rust-builds:
+  #   needs: build
+  #   name: Test Rust Builds
+  #   runs-on: ubuntu-latest
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       test:
+  #         - utils/ecc-sig-verifier
+  #         - utils/bulk-claim-rewards
+  #         - utils/hpl-utils
+  #         - utils/migration-tx-executor
+  #         - utils/vehnt
+  #   steps:
+  #     - uses: actions/checkout@v3
+  #     - uses: ./.github/actions/build-anchor/
+  #       with:
+  #         testing: true
+  #     - run: cd $RUST_PATH && cargo build
+  #       env:
+  #         RUST_PATH: ${{ matrix.test }}
+
+  test-contracts:
+    needs: build
+    name: Test Anchor Contracts
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: solana-programs
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - tests/tuktuk.ts
+    steps:
+      - uses: actions/checkout@v3
+      - uses: ./.github/actions/build-anchor/
+        with:
+          testing: true
+      - uses: ./.github/actions/setup-ts/
+      - name: Start Anchor Localnet
+        run: ~/.cargo/bin/anchor localnet --skip-build --provider.wallet ~/.config/solana/id.json & sleep 2
+        working-directory: solana-programs
+      - name: Wait for localnet to start
+        run: |
+          while [[ "$(curl -s http://localhost:8899/health)" != "ok" ]]; do
+            echo "Waiting for local Anchor network to start..."
+            sleep 5
+          done
+        working-directory: solana-programs
+      - run: ANCHOR_WALLET=${HOME}/.config/solana/id.json yarn run ts-mocha -p ./tsconfig.test.json -t 1000000 --exit $TEST
+        env:
+          TESTING: true
+          TEST: ${{ matrix.test }}
+          ANCHOR_PROVIDER_URL: http://localhost:8899
+        working-directory: solana-programs

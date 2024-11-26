@@ -1,0 +1,42 @@
+name: "Setup Anchor"
+description: "Setup Anchor"
+inputs:
+  devnet:
+    description: "Whether to use devnet feature"
+    required: false
+    default: "false"
+  testing:
+    description: "Whether to use devnet feature"
+    required: false
+    default: "false"
+  program:
+    description: "The program to build"
+    required: false
+runs:
+  using: "composite"
+  steps:
+    - uses: ./.github/actions/setup/
+    - uses: ./.github/actions/setup-anchor/
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+    - uses: actions/cache@v2
+      name: Cache Cargo registry + index
+      id: cache-cargo-registry
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+        key: cargo-${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+    - name: Cache Anchor Build
+      uses: actions/cache@v2
+      id: cache-anchor-build
+      with:
+        path: |
+          ./solana-programs/target/
+        key: build-${{ runner.os }}-${{env.ANCHOR_VERSION}}-${{env.ANCHOR_SHA}}-v0002-${{ inputs.devnet }}-${{ inputs.testing }}-${{ hashFiles('./programs/**/**') }}-${{ inputs.program }}
+    - run: ${{ inputs.testing == 'true' && 'TESTING=true' || '' }} ~/.cargo/bin/anchor build ${{ (inputs.program != '' && '-p') || '' }} ${{ inputs.program || '' }} ${{ inputs.devnet == 'true' && '-- --features devnet' || '' }}
+      if: steps.cache-anchor-build.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: solana-programs

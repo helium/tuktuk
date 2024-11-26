@@ -197,16 +197,15 @@ describe("node-manager", () => {
       });
 
       it("allows running a task", async () => {
-        console.log("name is", name)
-        // console.log(
-        //   await (
-        //     await runTask({
-        //       program,
-        //       task,
-        //       rewardsDestinationWallet: me,
-        //     })
-        //   ).rpc({ skipPreflight: true })
-        // );
+        console.log(
+          await (
+            await runTask({
+              program,
+              task,
+              rewardsDestinationWallet: me,
+            })
+          ).rpc({ skipPreflight: true })
+        );
       });
 
       it("allows dequeueing a task", async () => {

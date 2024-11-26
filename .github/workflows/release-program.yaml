@@ -1,0 +1,91 @@
+name: Release Program to Mainnet
+
+env:
+  SOLANA_CLI_VERSION: 1.18.15
+  NODE_VERSION: 18.12.1
+
+on:
+  push:
+    # Sequence of patterns matched against refs/tags
+    tags:
+      - "program-*" # Push events to matching program-*, i.e. program-circuit-breaker-0.0.1
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: solana-programs
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - uses: actions/cache@v2
+        name: Cache Toml Cli
+        id: cache-toml-cli
+        with:
+          path: |
+            ~/.cargo/bin/toml
+          key: toml-cli-${{ runner.os }}-v0002
+      - run: (cargo install toml-cli || true)
+        if: steps.cache-toml-cli.outputs.cache-hit != 'true'
+        shell: bash
+
+      - name: Set tag information
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}  # Extract tag name from ref
+          echo "Tag name: $TAG"
+          PROGRAM=$(echo $TAG | sed 's/program-\(.*\)-[0-9]\{1,\}\.[0-9]\{1,\}\.[0-9]\{1,\}/\1/')
+          VERSION=$(echo $TAG | sed 's/.*-\([0-9]\{1,\}\.[0-9]\{1,\}\.[0-9]\{1,\}\)$/\1/')
+          PROGRAM_NAME=${PROGRAM//-/_}  # Substitute dashes with underscores
+          PROGRAM_ID=$(~/.cargo/bin/toml get Anchor.toml programs.localnet.${PROGRAM_NAME} | tr -d '"')
+
+          echo "Program: $PROGRAM"
+          echo "Program: $PROGRAM_ID"
+          echo "Version: $VERSION"
+          echo "PROGRAM_ID=${PROGRAM_ID}" >> $GITHUB_ENV
+          echo "PROGRAM_NAME=${PROGRAM_NAME}" >> $GITHUB_ENV
+
+      # Build the program with anchor so we get the IDL
+      - uses: ./.github/actions/build-anchor/
+        id: build-anchor
+        with:
+          testing: false
+          devnet: false
+          program: ${{ env.PROGRAM_NAME }}
+
+      - name: Push IDL to Github
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            target/idl/${{ env.PROGRAM_NAME }}.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: ./.github/actions/build-verified/
+        id: build-verified
+        with:
+          program: ${{ env.PROGRAM_NAME }}
+          program-id: ${{ env.PROGRAM_ID }}
+
+      - uses: ./.github/actions/buffer-deploy/
+        id: buffer-deploy
+        with:
+          network: ${{ secrets.SOLANA_DEPLOY_URL }}
+          program: ${{ env.PROGRAM_NAME }}
+          keypair: ${{ secrets.DEPLOYER_KEYPAIR }}
+          program-id: ${{ env.PROGRAM_ID }}
+          buffer-authority: ${{ secrets.MULTISIG_VAULT }}
+
+      - name: Squads program upgrade
+        uses: helium/squads-program-upgrade@v0.3.1
+        with:
+          network-url: "https://api.mainnet-beta.solana.com"
+          program-multisig: ${{ secrets.MULTISIG }}
+          program-id: ${{ env.PROGRAM_ID }}
+          buffer: ${{ steps.buffer-deploy.outputs.buffer }}
+          idl-buffer: ${{ steps.buffer-deploy.outputs.idl-buffer }}
+          spill-address: ${{ secrets.DEPLOYER_ADDRESS }}
+          authority: ${{ secrets.MULTISIG_VAULT }}
+          name: "Deploy ${{env.PROGRAM_NAME}} ${{env.VERSION}}"
+          keypair: ${{ secrets.DEPLOYER_KEYPAIR }}
