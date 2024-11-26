@@ -16,7 +16,7 @@ pub use self::tuktuk::{
     accounts::{TaskQueueNameMappingV0, TaskQueueV0, TaskV0, TuktukConfigV0},
     client, types,
 };
-use self::types::InitializeTuktukConfigArgsV0;
+use self::types::{InitializeTuktukConfigArgsV0, TriggerV0};
 
 fn hash_name(name: &str) -> [u8; 32] {
     hash(name.as_bytes()).to_bytes()
@@ -24,6 +24,15 @@ fn hash_name(name: &str) -> [u8; 32] {
 
 pub fn config_key() -> Pubkey {
     Pubkey::find_program_address(&[b"tuktuk_config"], &ID).0
+}
+
+impl TriggerV0 {
+    pub fn is_active(&self, now: i64) -> bool {
+        match self {
+            TriggerV0::Now => true,
+            TriggerV0::Timestamp(ts) => now >= *ts,
+        }
+    }
 }
 
 pub fn task_queue_name_mapping_key(config_key: &Pubkey, name: &str) -> Pubkey {

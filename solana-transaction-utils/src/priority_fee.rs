@@ -1,10 +1,11 @@
-use crate::error::Error;
 use itertools::Itertools;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
     instruction::Instruction, message::Message, pubkey::Pubkey, signers::Signers,
     transaction::Transaction,
 };
+
+use crate::error::Error;
 
 pub const MAX_RECENT_PRIORITY_FEE_ACCOUNTS: usize = 128;
 pub const MIN_PRIORITY_FEE: u64 = 1;
@@ -72,9 +73,9 @@ pub fn compute_price_instruction(priority_fee: u64) -> solana_sdk::instruction::
 pub async fn compute_price_instruction_for_accounts<C: AsRef<RpcClient>>(
     client: &C,
     accounts: &[Pubkey],
-) -> Result<solana_sdk::instruction::Instruction, crate::error::Error> {
+) -> Result<(solana_sdk::instruction::Instruction, u64), crate::error::Error> {
     let priority_fee = get_estimate(client, accounts).await?;
-    Ok(compute_price_instruction(priority_fee))
+    Ok((compute_price_instruction(priority_fee), priority_fee))
 }
 
 pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>, T: Signers + ?Sized>(
@@ -84,7 +85,7 @@ pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>, T: Signers + ?
     compute_multiplier: f32,
     payer: Option<&Pubkey>,
     blockhash: Option<solana_program::hash::Hash>,
-) -> Result<solana_sdk::instruction::Instruction, crate::error::Error> {
+) -> Result<(solana_sdk::instruction::Instruction, u32), crate::error::Error> {
     // Check for existing compute unit limit instruction and replace it if found
     let mut updated_instructions = instructions.clone();
     for ix in &mut updated_instructions {
@@ -123,9 +124,13 @@ pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>, T: Signers + ?
     let actual_compute_used = simulation_result.value.units_consumed.unwrap_or(200000);
 
     let final_compute_budget = (actual_compute_used as f32 * compute_multiplier) as u32;
-    Ok(compute_budget_instruction(final_compute_budget))
+    Ok((
+        compute_budget_instruction(final_compute_budget),
+        final_compute_budget,
+    ))
 }
 
+// Returns the instructions and the total fee in lamports
 pub async fn auto_compute_limit_and_price<C: AsRef<RpcClient>, T: Signers + ?Sized>(
     client: &C,
     instructions: Vec<Instruction>,
@@ -133,11 +138,11 @@ pub async fn auto_compute_limit_and_price<C: AsRef<RpcClient>, T: Signers + ?Siz
     compute_multiplier: f32,
     payer: Option<&Pubkey>,
     blockhash: Option<solana_program::hash::Hash>,
-) -> Result<Vec<Instruction>, Error> {
+) -> Result<(Vec<Instruction>, u64), Error> {
     let mut updated_instructions = instructions.clone();
 
     // Compute budget instruction
-    let compute_budget_ix = compute_budget_for_instructions(
+    let (compute_budget_ix, compute_limit) = compute_budget_for_instructions(
         client,
         instructions.clone(),
         signers,
@@ -153,7 +158,8 @@ pub async fn auto_compute_limit_and_price<C: AsRef<RpcClient>, T: Signers + ?Siz
         .flat_map(|i| i.accounts.iter().map(|a| a.pubkey))
         .unique()
         .collect();
-    let compute_price_ix = compute_price_instruction_for_accounts(client, &accounts).await?;
+    let (compute_price_ix, priority_fee) =
+        compute_price_instruction_for_accounts(client, &accounts).await?;
 
     // Replace or insert compute budget instruction
     if let Some(pos) = updated_instructions
@@ -175,5 +181,9 @@ pub async fn auto_compute_limit_and_price<C: AsRef<RpcClient>, T: Signers + ?Siz
         updated_instructions.insert(1, compute_price_ix); // Insert after compute budget
     }
 
-    Ok(updated_instructions)
+    Ok((
+        updated_instructions,
+        // Get the actual total fee in lamports
+        5000 + (priority_fee * (compute_limit as u64)) / 1000000,
+    ))
 }

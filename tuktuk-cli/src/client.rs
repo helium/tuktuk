@@ -1,4 +1,5 @@
-use crate::{cmd::Opts, result::Result};
+use std::sync::Arc;
+
 use solana_client::{
     nonblocking::{rpc_client::RpcClient, tpu_client::TpuClient},
     send_and_confirm_transactions_in_parallel::{
@@ -13,7 +14,8 @@ use solana_sdk::{
 use solana_transaction_utils::{
     pack::pack_instructions_into_transactions, priority_fee::auto_compute_limit_and_price,
 };
-use std::sync::Arc;
+
+use crate::{cmd::Opts, result::Result};
 
 pub struct CliClient {
     pub rpc_client: Arc<RpcClient>,
@@ -63,7 +65,7 @@ pub async fn send_instructions(
             continue;
         }
 
-        let computed = auto_compute_limit_and_price(
+        let (computed, _) = auto_compute_limit_and_price(
             &rpc_client,
             tx.clone(),
             &keys,

@@ -15,12 +15,19 @@ pub struct Settings {
     pub rpc_ws_url: String,
     pub test_bidder: Option<u32>,
     pub key_path: String,
+    #[serde(default = "default_max_sol_fee")]
+    pub max_sol_fee: u64,
+    pub min_crank_fee: u64,
     #[serde(default = "default_pubsub_repoll")]
     pub pubsub_repoll: Duration,
 }
 
 fn default_pubsub_repoll() -> Duration {
     Duration::from_secs(30)
+}
+
+fn default_max_sol_fee() -> u64 {
+    100_000_000
 }
 
 fn default_log() -> String {

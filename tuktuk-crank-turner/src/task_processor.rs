@@ -1,11 +1,8 @@
 use std::sync::Arc;
 
 use futures::{Stream, StreamExt, TryStreamExt};
-use solana_sdk::{
-    signer::Signer,
-    transaction::{Transaction, TransactionError},
-};
-use solana_transaction_utils::queue::TransactionTask;
+use solana_sdk::{signer::Signer, transaction::Transaction};
+use solana_transaction_utils::queue::{TransactionQueueError, TransactionTask};
 use tokio_graceful_shutdown::SubsystemHandle;
 use tracing::info;
 use tuktuk_sdk::compiled_transaction::run_ix;
@@ -33,7 +30,9 @@ impl TimedTask {
                     ?simulated.value.logs,
                     "task simulation failed",
                 );
-                return self.handle_completion(ctx, Some(err)).await;
+                return self
+                    .handle_completion(ctx, Some(TransactionQueueError::TransactionError(err)))
+                    .await;
             }
 
             tx_sender
@@ -50,25 +49,38 @@ impl TimedTask {
     pub async fn handle_completion(
         &self,
         ctx: Arc<TaskContext>,
-        err: Option<TransactionError>,
+        err: Option<TransactionQueueError>,
     ) -> anyhow::Result<()> {
         if let Some(err) = err {
-            info!(?self, ?err, "task failed");
-            if self.total_retries < self.max_retries {
+            if matches!(err, TransactionQueueError::FeeTooHigh) {
+                info!(?self, ?err, "task fee too high");
                 ctx.task_queue
                     .add_task(TimedTask {
-                        total_retries: self.total_retries + 1,
-                        // Try again in 30 seconds
-                        task_time: self.task_time + 30,
+                        total_retries: 0,
+                        // Try again in 10 seconds
+                        task_time: self.task_time + 10,
                         task_key: self.task_key,
                         max_retries: self.max_retries,
                     })
                     .await?;
             } else {
-                info!(
-                    "task {:?} failed after {} retries",
-                    self.task_key, self.max_retries
-                );
+                info!(?self, ?err, "task failed");
+                if self.total_retries < self.max_retries {
+                    ctx.task_queue
+                        .add_task(TimedTask {
+                            total_retries: self.total_retries + 1,
+                            // Try again in 30 seconds
+                            task_time: self.task_time + 30,
+                            task_key: self.task_key,
+                            max_retries: self.max_retries,
+                        })
+                        .await?;
+                } else {
+                    info!(
+                        "task {:?} failed after {} retries",
+                        self.task_key, self.max_retries
+                    );
+                }
             }
         }
         Ok(())

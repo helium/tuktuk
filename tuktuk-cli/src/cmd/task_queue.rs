@@ -34,6 +34,8 @@ pub enum Cmd {
         name: String,
         #[arg(long, help = "Initial funding amount in bones")]
         funding_amount: u64,
+        #[arg(long, help = "Default crank reward in bones")]
+        crank_reward: u64,
     },
     Get {
         #[command(flatten)]
@@ -137,6 +139,7 @@ impl TaskQueueCmd {
                 update_authority,
                 capacity,
                 name,
+                crank_reward,
                 funding_amount,
             } => {
                 let client = opts.client().await?;
@@ -146,7 +149,7 @@ impl TaskQueueCmd {
                     client.payer.pubkey(),
                     tuktuk::types::InitializeTaskQueueArgsV0 {
                         capacity: *capacity,
-                        crank_reward: 0,
+                        crank_reward: *crank_reward,
                         name: name.clone(),
                     },
                     *queue_authority,

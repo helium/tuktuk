@@ -38,7 +38,7 @@ pub async fn get_and_watch_tasks(
 
     for (task_key, account) in tasks {
         let task = match account {
-            Some(t) => match t.trigger {
+            Some(t) if t.crank_reward >= args.min_crank_fee => match t.trigger {
                 TriggerV0::Now => TimedTask {
                     task_time: *now.borrow(),
                     task_key,
@@ -52,7 +52,7 @@ pub async fn get_and_watch_tasks(
                     max_retries: args.max_retries,
                 },
             },
-            None => continue,
+            _ => continue,
         };
         task_queue
             .add_task(task)
@@ -69,7 +69,7 @@ pub async fn get_and_watch_tasks(
                 let now = *now.borrow();
                 for (task_key, account) in update.tasks {
                     match &account {
-                        Some(t) => {
+                        Some(t) if t.crank_reward >= args.min_crank_fee => {
                             let task = match t.trigger {
                                 TriggerV0::Now => TimedTask {
                                     task_time: now,
@@ -89,7 +89,7 @@ pub async fn get_and_watch_tasks(
                                 .await
                                 .map_err(|e| anyhow::anyhow!("Failed to add task: {}", e))?;
                         }
-                        None => (),
+                        _ => (),
                     }
                 }
 

@@ -9,6 +9,7 @@ use crate::task_queue::TaskQueue;
 #[derive(Clone)]
 pub struct WatcherArgs {
     pub max_retries: u8,
+    pub min_crank_fee: u64,
     pub rpc_client: Arc<RpcClient>,
     pub pubsub_tracker: Arc<PubsubTracker>,
     pub now: Receiver<u64>,

@@ -79,6 +79,7 @@ impl Cli {
             pubsub_tracker: pubsub_tracker.clone(),
             now: now_rx.clone(),
             task_queue: task_queue_arc.clone(),
+            min_crank_fee: settings.min_crank_fee,
         };
 
         let handles = create_transaction_queue_handles(1000);
@@ -109,6 +110,7 @@ impl Cli {
                         batch_duration: Duration::from_secs(1),
                         receiver: handles.receiver,
                         result_sender: handles.result_sender,
+                        max_sol_fee: settings.max_sol_fee,
                     })
                     .run(handle)
                 }
