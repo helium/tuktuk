@@ -1,11 +1,16 @@
-import { CustomAccountResolver, Idl, IdlTypes, Program } from "@coral-xyz/anchor";
+import {
+  CustomAccountResolver,
+  Idl,
+  IdlTypes,
+  Program,
+} from "@coral-xyz/anchor";
 import { Tuktuk } from "@helium/tuktuk-idls/lib/types/tuktuk";
 import {
   AccountMeta,
   PublicKey,
   TransactionInstruction,
 } from "@solana/web3.js";
-import { customSignerKey, tuktukConfigKey } from "./pdas";
+import { customSignerKey, taskKey, tuktukConfigKey } from "./pdas";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 
 export type CompiledTransactionArgV0 =
@@ -17,7 +22,7 @@ export type CustomAccountResolverFactory<T extends Idl> = (
 
 export function compileTransaction(
   instructions: TransactionInstruction[],
-  signerSeeds: Buffer[][]
+  signerSeeds: Buffer[][],
 ): { transaction: CompiledTransactionArgV0; remainingAccounts: AccountMeta[] } {
   let pubkeysToMetadata: Record<
     string,
@@ -110,6 +115,25 @@ export function compileTransaction(
   };
 }
 
+function nextAvailableTaskIds(taskBitmap: Buffer, n: number): number[] {
+  const availableTaskIds: number[] = [];
+  for (let byteIdx = 0; byteIdx < taskBitmap.length; byteIdx++) {
+    const byte = taskBitmap[byteIdx];
+    if (byte !== 0xff) {
+      // If byte is not all 1s
+      for (let bitIdx = 0; bitIdx < 8; bitIdx++) {
+        if ((byte & (1 << bitIdx)) === 0) {
+          availableTaskIds.push(byteIdx * 8 + bitIdx);
+          if (availableTaskIds.length === n) {
+            return availableTaskIds;
+          }
+        }
+      }
+    }
+  }
+  return availableTaskIds;
+}
+
 export async function runTask({
   program,
   task,
@@ -121,8 +145,11 @@ export async function runTask({
 }) {
   const {
     taskQueue,
+    freeTasks,
     transaction: { numRwSigners, numRoSigners, numRw, accounts, signerSeeds },
   } = await program.account.taskV0.fetch(task);
+  const taskQueueAcc = await program.account.taskQueueV0.fetch(taskQueue);
+
   const configAcc = await program.account.tuktukConfigV0.fetch(
     tuktukConfigKey()[0]
   );
@@ -137,6 +164,15 @@ export async function runTask({
       isSigner: false,
     };
   });
+  const nextAvailable = nextAvailableTaskIds(
+    taskQueueAcc.taskBitmap,
+    freeTasks
+  );
+  const freeTasksAccounts = nextAvailable.map((id) => ({
+    pubkey: taskKey(taskQueue, id)[0],
+    isWritable: true,
+    isSigner: false,
+  }));
 
   return program.methods
     .runTaskV0()
@@ -144,8 +180,8 @@ export async function runTask({
       task,
       rewardsDestination: getAssociatedTokenAddressSync(
         configAcc.networkMint,
-        rewardsDestinationWallet,
+        rewardsDestinationWallet
       ),
     })
-    .remainingAccounts(remainingAccounts);
+    .remainingAccounts([...remainingAccounts, ...freeTasksAccounts]);
 }

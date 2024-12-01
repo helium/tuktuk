@@ -12,6 +12,9 @@ pub struct QueueTaskArgsV0 {
     pub trigger: TriggerV0,
     pub transaction: CompiledTransactionArgV0,
     pub crank_reward: Option<u64>,
+    // Number of free tasks to append to the end of the accounts. This allows
+    // you to easily add new tasks
+    pub free_tasks: u8,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
@@ -32,7 +35,7 @@ pub struct CompiledTransactionArgV0 {
 
 #[derive(Accounts)]
 #[instruction(args: QueueTaskArgsV0)]
-pub struct QueuetaskV0<'info> {
+pub struct QueueTaskV0<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     pub queue_authority: Signer<'info>,
@@ -54,8 +57,9 @@ pub struct QueuetaskV0<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn handler(ctx: Context<QueuetaskV0>, args: QueueTaskArgsV0) -> Result<()> {
+pub fn handler(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
     ctx.accounts.task.set_inner(TaskV0 {
+        free_tasks: args.free_tasks,
         task_queue: ctx.accounts.task_queue.key(),
         id: args.id,
         trigger: args.trigger,

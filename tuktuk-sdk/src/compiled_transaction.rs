@@ -9,10 +9,22 @@ use crate::{
     error::Error,
     tuktuk::{
         config_key, tuktuk,
-        types::{CompiledInstructionV0, CompiledTransactionV0},
+        types::{CompiledInstructionV0, CompiledTransactionArgV0, CompiledTransactionV0},
         TaskV0, TuktukConfigV0,
     },
 };
+
+impl From<CompiledTransactionV0> for CompiledTransactionArgV0 {
+    fn from(value: CompiledTransactionV0) -> Self {
+        CompiledTransactionArgV0 {
+            num_ro_signers: value.num_ro_signers,
+            num_rw_signers: value.num_rw_signers,
+            num_rw: value.num_rw,
+            instructions: value.instructions,
+            signer_seeds: value.signer_seeds,
+        }
+    }
+}
 
 pub fn compile_transaction(
     instructions: Vec<Instruction>,

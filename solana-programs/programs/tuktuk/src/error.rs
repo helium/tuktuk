@@ -16,4 +16,6 @@ pub enum ErrorCode {
     TaskNotReady,
     #[msg("Task queue not empty")]
     TaskQueueNotEmpty,
+    #[msg("Free task account not empty")]
+    FreeTaskAccountNotEmpty,
 }

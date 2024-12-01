@@ -89,6 +89,9 @@ pub struct TaskV0 {
     pub transaction: CompiledTransactionV0,
     pub queued_at: i64,
     pub bump_seed: u8,
+    // Number of free tasks to append to the end of the accounts. This allows
+    // you to easily add new tasks
+    pub free_tasks: u8,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]

@@ -93,9 +93,22 @@ pub fn handler(ctx: Context<RunTaskV0>) -> Result<()> {
             ErrorCode::InvalidAccount
         );
     }
+
+    // Validate that all free task accounts are empty
+    let free_tasks_start_index = transaction.accounts.len();
+    for i in 0..ctx.accounts.task.free_tasks {
+        let free_task_index = free_tasks_start_index + i as usize;
+        let free_task_account = &ctx.remaining_accounts[free_task_index];
+        require!(
+            free_task_account.data_is_empty(),
+            ErrorCode::FreeTaskAccountNotEmpty
+        );
+    }
+
     for ix in &transaction.instructions {
         let mut accounts = Vec::new();
         let mut account_infos = Vec::new();
+
         for i in &ix.accounts {
             let acct = ctx.remaining_accounts[*i as usize].clone();
             accounts.push(acct.clone());
@@ -105,6 +118,25 @@ pub fn handler(ctx: Context<RunTaskV0>) -> Result<()> {
                 is_writable: acct.is_writable,
             })
         }
+
+        // Add task_queue and free tasks at the end
+        account_infos.push(AccountMeta {
+            pubkey: ctx.accounts.task_queue.key(),
+            is_signer: false,
+            is_writable: true,
+        });
+
+        // Add free tasks accounts, starting from the correct index
+        for i in 0..ctx.accounts.task.free_tasks {
+            let free_task_index = free_tasks_start_index + i as usize;
+            let acct = ctx.remaining_accounts[free_task_index].clone();
+            account_infos.push(AccountMeta {
+                pubkey: acct.key(),
+                is_signer: false,
+                is_writable: true,
+            });
+        }
+
         solana_program::program::invoke_signed(
             &Instruction {
                 program_id: *ctx.remaining_accounts[ix.program_id_index as usize].key,

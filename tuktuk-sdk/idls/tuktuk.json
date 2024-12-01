@@ -408,6 +408,11 @@
       "code": 6006,
       "name": "TaskQueueNotEmpty",
       "msg": "Task queue not empty"
+    },
+    {
+      "code": 6007,
+      "name": "FreeTaskAccountNotEmpty",
+      "msg": "Free task account not empty"
     }
   ],
   "types": [
@@ -593,6 +598,10 @@
             "type": {
               "option": "u64"
             }
+          },
+          {
+            "name": "free_tasks",
+            "type": "u8"
           }
         ]
       }
@@ -716,6 +725,10 @@
           },
           {
             "name": "bump_seed",
+            "type": "u8"
+          },
+          {
+            "name": "free_tasks",
             "type": "u8"
           }
         ]

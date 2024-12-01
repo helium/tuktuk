@@ -7,7 +7,11 @@ export async function ensureIdls() {
     {
       name: "tuktuk",
       pid: "tukpKuBbnQwG6yQbYRbeDM9Dk3D9fDkUpc6sytJsyGC",
-    }
+    },
+    {
+      name: "cpi-example",
+      pid: "cpic9j9sjqvhn2ZX3mqcCgzHKCwiiBTyEszyCwN7MBC",
+    },
   ];
   await Promise.all(
     programs.map(async (program) => {

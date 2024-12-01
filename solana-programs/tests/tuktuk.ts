@@ -1,6 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { Tuktuk } from "../target/types/tuktuk";
+import { CpiExample } from "../target/types/cpi-example";
 import {
   init,
   taskQueueKey,
@@ -220,6 +221,71 @@ describe("tuktuk", () => {
         const taskAcc = await program.account.taskV0.fetchNullable(task);
         expect(taskAcc).to.be.null;
       });
+    });
+  });
+
+  describe("CPI example", () => {
+    let cpiProgram: Program<CpiExample>;
+    let taskQueue: PublicKey;
+
+    beforeEach(async () => {
+      const idl = await Program.fetchIdl(
+        new PublicKey("cpic9j9sjqvhn2ZX3mqcCgzHKCwiiBTyEszyCwN7MBC"),
+        provider
+      );
+
+      cpiProgram = new Program<CpiExample>(
+        idl as CpiExample,
+        provider
+      ) as Program<CpiExample>;
+      if (!(await program.account.tuktukConfigV0.fetchNullable(tuktukConfig))) {
+        await program.methods
+          .initializeTuktukConfigV0({
+            minDeposit: new anchor.BN(100000000),
+          })
+          .accounts({
+            networkMint: hnt,
+            authority: me,
+          })
+          .rpc();
+      }
+      const name = makeid(10);
+      const config = await program.account.tuktukConfigV0.fetch(tuktukConfig);
+      const nextTaskQueueId = config.nextTaskQueueId;
+      taskQueue = taskQueueKey(tuktukConfig, nextTaskQueueId)[0];
+      await createAtaAndMint(
+        provider,
+        config.networkMint,
+        new anchor.BN(1000000000),
+        taskQueue
+      );
+      await program.methods
+        .initializeTaskQueueV0({
+          name,
+          crankReward: new anchor.BN(0),
+          capacity: 100,
+        })
+        .accounts({
+          tuktukConfig,
+          payer: me,
+          queueAuthority: PublicKey.findProgramAddressSync(
+            [Buffer.from("queue_authority")],
+            cpiProgram.programId
+          )[0],
+          updateAuthority: me,
+          taskQueue,
+          taskQueueNameMapping: taskQueueNameMappingKey(tuktukConfig, name)[0],
+        })
+        .rpc();
+    });
+    it("allows scheduling a task", async () => {
+      await cpiProgram.methods
+        .scheduleNext()
+        .accounts({
+          taskQueue,
+          freeTask1: taskKey(taskQueue, 0)[0],
+        })
+        .rpc();
     });
   });
 });

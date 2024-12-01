@@ -26,7 +26,7 @@ pub mod tuktuk {
         initialize_task_queue_v0::handler(ctx, args)
     }
 
-    pub fn queue_task_v0(ctx: Context<QueuetaskV0>, args: QueueTaskArgsV0) -> Result<()> {
+    pub fn queue_task_v0(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
         queue_task_v0::handler(ctx, args)
     }
 
