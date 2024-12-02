@@ -13,8 +13,8 @@ import {
 import { customSignerKey, taskKey, tuktukConfigKey } from "./pdas";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 
-export type CompiledTransactionArgV0 =
-  IdlTypes<Tuktuk>["compiledTransactionArgV0"];
+export type CompiledTransactionV0 =
+  IdlTypes<Tuktuk>["compiledTransactionV0"];
 
 export type CustomAccountResolverFactory<T extends Idl> = (
   programId: PublicKey
@@ -23,7 +23,7 @@ export type CustomAccountResolverFactory<T extends Idl> = (
 export function compileTransaction(
   instructions: TransactionInstruction[],
   signerSeeds: Buffer[][],
-): { transaction: CompiledTransactionArgV0; remainingAccounts: AccountMeta[] } {
+): { transaction: CompiledTransactionV0; remainingAccounts: AccountMeta[] } {
   let pubkeysToMetadata: Record<
     string,
     { isSigner: boolean; isWritable: boolean }
@@ -111,11 +111,16 @@ export function compileTransaction(
         };
       }),
       signerSeeds,
+      accounts: []
     },
   };
 }
 
 function nextAvailableTaskIds(taskBitmap: Buffer, n: number): number[] {
+  if (n === 0) {
+    return [];
+  }
+
   const availableTaskIds: number[] = [];
   for (let byteIdx = 0; byteIdx < taskBitmap.length; byteIdx++) {
     const byte = taskBitmap[byteIdx];

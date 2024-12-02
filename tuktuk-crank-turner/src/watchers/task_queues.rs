@@ -1,6 +1,10 @@
 use futures::TryStreamExt;
 use tokio_graceful_shutdown::{SubsystemBuilder, SubsystemHandle};
-use tuktuk::{config_key, task_queue, TaskQueueV0, TuktukConfigV0};
+use tuktuk::{
+    config_key,
+    program::{TaskQueueV0, TuktukConfigV0},
+    task_queue,
+};
 use tuktuk_sdk::{client::*, prelude::*};
 
 use super::args::WatcherArgs;

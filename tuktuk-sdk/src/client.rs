@@ -1,10 +1,10 @@
+use std::{marker::Send, sync::Arc};
+
 use anchor_lang::AccountDeserialize;
 use futures::{stream, StreamExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
-use solana_sdk::{account::Account, pubkey::Pubkey};
-use std::{marker::Send, sync::Arc};
-
 pub use solana_client::nonblocking::rpc_client::RpcClient as SolanaRpcClient;
+use solana_sdk::{account::Account, pubkey::Pubkey};
 
 use crate::error::Error;
 

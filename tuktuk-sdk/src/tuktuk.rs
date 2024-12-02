@@ -6,17 +6,7 @@ use itertools::Itertools;
 use solana_sdk::{hash::hash, instruction::Instruction};
 use tokio::sync::Mutex;
 
-use crate::{error::Error, watcher::PubsubTracker};
-
-declare_id!("tukpKuBbnQwG6yQbYRbeDM9Dk3D9fDkUpc6sytJsyGC");
-
-declare_program!(tuktuk);
-
-pub use self::tuktuk::{
-    accounts::{TaskQueueNameMappingV0, TaskQueueV0, TaskV0, TuktukConfigV0},
-    client, types,
-};
-use self::types::{InitializeTuktukConfigArgsV0, TriggerV0};
+use crate::{error::Error, program::*, watcher::PubsubTracker};
 
 fn hash_name(name: &str) -> [u8; 32] {
     hash(name.as_bytes()).to_bytes()
@@ -24,15 +14,6 @@ fn hash_name(name: &str) -> [u8; 32] {
 
 pub fn config_key() -> Pubkey {
     Pubkey::find_program_address(&[b"tuktuk_config"], &ID).0
-}
-
-impl TriggerV0 {
-    pub fn is_active(&self, now: i64) -> bool {
-        match self {
-            TriggerV0::Now => true,
-            TriggerV0::Timestamp(ts) => now >= *ts,
-        }
-    }
 }
 
 pub fn task_queue_name_mapping_key(config_key: &Pubkey, name: &str) -> Pubkey {
@@ -229,26 +210,6 @@ pub mod task_queue {
 pub struct TaskUpdate {
     pub tasks: Vec<(Pubkey, Option<TaskV0>)>,
     pub removed: Vec<Pubkey>,
-}
-
-impl TaskQueueV0 {
-    pub fn task_exists(&self, task_idx: usize) -> bool {
-        self.task_bitmap[task_idx / 8] & (1 << (task_idx % 8)) != 0
-    }
-
-    pub fn next_available_task_id(&self) -> Option<usize> {
-        for (byte_idx, byte) in self.task_bitmap.iter().enumerate() {
-            if *byte != 0xff {
-                // If byte is not all 1s
-                for bit_idx in 0..8 {
-                    if byte & (1 << bit_idx) == 0 {
-                        return Some(byte_idx * 8 + bit_idx);
-                    }
-                }
-            }
-        }
-        None
-    }
 }
 
 pub mod task {

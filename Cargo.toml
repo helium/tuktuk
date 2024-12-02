@@ -9,7 +9,8 @@ members = [
   "tuktuk-crank-turner",
   "solana-transaction-utils",
   "tuktuk-sdk",
-  "tuktuk-cli"
+  "tuktuk-cli",
+  "tuktuk-program",
 ]
 
 [workspace.dependencies]

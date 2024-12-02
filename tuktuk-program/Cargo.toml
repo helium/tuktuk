@@ -1,0 +1,17 @@
+[package]
+name = "tuktuk-program"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "tuktuk_program"
+path = "src/lib.rs"
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+anchor-lang = { workspace = true }
+
+[features]
+default = []

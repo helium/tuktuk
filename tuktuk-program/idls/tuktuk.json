@@ -444,48 +444,6 @@
       }
     },
     {
-      "name": "CompiledTransactionArgV0",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "num_rw_signers",
-            "type": "u8"
-          },
-          {
-            "name": "num_ro_signers",
-            "type": "u8"
-          },
-          {
-            "name": "num_rw",
-            "type": "u8"
-          },
-          {
-            "name": "instructions",
-            "docs": [
-              "Accounts will come from remaining accounts, which allows for lookup tables",
-              "and such to reduce size of txn call here"
-            ],
-            "type": {
-              "vec": {
-                "defined": {
-                  "name": "CompiledInstructionV0"
-                }
-              }
-            }
-          },
-          {
-            "name": "signer_seeds",
-            "type": {
-              "vec": {
-                "vec": "bytes"
-              }
-            }
-          }
-        ]
-      }
-    },
-    {
       "name": "CompiledTransactionV0",
       "type": {
         "kind": "struct",
@@ -589,7 +547,7 @@
             "name": "transaction",
             "type": {
               "defined": {
-                "name": "CompiledTransactionArgV0"
+                "name": "CompiledTransactionV0"
               }
             }
           },
@@ -660,20 +618,20 @@
             "type": "u16"
           },
           {
-            "name": "bump_seed",
-            "type": "u8"
-          },
-          {
-            "name": "task_bitmap",
-            "type": "bytes"
-          },
-          {
             "name": "created_at",
             "type": "i64"
           },
           {
             "name": "updated_at",
             "type": "i64"
+          },
+          {
+            "name": "bump_seed",
+            "type": "u8"
+          },
+          {
+            "name": "task_bitmap",
+            "type": "bytes"
           },
           {
             "name": "name",

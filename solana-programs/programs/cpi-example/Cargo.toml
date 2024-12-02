@@ -19,4 +19,5 @@ idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 [dependencies]
 anchor-lang = { workspace = true, features = ["init-if-needed"] }
 anchor-spl = { workspace = true }
-tuktuk-sdk = { path = "../../../tuktuk-sdk" }
+tuktuk-program = { path = "../../../tuktuk-program" }
+getrandom = { version = "0.2.15", features = ["custom"] }

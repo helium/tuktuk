@@ -9,6 +9,7 @@ use futures::{
 use solana_account_decoder::UiAccount;
 use solana_client::nonblocking::{pubsub_client::PubsubClient, rpc_client::RpcClient};
 use solana_sdk::{account::Account, pubkey::Pubkey};
+#[cfg(not(feature = "cpi"))]
 use tokio::{
     sync::{broadcast, Mutex},
     time::interval,
@@ -34,6 +35,7 @@ fn account_from_ui_account(value: &UiAccount) -> Account {
     }
 }
 
+#[cfg(not(feature = "cpi"))]
 impl PubsubTracker {
     pub fn new(
         client: Arc<RpcClient>,

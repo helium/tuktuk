@@ -1,14 +1,14 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { Tuktuk } from "../target/types/tuktuk";
-import { CpiExample } from "../target/types/cpi-example";
+import { CpiExample } from "../target/types/cpi_example";
 import {
   init,
   taskQueueKey,
   taskQueueNameMappingKey,
   tuktukConfigKey,
   compileTransaction,
-  CompiledTransactionArgV0,
+  CompiledTransactionV0,
   taskKey,
   runTask,
   customSignerKey,
@@ -72,7 +72,7 @@ describe("tuktuk", () => {
   describe("with a task queue", () => {
     let name: string;
     let taskQueue: PublicKey;
-    let transaction: CompiledTransactionArgV0;
+    let transaction: CompiledTransactionV0;
     let remainingAccounts: AccountMeta[];
     const crankReward: anchor.BN = new anchor.BN(1000000000);
 
@@ -148,6 +148,7 @@ describe("tuktuk", () => {
           trigger: { now: {} },
           transaction,
           crankReward: null,
+          freeTasks: 0,
         })
         .remainingAccounts(remainingAccounts)
         .accounts({
@@ -188,6 +189,7 @@ describe("tuktuk", () => {
             trigger: { now: {} },
             transaction,
             crankReward: null,
+            freeTasks: 0,
           })
           .remainingAccounts(remainingAccounts)
           .accounts({
@@ -279,13 +281,31 @@ describe("tuktuk", () => {
         .rpc();
     });
     it("allows scheduling a task", async () => {
-      await cpiProgram.methods
-        .scheduleNext()
-        .accounts({
-          taskQueue,
-          freeTask1: taskKey(taskQueue, 0)[0],
-        })
-        .rpc();
+      const freeTask1 = taskKey(taskQueue, 0)[0];
+      const method = await cpiProgram.methods.scheduleNext().accounts({
+        taskQueue,
+        freeTask1,
+      });
+
+      const { queueAuthority } = await method.pubkeys();
+      await sendInstructions(provider, [
+        SystemProgram.transfer({
+          fromPubkey: me,
+          toPubkey: queueAuthority!,
+          lamports: 1000000000,
+        }),
+      ]);
+      await method.rpc();
+      await sleep(1000)
+      await (await runTask({
+        program,
+        task: freeTask1,
+        rewardsDestinationWallet: me,
+      })).rpc({ skipPreflight: true });
     });
   });
 });
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

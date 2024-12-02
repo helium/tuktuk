@@ -9,7 +9,7 @@ export async function ensureIdls() {
       pid: "tukpKuBbnQwG6yQbYRbeDM9Dk3D9fDkUpc6sytJsyGC",
     },
     {
-      name: "cpi-example",
+      name: "cpi_example",
       pid: "cpic9j9sjqvhn2ZX3mqcCgzHKCwiiBTyEszyCwN7MBC",
     },
   ];

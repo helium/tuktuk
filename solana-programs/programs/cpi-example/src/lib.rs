@@ -1,15 +1,15 @@
 use anchor_lang::prelude::*;
-use tuktuk_sdk::tuktuk::{tuktuk::program::Tuktuk, TaskQueueV0};
+use tuktuk_program::{tuktuk::program::Tuktuk, TaskQueueV0};
 
 declare_id!("cpic9j9sjqvhn2ZX3mqcCgzHKCwiiBTyEszyCwN7MBC");
 
 #[program]
 pub mod cpi_example {
     use anchor_lang::{solana_program::instruction::Instruction, InstructionData};
-    use tuktuk_sdk::{
-        compiled_transaction::*,
+    use tuktuk_program::{
+        compile_transaction,
         tuktuk::{
-            tuktuk::cpi::{accounts::QueueTaskV0, queue_task_v0},
+            cpi::{accounts::QueueTaskV0, queue_task_v0},
             types::{QueueTaskArgsV0, TriggerV0},
         },
     };
@@ -52,17 +52,12 @@ pub mod cpi_example {
                     system_program: ctx.accounts.system_program.to_account_info(),
                 },
                 &[&[b"queue_authority".as_ref(), &[ctx.bumps.queue_authority]]],
-            )
-            .with_remaining_accounts(vec![
-                ctx.accounts.queue_authority.to_account_info(),
-                ctx.accounts.system_program.to_account_info(),
-                ctx.accounts.tuktuk_program.to_account_info(),
-            ]),
+            ),
             QueueTaskArgsV0 {
                 id: ctx.accounts.task_queue.next_available_task_id().unwrap() as u16,
-                // 5 seconds from now
-                trigger: TriggerV0::Timestamp(Clock::get()?.unix_timestamp + 5),
-                transaction: compiled_tx.into(),
+                // 1 second from now
+                trigger: TriggerV0::Timestamp(Clock::get()?.unix_timestamp + 1),
+                transaction: compiled_tx,
                 crank_reward: None,
                 free_tasks: 1,
             },
@@ -73,6 +68,7 @@ pub mod cpi_example {
 
 #[derive(Accounts)]
 pub struct ScheduleNext<'info> {
+    /// CHECK: CHecked by seeds
     #[account(
         mut,
         seeds = [b"queue_authority".as_ref()],
@@ -81,7 +77,9 @@ pub struct ScheduleNext<'info> {
     pub queue_authority: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
     pub tuktuk_program: Program<'info, Tuktuk>,
+    #[account(mut)]
     pub task_queue: Account<'info, TaskQueueV0>,
     /// CHECK: free task account
+    #[account(mut)]
     pub free_task_1: UncheckedAccount<'info>,
 }

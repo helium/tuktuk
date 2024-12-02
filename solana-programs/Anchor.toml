@@ -6,7 +6,7 @@ skip-lint = false
 
 [programs.localnet]
 tuktuk = "tukpKuBbnQwG6yQbYRbeDM9Dk3D9fDkUpc6sytJsyGC"
-cpi-example = "cpic9j9sjqvhn2ZX3mqcCgzHKCwiiBTyEszyCwN7MBC"
+cpi_example = "cpic9j9sjqvhn2ZX3mqcCgzHKCwiiBTyEszyCwN7MBC"
 
 [workspace]
 members = [

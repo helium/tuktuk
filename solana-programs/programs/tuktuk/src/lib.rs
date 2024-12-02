@@ -30,7 +30,7 @@ pub mod tuktuk {
         queue_task_v0::handler(ctx, args)
     }
 
-    pub fn run_task_v0(ctx: Context<RunTaskV0>) -> Result<()> {
+    pub fn run_task_v0<'info>(ctx: Context<'_, '_, '_, 'info, RunTaskV0<'info>>) -> Result<()> {
         run_task_v0::handler(ctx)
     }
 

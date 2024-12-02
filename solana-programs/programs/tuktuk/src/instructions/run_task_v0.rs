@@ -37,7 +37,7 @@ pub struct RunTaskV0<'info> {
     pub token_program: Program<'info, Token>,
 }
 
-pub fn handler(ctx: Context<RunTaskV0>) -> Result<()> {
+pub fn handler<'info>(ctx: Context<'_, '_, '_, 'info, RunTaskV0<'info>>) -> Result<()> {
     ctx.accounts.task_queue.updated_at = Clock::get()?.unix_timestamp;
     ctx.accounts
         .task_queue
@@ -67,7 +67,10 @@ pub fn handler(ctx: Context<RunTaskV0>) -> Result<()> {
         .collect::<std::collections::HashSet<Pubkey>>();
 
     // Validate txn
-    for (index, account) in ctx.remaining_accounts.iter().enumerate() {
+    for (index, account) in ctx.remaining_accounts[..transaction.accounts.len()]
+        .iter()
+        .enumerate()
+    {
         let signers_end = (transaction.num_ro_signers + transaction.num_rw_signers) as usize;
         // It is okay if an account not labeled as a signer is a signer.
         // For example, if an account being passed is a fee payer
@@ -119,22 +122,26 @@ pub fn handler(ctx: Context<RunTaskV0>) -> Result<()> {
             })
         }
 
-        // Add task_queue and free tasks at the end
-        account_infos.push(AccountMeta {
-            pubkey: ctx.accounts.task_queue.key(),
-            is_signer: false,
-            is_writable: true,
-        });
-
-        // Add free tasks accounts, starting from the correct index
-        for i in 0..ctx.accounts.task.free_tasks {
-            let free_task_index = free_tasks_start_index + i as usize;
-            let acct = ctx.remaining_accounts[free_task_index].clone();
+        if ctx.accounts.task.free_tasks > 0 {
+            // Add task_queue and free tasks at the end
             account_infos.push(AccountMeta {
-                pubkey: acct.key(),
+                pubkey: ctx.accounts.task_queue.key(),
                 is_signer: false,
                 is_writable: true,
             });
+            accounts.push(ctx.accounts.task_queue.to_account_info().clone());
+
+            // Add free tasks accounts, starting from the correct index
+            for i in 0..ctx.accounts.task.free_tasks {
+                let free_task_index = free_tasks_start_index + i as usize;
+                let acct = ctx.remaining_accounts[free_task_index].clone();
+                account_infos.push(AccountMeta {
+                    pubkey: acct.key(),
+                    is_signer: false,
+                    is_writable: true,
+                });
+                accounts.push(acct);
+            }
         }
 
         solana_program::program::invoke_signed(
