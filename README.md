@@ -92,7 +92,7 @@ await program.methods
   .rpc();
 ```
 
-A similar compile_transaction function is available in the tuktuk-sdk rust library.
+A similar compile_transaction function is available in the tuktuk-sdk rust library. For an example of how to use this in a solana program, see the [cpi-example](./solana-programs/programs/cpi-example) and the corresponding [tests](./solana-programs/tests/tuktuk.ts).
 
 ### Monitoring the Task Queue
 

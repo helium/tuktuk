@@ -154,7 +154,6 @@ export async function runTask({
     transaction: { numRwSigners, numRoSigners, numRw, accounts, signerSeeds },
   } = await program.account.taskV0.fetch(task);
   const taskQueueAcc = await program.account.taskQueueV0.fetch(taskQueue);
-
   const configAcc = await program.account.tuktukConfigV0.fetch(
     tuktukConfigKey()[0]
   );
@@ -180,7 +179,9 @@ export async function runTask({
   }));
 
   return program.methods
-    .runTaskV0()
+    .runTaskV0({
+      freeTaskIds: nextAvailable,
+    })
     .accounts({
       task,
       rewardsDestination: getAssociatedTokenAddressSync(

@@ -6,7 +6,7 @@ export async function ensureIdls() {
   let programs = [
     {
       name: "tuktuk",
-      pid: "tukpKuBbnQwG6yQbYRbeDM9Dk3D9fDkUpc6sytJsyGC",
+      pid: "tuktukUrfhXT6ZT77QTU8RQtvgL967uRuVagWF57zVA",
     },
     {
       name: "cpi_example",

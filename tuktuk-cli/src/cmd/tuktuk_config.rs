@@ -2,7 +2,7 @@ use clap::{Args, Subcommand};
 use serde::Serialize;
 use solana_sdk::{program_pack::Pack, pubkey::Pubkey, signature::Keypair, signer::Signer};
 use spl_token::state::Mint;
-use tuktuk::types::InitializeTuktukConfigArgsV0;
+use tuktuk_program::types::InitializeTuktukConfigArgsV0;
 use tuktuk_sdk::prelude::*;
 
 use crate::{
@@ -118,7 +118,7 @@ impl TuktukConfigCmd {
                 )
                 .await?;
 
-                let tuktuk_config: tuktuk::TuktukConfigV0 = client
+                let tuktuk_config: tuktuk_program::TuktukConfigV0 = client
                     .as_ref()
                     .anchor_account(&tuktuk_config_key)
                     .await?

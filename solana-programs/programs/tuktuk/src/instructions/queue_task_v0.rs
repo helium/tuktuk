@@ -34,7 +34,7 @@ pub struct QueueTaskV0<'info> {
         init,
         payer = payer,
         space = 8 + std::mem::size_of::<TaskV0>() + 60,
-        constraint = !task_queue.task_exists(args.id as usize) @ ErrorCode::TaskAlreadyExists,
+        constraint = !task_queue.task_exists(args.id) @ ErrorCode::TaskAlreadyExists,
         constraint = args.id < task_queue.capacity,
         seeds = [b"task".as_ref(), task_queue.key().as_ref(), &args.id.to_le_bytes()[..]],
         bump,
@@ -61,9 +61,7 @@ pub fn handler(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
         bump_seed: ctx.bumps.task,
         queued_at: Clock::get()?.unix_timestamp,
     });
-    ctx.accounts
-        .task_queue
-        .set_task_exists(args.id as usize, true);
+    ctx.accounts.task_queue.set_task_exists(args.id, true);
     ctx.accounts.task_queue.updated_at = Clock::get()?.unix_timestamp;
 
     resize_to_fit(

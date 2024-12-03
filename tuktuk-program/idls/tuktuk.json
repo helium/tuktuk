@@ -1,5 +1,5 @@
 {
-  "address": "tukpKuBbnQwG6yQbYRbeDM9Dk3D9fDkUpc6sytJsyGC",
+  "address": "tuktukUrfhXT6ZT77QTU8RQtvgL967uRuVagWF57zVA",
   "metadata": {
     "name": "tuktuk",
     "version": "0.1.0",
@@ -325,6 +325,10 @@
       "discriminator": [52, 184, 39, 129, 126, 245, 176, 237],
       "accounts": [
         {
+          "name": "payer",
+          "signer": true
+        },
+        {
           "name": "rent_refund",
           "writable": true,
           "relations": ["task"]
@@ -350,9 +354,22 @@
         {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "RunTaskArgsV0"
+            }
+          }
+        }
+      ]
     }
   ],
   "accounts": [
@@ -413,6 +430,16 @@
       "code": 6007,
       "name": "FreeTaskAccountNotEmpty",
       "msg": "Free task account not empty"
+    },
+    {
+      "code": 6008,
+      "name": "InvalidTaskPDA",
+      "msg": "Invalid task PDA"
+    },
+    {
+      "code": 6009,
+      "name": "TaskQueueInsufficientFunds",
+      "msg": "Task queue insufficient funds"
     }
   ],
   "types": [
@@ -560,6 +587,20 @@
           {
             "name": "free_tasks",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RunTaskArgsV0",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "free_task_ids",
+            "type": {
+              "vec": "u16"
+            }
           }
         ]
       }

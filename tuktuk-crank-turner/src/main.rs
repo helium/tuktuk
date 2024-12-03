@@ -1,4 +1,4 @@
-use std::{path, sync::Arc, time::Duration};
+use std::{collections::HashMap, path, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use clap::Parser;
@@ -10,7 +10,7 @@ use task_completion_processor::process_task_completions;
 use task_context::TaskContext;
 use task_processor::process_tasks;
 use task_queue::{create_task_queue, TaskQueueArgs};
-use tokio::time::interval;
+use tokio::{sync::Mutex, time::interval};
 use tokio_graceful_shutdown::{SubsystemBuilder, Toplevel};
 use tracing_subscriber::{fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt};
 use transaction::TransactionSenderSubsystem;
@@ -92,6 +92,7 @@ impl Cli {
             now_rx: now_rx.clone(),
             rpc_client: rpc_client.clone(),
             payer: payer.clone(),
+            in_progress_tasks: Arc::new(Mutex::new(HashMap::new())),
         });
 
         let pubsub_repoll = settings.pubsub_repoll;

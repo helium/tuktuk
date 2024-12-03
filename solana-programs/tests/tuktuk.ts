@@ -229,6 +229,10 @@ describe("tuktuk", () => {
   describe("CPI example", () => {
     let cpiProgram: Program<CpiExample>;
     let taskQueue: PublicKey;
+    const queueAuthority = PublicKey.findProgramAddressSync(
+      [Buffer.from("queue_authority")],
+      new PublicKey("cpic9j9sjqvhn2ZX3mqcCgzHKCwiiBTyEszyCwN7MBC")
+    )[0];
 
     beforeEach(async () => {
       const idl = await Program.fetchIdl(
@@ -261,19 +265,22 @@ describe("tuktuk", () => {
         new anchor.BN(1000000000),
         taskQueue
       );
+       await createAtaAndMint(
+         provider,
+         config.networkMint,
+         new anchor.BN(1),
+         me
+       );
       await program.methods
         .initializeTaskQueueV0({
           name,
-          crankReward: new anchor.BN(0),
+          crankReward: new anchor.BN(10),
           capacity: 100,
         })
         .accounts({
           tuktukConfig,
           payer: me,
-          queueAuthority: PublicKey.findProgramAddressSync(
-            [Buffer.from("queue_authority")],
-            cpiProgram.programId
-          )[0],
+          queueAuthority,
           updateAuthority: me,
           taskQueue,
           taskQueueNameMapping: taskQueueNameMappingKey(tuktukConfig, name)[0],
@@ -282,12 +289,19 @@ describe("tuktuk", () => {
     });
     it("allows scheduling a task", async () => {
       const freeTask1 = taskKey(taskQueue, 0)[0];
-      const method = await cpiProgram.methods.scheduleNext().accounts({
+      const freeTask2 = taskKey(taskQueue, 1)[0];
+     
+      const method = await cpiProgram.methods.schedule(0).accounts({
         taskQueue,
-        freeTask1,
+        task: freeTask1,
       });
-
-      const { queueAuthority } = await method.pubkeys();
+      await sendInstructions(provider, [
+        SystemProgram.transfer({
+          fromPubkey: me,
+          toPubkey: taskQueue!,
+          lamports: 1000000000,
+        }),
+      ]);
       await sendInstructions(provider, [
         SystemProgram.transfer({
           fromPubkey: me,
@@ -295,13 +309,30 @@ describe("tuktuk", () => {
           lamports: 1000000000,
         }),
       ]);
-      await method.rpc();
-      await sleep(1000)
-      await (await runTask({
-        program,
-        task: freeTask1,
-        rewardsDestinationWallet: me,
-      })).rpc({ skipPreflight: true });
+       const tasks = new Array(50).fill(0).map((_, index) => index);
+       for (const taskId of tasks) {
+         (await cpiProgram.methods.schedule(taskId).accounts({
+            taskQueue,
+            task: taskKey(taskQueue, taskId)[0],
+          }).rpc()
+        );
+      }
+      // await method.rpc();
+      // await (
+      //   await runTask({
+      //     program,
+      //     task: freeTask1,
+      //     rewardsDestinationWallet: me,
+      //   })
+      // ).rpc({ skipPreflight: true });
+      // await sleep(1000);
+      // (
+      //   await runTask({
+      //     program,
+      //     task: freeTask2,
+      //     rewardsDestinationWallet: me,
+      //   })
+      // ).rpc({ skipPreflight: true });
     });
   });
 });

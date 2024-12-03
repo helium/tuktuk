@@ -5,8 +5,9 @@ use futures::{future::BoxFuture, Stream, StreamExt};
 use itertools::Itertools;
 use solana_sdk::{hash::hash, instruction::Instruction};
 use tokio::sync::Mutex;
+use tuktuk_program::*;
 
-use crate::{error::Error, program::*, watcher::PubsubTracker};
+use crate::{error::Error, watcher::PubsubTracker};
 
 fn hash_name(name: &str) -> [u8; 32] {
     hash(name.as_bytes()).to_bytes()
@@ -243,7 +244,7 @@ pub mod task {
     pub fn keys(queue_key: &Pubkey, task_queue: &TaskQueueV0) -> Result<Vec<Pubkey>, Error> {
         let task_ids = 0..task_queue.capacity;
         let task_keys = task_ids
-            .filter(|k| task_queue.task_exists(*k as usize))
+            .filter(|k| task_queue.task_exists(*k))
             .map(|id| self::key(queue_key, id))
             .collect_vec();
         Ok(task_keys)
@@ -259,7 +260,7 @@ pub mod task {
             &task_queue_key,
             task_queue
                 .next_available_task_id()
-                .ok_or_else(|| Error::TooManyTasks)? as u16,
+                .ok_or_else(|| Error::TooManyTasks)?,
         );
 
         Ok((
@@ -319,19 +320,13 @@ pub mod task {
                 let task_ids = 0..new_task_queue.capacity;
                 let new_task_keys = task_ids
                     .clone()
-                    .filter(|id| {
-                        new_task_queue.task_exists(*id as usize)
-                            && !last_tq_clone.task_exists(*id as usize)
-                    })
+                    .filter(|id| new_task_queue.task_exists(*id) && !last_tq_clone.task_exists(*id))
                     .map(|id| self::key(task_queue_key, id))
                     .collect_vec();
 
                 let removed_task_keys = task_ids
                     .clone()
-                    .filter(|id| {
-                        !new_task_queue.task_exists(*id as usize)
-                            && last_tq_clone.task_exists(*id as usize)
-                    })
+                    .filter(|id| !new_task_queue.task_exists(*id) && last_tq_clone.task_exists(*id))
                     .map(|id| self::key(task_queue_key, id))
                     .collect_vec();
 

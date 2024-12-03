@@ -1,7 +1,10 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use solana_client::nonblocking::rpc_client::RpcClient;
-use solana_sdk::signature::Keypair;
+use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 use solana_transaction_utils::queue::TransactionTask;
 use tokio::sync::{mpsc::Sender, watch::Receiver, Mutex};
 
@@ -16,4 +19,5 @@ pub struct TaskContext {
     pub now_rx: Receiver<u64>,
     pub rpc_client: Arc<RpcClient>,
     pub payer: Arc<Keypair>,
+    pub in_progress_tasks: Arc<Mutex<HashMap<Pubkey, HashSet<u16>>>>,
 }

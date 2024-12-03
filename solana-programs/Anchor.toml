@@ -5,7 +5,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-tuktuk = "tukpKuBbnQwG6yQbYRbeDM9Dk3D9fDkUpc6sytJsyGC"
+tuktuk = "tuktukUrfhXT6ZT77QTU8RQtvgL967uRuVagWF57zVA"
 cpi_example = "cpic9j9sjqvhn2ZX3mqcCgzHKCwiiBTyEszyCwN7MBC"
 
 [workspace]

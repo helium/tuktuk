@@ -23,6 +23,6 @@ pub struct DequeuetaskV0<'info> {
 pub fn handler(ctx: Context<DequeuetaskV0>) -> Result<()> {
     ctx.accounts
         .task_queue
-        .set_task_exists(ctx.accounts.task.id as usize, false);
+        .set_task_exists(ctx.accounts.task.id, false);
     Ok(())
 }

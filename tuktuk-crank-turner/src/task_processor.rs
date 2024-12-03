@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use futures::{Stream, StreamExt, TryStreamExt};
 use solana_sdk::{signer::Signer, transaction::Transaction};
@@ -15,12 +15,29 @@ impl TimedTask {
             rpc_client,
             payer,
             tx_sender,
+            in_progress_tasks,
             ..
         } = &*ctx;
-        let run_ix = run_ix(rpc_client.as_ref(), self.task_key, payer.pubkey()).await?;
+
+        let mut in_progress = in_progress_tasks.lock().await;
+        let task_ids = in_progress
+            .entry(self.task_queue_key)
+            .or_insert_with(HashSet::new);
+
+        let run_ix = run_ix(
+            rpc_client.as_ref(),
+            self.task_key,
+            payer.pubkey(),
+            payer.pubkey(),
+            task_ids,
+        )
+        .await?;
+        let ctx = ctx.clone();
         if let Some(run_ix) = run_ix {
+            task_ids.extend(run_ix.free_task_ids.clone());
             let recent_blockhash = rpc_client.get_latest_blockhash().await?;
-            let mut tx = Transaction::new_with_payer(&[run_ix.clone()], Some(&payer.pubkey()));
+            let mut tx =
+                Transaction::new_with_payer(&[run_ix.instruction.clone()], Some(&payer.pubkey()));
             tx.message.recent_blockhash = recent_blockhash;
             let simulated = rpc_client.simulate_transaction(&tx).await?;
             if let Some(err) = simulated.value.err {
@@ -37,8 +54,11 @@ impl TimedTask {
 
             tx_sender
                 .send(TransactionTask {
-                    task: self.clone(),
-                    instructions: vec![run_ix],
+                    task: TimedTask {
+                        in_flight_task_ids: run_ix.free_task_ids,
+                        ..self.clone()
+                    },
+                    instructions: vec![run_ix.instruction],
                 })
                 .await?;
         }
@@ -51,6 +71,15 @@ impl TimedTask {
         ctx: Arc<TaskContext>,
         err: Option<TransactionQueueError>,
     ) -> anyhow::Result<()> {
+        let mut in_progress = ctx.in_progress_tasks.lock().await;
+        let task_ids = in_progress
+            .entry(self.task_queue_key)
+            .or_insert_with(HashSet::new);
+
+        for task_id in &self.in_flight_task_ids {
+            task_ids.remove(task_id);
+        }
+        drop(in_progress);
         if let Some(err) = err {
             if matches!(err, TransactionQueueError::FeeTooHigh) {
                 info!(?self, ?err, "task fee too high");
@@ -60,7 +89,9 @@ impl TimedTask {
                         // Try again in 10 seconds
                         task_time: self.task_time + 10,
                         task_key: self.task_key,
+                        task_queue_key: self.task_queue_key,
                         max_retries: self.max_retries,
+                        in_flight_task_ids: vec![],
                     })
                     .await?;
             } else {
@@ -72,7 +103,9 @@ impl TimedTask {
                             // Try again in 30 seconds
                             task_time: self.task_time + 30,
                             task_key: self.task_key,
+                            task_queue_key: self.task_queue_key,
                             max_retries: self.max_retries,
+                            in_flight_task_ids: self.in_flight_task_ids.clone(),
                         })
                         .await?;
                 } else {

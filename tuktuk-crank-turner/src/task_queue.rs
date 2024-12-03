@@ -21,8 +21,10 @@ use tokio::{
 pub struct TimedTask {
     pub task_time: u64,
     pub task_key: Pubkey,
+    pub task_queue_key: Pubkey,
     pub total_retries: u8,
     pub max_retries: u8,
+    pub in_flight_task_ids: Vec<u16>,
 }
 
 // Implement Ord and PartialOrd for priority queue

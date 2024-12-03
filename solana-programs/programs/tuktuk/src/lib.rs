@@ -6,7 +6,7 @@ pub use instructions::*;
 pub mod resize_to_fit;
 pub mod state;
 
-declare_id!("tukpKuBbnQwG6yQbYRbeDM9Dk3D9fDkUpc6sytJsyGC");
+declare_id!("tuktukUrfhXT6ZT77QTU8RQtvgL967uRuVagWF57zVA");
 
 #[program]
 pub mod tuktuk {
@@ -30,8 +30,11 @@ pub mod tuktuk {
         queue_task_v0::handler(ctx, args)
     }
 
-    pub fn run_task_v0<'info>(ctx: Context<'_, '_, '_, 'info, RunTaskV0<'info>>) -> Result<()> {
-        run_task_v0::handler(ctx)
+    pub fn run_task_v0<'info>(
+        ctx: Context<'_, '_, '_, 'info, RunTaskV0<'info>>,
+        args: RunTaskArgsV0,
+    ) -> Result<()> {
+        run_task_v0::handler(ctx, args)
     }
 
     pub fn dequeue_task_v0(ctx: Context<DequeuetaskV0>) -> Result<()> {

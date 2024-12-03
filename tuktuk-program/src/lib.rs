@@ -2,9 +2,33 @@ use std::collections::HashMap;
 
 use anchor_lang::{prelude::*, solana_program::instruction::Instruction};
 
-declare_id!("tukpKuBbnQwG6yQbYRbeDM9Dk3D9fDkUpc6sytJsyGC");
+declare_id!("tuktukUrfhXT6ZT77QTU8RQtvgL967uRuVagWF57zVA");
 
 declare_program!(tuktuk);
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
+pub struct RunTaskReturnV0 {
+    pub tasks: Vec<TaskReturnV0>,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
+pub struct TaskReturnV0 {
+    pub trigger: TriggerV0,
+    // Note that you can pass accounts from the remaining accounts to reduce
+    // the size of the transaction
+    pub transaction: CompiledTransactionV0,
+    pub crank_reward: Option<u64>,
+    // Number of free tasks to append to the end of the accounts. This allows
+    // you to easily add new tasks
+    pub free_tasks: u8,
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for TriggerV0 {
+    fn default() -> Self {
+        TriggerV0::Now
+    }
+}
 
 pub use self::{
     tuktuk::{
@@ -26,17 +50,17 @@ impl TriggerV0 {
 }
 
 impl TaskQueueV0 {
-    pub fn task_exists(&self, task_idx: usize) -> bool {
-        self.task_bitmap[task_idx / 8] & (1 << (task_idx % 8)) != 0
+    pub fn task_exists(&self, task_idx: u16) -> bool {
+        self.task_bitmap[task_idx as usize / 8] & (1 << (task_idx % 8)) != 0
     }
 
-    pub fn next_available_task_id(&self) -> Option<usize> {
+    pub fn next_available_task_id(&self) -> Option<u16> {
         for (byte_idx, byte) in self.task_bitmap.iter().enumerate() {
             if *byte != 0xff {
                 // If byte is not all 1s
                 for bit_idx in 0..8 {
                     if byte & (1 << bit_idx) == 0 {
-                        return Some(byte_idx * 8 + bit_idx);
+                        return Some((byte_idx * 8 + bit_idx) as u16);
                     }
                 }
             }

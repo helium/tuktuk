@@ -2,8 +2,9 @@ use futures::TryStreamExt;
 use solana_sdk::pubkey::Pubkey;
 use tokio_graceful_shutdown::SubsystemHandle;
 use tracing::info;
-use tuktuk::{task, types::TriggerV0, TaskV0};
-use tuktuk_sdk::{prelude::*, tuktuk::TaskQueueV0};
+use tuktuk::task;
+use tuktuk_program::{types::TriggerV0, TaskQueueV0, TaskV0};
+use tuktuk_sdk::prelude::*;
 
 use super::args::WatcherArgs;
 use crate::task_queue::TimedTask;
@@ -44,12 +45,16 @@ pub async fn get_and_watch_tasks(
                     task_key,
                     total_retries: 0,
                     max_retries: args.max_retries,
+                    task_queue_key: task_queue_key,
+                    in_flight_task_ids: vec![],
                 },
                 TriggerV0::Timestamp(ts) => TimedTask {
                     task_time: ts as u64,
                     task_key,
                     total_retries: 0,
                     max_retries: args.max_retries,
+                    task_queue_key: task_queue_key,
+                    in_flight_task_ids: vec![],
                 },
             },
             _ => continue,
@@ -76,12 +81,16 @@ pub async fn get_and_watch_tasks(
                                     task_key,
                                     total_retries: 0,
                                     max_retries: args.max_retries,
+                                    task_queue_key: task_queue_key,
+                                    in_flight_task_ids: vec![],
                                 },
                                 TriggerV0::Timestamp(ts) => TimedTask {
                                     task_time: ts as u64,
                                     task_key,
                                     total_retries: 0,
                                     max_retries: args.max_retries,
+                                    task_queue_key: task_queue_key,
+                                    in_flight_task_ids: vec![],
                                 },
                             };
                             task_queue

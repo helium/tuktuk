@@ -24,6 +24,7 @@ spl-token = "5.0.2"
 solana-transaction-status = "1.18.22"
 solana-transaction-utils = { path = "../solana-transaction-utils" }
 tuktuk-sdk = { path = "../tuktuk-sdk" }
+tuktuk-program = { path = "../tuktuk-program" }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 config = { workspace = true }

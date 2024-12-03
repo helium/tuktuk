@@ -11,6 +11,6 @@ pub mod prelude {
 
     pub use crate::{
         client::{GetAccount, GetAnchorAccount},
-        clock, program, tuktuk, watcher,
+        clock, tuktuk, watcher,
     };
 }

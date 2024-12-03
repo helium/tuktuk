@@ -18,4 +18,8 @@ pub enum ErrorCode {
     TaskQueueNotEmpty,
     #[msg("Free task account not empty")]
     FreeTaskAccountNotEmpty,
+    #[msg("Invalid task PDA")]
+    InvalidTaskPDA,
+    #[msg("Task queue insufficient funds")]
+    TaskQueueInsufficientFunds,
 }

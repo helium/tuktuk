@@ -1,9 +1,11 @@
+use std::collections::HashSet;
+
 use anyhow::anyhow;
 use clap::{Args, Subcommand};
 use clock::SYSVAR_CLOCK;
 use serde::Serialize;
 use solana_sdk::{pubkey::Pubkey, signer::Signer, transaction::Transaction};
-use tuktuk::{types::TriggerV0, TaskQueueV0, TaskV0, TuktukConfigV0};
+use tuktuk_program::{types::TriggerV0, TaskQueueV0, TaskV0, TuktukConfigV0};
 use tuktuk_sdk::prelude::*;
 
 use super::task_queue::TaskQueueArg;
@@ -64,6 +66,8 @@ impl TaskCmd {
                                 client.as_ref(),
                                 pubkey,
                                 client.payer.pubkey(),
+                                client.payer.pubkey(),
+                                &HashSet::new(),
                             )
                             .await
                             {
@@ -76,7 +80,7 @@ impl TaskCmd {
                                     &spl_token::id(),
                                 );
                                 let mut tx = Transaction::new_with_payer(
-                                    &[init_idemp, run_ix],
+                                    &[init_idemp, run_ix.instruction],
                                     Some(&client.payer.pubkey()),
                                 );
                                 let recent_blockhash =

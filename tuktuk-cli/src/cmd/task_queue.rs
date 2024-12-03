@@ -3,7 +3,8 @@ use std::str::FromStr;
 use clap::{Args, Subcommand};
 use serde::Serialize;
 use solana_sdk::{pubkey::Pubkey, signer::Signer};
-use tuktuk::{tuktuk::accounts::TaskQueueV0, TuktukConfigV0};
+use tuktuk::task_queue_name_mapping_key;
+use tuktuk_program::{TaskQueueV0, TuktukConfigV0};
 use tuktuk_sdk::prelude::*;
 
 use crate::{
@@ -73,12 +74,9 @@ impl TaskQueueArg {
         } else if let Some(id) = self.id {
             Ok(Some(tuktuk::task_queue::key(&tuktuk_config_key, id)))
         } else if let Some(name) = &self.name {
-            let mapping: tuktuk::TaskQueueNameMappingV0 = client
+            let mapping: tuktuk_program::TaskQueueNameMappingV0 = client
                 .as_ref()
-                .anchor_account(&tuktuk::task_queue_name_mapping_key(
-                    &tuktuk_config_key,
-                    name,
-                ))
+                .anchor_account(&task_queue_name_mapping_key(&tuktuk_config_key, name))
                 .await?
                 .ok_or_else(|| anyhow::anyhow!("Task queue not found"))?;
             Ok(Some(mapping.task_queue))
@@ -147,7 +145,7 @@ impl TaskQueueCmd {
                 let (key, ix) = tuktuk::task_queue::create(
                     client.rpc_client.as_ref(),
                     client.payer.pubkey(),
-                    tuktuk::types::InitializeTaskQueueArgsV0 {
+                    tuktuk_program::types::InitializeTaskQueueArgsV0 {
                         capacity: *capacity,
                         crank_reward: *crank_reward,
                         name: name.clone(),
