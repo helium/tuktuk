@@ -37,7 +37,6 @@ pub struct TaskQueueUpdate {
 
 pub fn create_config(
     payer: Pubkey,
-    network_mint: Pubkey,
     authority: Option<Pubkey>,
     args: InitializeTuktukConfigArgsV0,
 ) -> Result<Instruction, Error> {
@@ -48,7 +47,6 @@ pub fn create_config(
         accounts: tuktuk::client::accounts::InitializeTuktukConfigV0 {
             payer,
             approver: payer,
-            network_mint,
             authority: authority.unwrap_or(payer),
             tuktuk_config: config_key,
             system_program: solana_sdk::system_program::ID,
@@ -60,7 +58,6 @@ pub fn create_config(
 }
 
 pub mod task_queue {
-    use spl_associated_token_account::get_associated_token_address;
     use tuktuk::accounts::TuktukConfigV0;
 
     use self::tuktuk::types::InitializeTaskQueueArgsV0;
@@ -109,11 +106,7 @@ pub mod task_queue {
                     payer,
                     system_program: solana_sdk::system_program::ID,
                     tuktuk_config: config_key,
-                    network_mint: config.network_mint,
                     update_authority: update_authority.unwrap_or(payer),
-                    rewards_source: get_associated_token_address(&queue_key, &config.network_mint),
-                    token_program: spl_token::id(),
-                    associated_token_program: spl_associated_token_account::ID,
                     task_queue_name_mapping: task_queue_name_mapping_key(&config_key, &args.name),
                     queue_authority: queue_authority.unwrap_or(payer),
                 }
@@ -130,11 +123,6 @@ pub mod task_queue {
         refund: Pubkey,
     ) -> Result<Instruction, Error> {
         let config_key = config_key();
-        let config: TuktukConfigV0 = client
-            .anchor_account(&config_key)
-            .await?
-            .ok_or_else(|| Error::AccountNotFound)?;
-
         let queue: TaskQueueV0 = client
             .anchor_account(&task_queue_key)
             .await?
@@ -145,15 +133,10 @@ pub mod task_queue {
             accounts: tuktuk::client::accounts::CloseTaskQueueV0 {
                 task_queue: task_queue_key,
                 refund,
-                rewards_refund: get_associated_token_address(&refund, &config.network_mint),
-                rewards_source: get_associated_token_address(&task_queue_key, &config.network_mint),
                 task_queue_name_mapping: task_queue_name_mapping_key(&config_key, &queue.name),
                 payer,
                 system_program: solana_sdk::system_program::ID,
                 tuktuk_config: config_key,
-                network_mint: config.network_mint,
-                associated_token_program: spl_associated_token_account::ID,
-                token_program: spl_token::id(),
                 update_authority: queue.update_authority,
             }
             .to_account_metas(None),

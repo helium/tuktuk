@@ -31,92 +31,16 @@
           "relations": ["task_queue"]
         },
         {
-          "name": "network_mint",
-          "relations": ["tuktuk_config"]
-        },
-        {
           "name": "task_queue",
           "writable": true
-        },
-        {
-          "name": "rewards_source",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "account",
-                "path": "task_queue"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  6, 221, 246, 225, 215, 101, 161, 147, 217, 203, 225, 70, 206,
-                  235, 121, 172, 28, 180, 133, 237, 95, 91, 55, 145, 58, 140,
-                  245, 133, 126, 255, 0, 169
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "network_mint"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142,
-                13, 131, 11, 90, 19, 153, 218, 255, 16, 132, 4, 142, 123, 216,
-                219, 233, 248, 89
-              ]
-            }
-          }
-        },
-        {
-          "name": "rewards_refund",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "account",
-                "path": "refund"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  6, 221, 246, 225, 215, 101, 161, 147, 217, 203, 225, 70, 206,
-                  235, 121, 172, 28, 180, 133, 237, 95, 91, 55, 145, 58, 140,
-                  245, 133, 126, 255, 0, 169
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "network_mint"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142,
-                13, 131, 11, 90, 19, 153, 218, 255, 16, 132, 4, 142, 123, 216,
-                219, 233, 248, 89
-              ]
-            }
-          }
         },
         {
           "name": "task_queue_name_mapping",
           "writable": true
         },
         {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
-        },
-        {
-          "name": "associated_token_program",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
         }
       ],
       "args": []
@@ -160,10 +84,6 @@
           "writable": true
         },
         {
-          "name": "network_mint",
-          "relations": ["tuktuk_config"]
-        },
-        {
           "name": "update_authority"
         },
         {
@@ -176,46 +96,6 @@
         {
           "name": "task_queue_name_mapping",
           "writable": true
-        },
-        {
-          "name": "rewards_source",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "account",
-                "path": "task_queue"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  6, 221, 246, 225, 215, 101, 161, 147, 217, 203, 225, 70, 206,
-                  235, 121, 172, 28, 180, 133, 237, 95, 91, 55, 145, 58, 140,
-                  245, 133, 126, 255, 0, 169
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "network_mint"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142,
-                13, 131, 11, 90, 19, 153, 218, 255, 16, 132, 4, 142, 123, 216,
-                219, 233, 248, 89
-              ]
-            }
-          }
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "associated_token_program",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
         },
         {
           "name": "system_program",
@@ -245,9 +125,6 @@
         {
           "name": "approver",
           "signer": true
-        },
-        {
-          "name": "network_mint"
         },
         {
           "name": "authority"
@@ -325,7 +202,8 @@
       "discriminator": [52, 184, 39, 129, 126, 245, 176, 237],
       "accounts": [
         {
-          "name": "payer",
+          "name": "crank_turner",
+          "writable": true,
           "signer": true
         },
         {
@@ -341,19 +219,6 @@
         {
           "name": "task",
           "writable": true
-        },
-        {
-          "name": "rewards_source",
-          "writable": true,
-          "relations": ["task_queue"]
-        },
-        {
-          "name": "rewards_destination",
-          "writable": true
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
           "name": "system_program",
@@ -527,7 +392,7 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "crank_reward",
+            "name": "min_crank_reward",
             "type": "u64"
           },
           {
@@ -647,11 +512,11 @@
             "type": "pubkey"
           },
           {
-            "name": "rewards_source",
-            "type": "pubkey"
+            "name": "min_crank_reward",
+            "type": "u64"
           },
           {
-            "name": "default_crank_reward",
+            "name": "uncollected_protocol_fees",
             "type": "u64"
           },
           {
@@ -689,6 +554,10 @@
           {
             "name": "task_queue",
             "type": "pubkey"
+          },
+          {
+            "name": "rent_amount",
+            "type": "u64"
           },
           {
             "name": "crank_reward",
@@ -753,10 +622,6 @@
       "type": {
         "kind": "struct",
         "fields": [
-          {
-            "name": "network_mint",
-            "type": "pubkey"
-          },
           {
             "name": "min_task_queue_id",
             "type": "u32"

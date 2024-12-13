@@ -24,14 +24,7 @@ impl TimedTask {
             .entry(self.task_queue_key)
             .or_insert_with(HashSet::new);
 
-        let run_ix = run_ix(
-            rpc_client.as_ref(),
-            self.task_key,
-            payer.pubkey(),
-            payer.pubkey(),
-            task_ids,
-        )
-        .await?;
+        let run_ix = run_ix(rpc_client.as_ref(), self.task_key, payer.pubkey(), task_ids).await?;
         let ctx = ctx.clone();
         if let Some(run_ix) = run_ix {
             task_ids.extend(run_ix.free_task_ids.clone());

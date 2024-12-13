@@ -2,10 +2,9 @@ use std::{collections::HashSet, result::Result};
 
 use anchor_lang::{prelude::AccountMeta, InstructionData, ToAccountMetas};
 use solana_sdk::{instruction::Instruction, pubkey::Pubkey};
-use spl_associated_token_account::get_associated_token_address;
-use tuktuk_program::{tuktuk, TaskQueueV0, TaskV0, TuktukConfigV0};
+use tuktuk_program::{tuktuk, TaskQueueV0, TaskV0};
 
-use crate::{client::GetAnchorAccount, error::Error, tuktuk::config_key};
+use crate::{client::GetAnchorAccount, error::Error};
 
 fn next_available_task_ids_excluding_in_progress(
     task_bitmap: &[u8],
@@ -45,7 +44,6 @@ pub async fn run_ix(
     client: &impl GetAnchorAccount,
     task_key: Pubkey,
     payer: Pubkey,
-    rewards_destination: Pubkey,
     in_progress_task_ids: &HashSet<u16>,
 ) -> Result<Option<RunTaskResult>, Error> {
     let task: TaskV0 = client
@@ -64,11 +62,6 @@ pub async fn run_ix(
         task.free_tasks,
         in_progress_task_ids,
     );
-
-    let config_account = client
-        .anchor_account::<TuktukConfigV0>(&config_key())
-        .await?
-        .ok_or_else(|| Error::AccountNotFound)?;
 
     let transaction = &task.transaction;
 
@@ -110,16 +103,7 @@ pub async fn run_ix(
         rent_refund: task.rent_refund,
         task_queue: task.task_queue,
         task: task_key,
-        rewards_destination: get_associated_token_address(
-            &rewards_destination,
-            &config_account.network_mint,
-        ),
-        rewards_source: get_associated_token_address(
-            &task.task_queue,
-            &config_account.network_mint,
-        ),
-        token_program: spl_token::id(),
-        payer,
+        crank_turner: payer,
         system_program: solana_sdk::system_program::id(),
     };
 

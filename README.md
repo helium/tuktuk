@@ -10,7 +10,7 @@ Tuktuk is a permissionless crank service. If you have a Solana smart contract en
 
 Tuktuk's architecture allows for crankers to run a simple rust util that requires only a working solana RPC url and very minimal dependencies. There is no dependency on geyser, yellowstone, or any other indexing service.
 
-Creators of Task Queues set their payment per-crank turn in $HNT (Houlala Network Token). Crankers that run the tasks are paid out in $HNT for each crank they complete. There is a minimum deposit of 1 $HNT to create a task queue to discourage spam.
+Creators of Task Queues set their payment per-crank turn in $SOL. Crankers that run the tasks are paid out in $SOL for each crank they complete. There is a minimum deposit of 1 $SOL to create a task queue to discourage spam.
 
 ## Usage
 
@@ -18,7 +18,7 @@ Clone this repo and run `cargo build -p tuktuk-cli` to get the command line inte
 
 ### Create a task queue
 
-First, you'll need to get some $HNT to fund the task queue. You can get $HNT from [Jupiter Aggregator](https://www.jup.ag/swap/USDC-hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux).
+First, you'll need to get some $SOL to fund the task queue. You can get $SOL from [Jupiter Aggregator](https://www.jup.ag/swap/USDC-hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux).
 
 Next, create a task queue. A task queue has a default crank reward that will be used for all tasks in the queue, but each task can override this reward. Since crankers pay sol (and possibly priority fees) for each crank, the crank reward should be higher than the cost of a crank or crankers will not be incentivized to run your task.
 

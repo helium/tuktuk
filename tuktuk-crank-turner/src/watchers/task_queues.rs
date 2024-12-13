@@ -38,7 +38,7 @@ pub async fn get_and_watch_task_queues(
     for (task_queue_key, maybe_task_queue) in task_queues {
         let args = args.clone();
         if let Some(task_queue) = maybe_task_queue {
-            if task_queue.default_crank_reward >= args.min_crank_fee {
+            if task_queue.min_crank_reward >= args.min_crank_fee {
                 handle.start(SubsystemBuilder::new("task-queue-watcher", {
                     move |handle| get_and_watch_tasks(task_queue_key, task_queue, args, handle)
                 }));

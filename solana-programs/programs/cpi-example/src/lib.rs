@@ -17,7 +17,7 @@ pub mod cpi_example {
 
     use super::*;
 
-    pub fn schedule(ctx: Context<ScheduleFirst>, task_id: u16) -> Result<()> {
+    pub fn schedule(ctx: Context<Schedule>, task_id: u16) -> Result<()> {
         msg!("Scheduling with a PDA queue authority");
         let (compiled_tx, _) = compile_transaction(
             vec![Instruction {
@@ -92,9 +92,10 @@ pub struct RecurringTask<'info> {
 }
 
 #[derive(Accounts)]
-pub struct ScheduleFirst<'info> {
+pub struct Schedule<'info> {
     #[account(mut)]
-    pub task_queue: Account<'info, TaskQueueV0>,
+    /// CHECK: Don't need to parse this account, just using it in CPI
+    pub task_queue: UncheckedAccount<'info>,
     /// CHECK: Initialized in CPI
     #[account(mut)]
     pub task: AccountInfo<'info>,

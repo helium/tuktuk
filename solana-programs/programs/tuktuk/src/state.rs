@@ -3,10 +3,12 @@ use anchor_lang::prelude::*;
 #[account]
 #[derive(Default, InitSpace)]
 pub struct TuktukConfigV0 {
-    pub network_mint: Pubkey,
     pub min_task_queue_id: u32,
     pub next_task_queue_id: u32,
     pub authority: Pubkey,
+    // Minimum sol deposit to create a task queue.
+    // We want to minimize the number of task queues, as they are expensive to watch
+    // and we want to encourage people to use the same task queue for multiple tasks.
     pub min_deposit: u64,
     pub bump_seed: u8,
 }
@@ -18,8 +20,8 @@ pub struct TaskQueueV0 {
     pub id: u32,
     pub update_authority: Pubkey,
     pub queue_authority: Pubkey,
-    pub rewards_source: Pubkey,
-    pub default_crank_reward: u64,
+    pub min_crank_reward: u64,
+    pub uncollected_protocol_fees: u64,
     pub capacity: u16,
     pub created_at: i64,
     pub updated_at: i64,
@@ -94,6 +96,7 @@ pub struct TaskQueueNameMappingV0 {
 #[derive(Default)]
 pub struct TaskV0 {
     pub task_queue: Pubkey,
+    pub rent_amount: u64,
     pub crank_reward: u64,
     pub id: u16,
     pub trigger: TriggerV0,

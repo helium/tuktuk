@@ -15,6 +15,7 @@ import {
 } from "@helium/tuktuk-sdk";
 import {
   AccountMeta,
+  Keypair,
   PublicKey,
   SystemProgram,
   TransactionInstruction,
@@ -40,13 +41,11 @@ describe("tuktuk", () => {
   let program: Program<Tuktuk>;
   const provider = anchor.getProvider() as anchor.AnchorProvider;
   const me = provider.wallet.publicKey;
-  let hnt: PublicKey;
   const tuktukConfig = tuktukConfigKey()[0];
 
   beforeEach(async () => {
     await ensureIdls();
     program = await init(provider);
-    hnt = await createMint(provider, 8, me);
   });
 
   it("initializes a tuktuk config", async () => {
@@ -56,7 +55,6 @@ describe("tuktuk", () => {
           minDeposit: new anchor.BN(100000000),
         })
         .accounts({
-          networkMint: hnt,
           authority: me,
         })
         .rpc();
@@ -65,7 +63,6 @@ describe("tuktuk", () => {
     const tuktukConfigAcc = await program.account.tuktukConfigV0.fetch(
       tuktukConfig
     );
-    expect(tuktukConfigAcc.networkMint.toBase58()).to.eq(hnt.toBase58());
     expect(tuktukConfigAcc.authority.toBase58()).to.eq(me.toBase58());
   });
 
@@ -84,7 +81,6 @@ describe("tuktuk", () => {
             minDeposit: new anchor.BN(100000000),
           })
           .accounts({
-            networkMint: hnt,
             authority: me,
           })
           .rpc();
@@ -92,17 +88,10 @@ describe("tuktuk", () => {
       const config = await program.account.tuktukConfigV0.fetch(tuktukConfig);
       const nextTaskQueueId = config.nextTaskQueueId;
       taskQueue = taskQueueKey(tuktukConfig, nextTaskQueueId)[0];
-      await createAtaAndMint(
-        provider,
-        config.networkMint,
-        new anchor.BN(1000000000),
-        taskQueue
-      );
-      await createAtaAndMint(provider, config.networkMint, 1, me);
       await program.methods
         .initializeTaskQueueV0({
           name,
-          crankReward,
+          minCrankReward: crankReward,
           capacity: 100,
         })
         .accounts({
@@ -201,14 +190,24 @@ describe("tuktuk", () => {
       });
 
       it("allows running a task", async () => {
+        const crankTurner = Keypair.generate();
+        await sendInstructions(provider, [
+          SystemProgram.transfer({
+            fromPubkey: me,
+            toPubkey: crankTurner.publicKey,
+            lamports: 1000000000,
+          }),
+        ]);
         console.log(
           await (
             await runTask({
               program,
               task,
-              rewardsDestinationWallet: me,
+              crankTurner: crankTurner.publicKey,
             })
-          ).rpc({ skipPreflight: true })
+          )
+            .signers([crankTurner])
+            .rpc({ skipPreflight: true })
         );
       });
 
@@ -250,7 +249,6 @@ describe("tuktuk", () => {
             minDeposit: new anchor.BN(100000000),
           })
           .accounts({
-            networkMint: hnt,
             authority: me,
           })
           .rpc();
@@ -259,22 +257,10 @@ describe("tuktuk", () => {
       const config = await program.account.tuktukConfigV0.fetch(tuktukConfig);
       const nextTaskQueueId = config.nextTaskQueueId;
       taskQueue = taskQueueKey(tuktukConfig, nextTaskQueueId)[0];
-      await createAtaAndMint(
-        provider,
-        config.networkMint,
-        new anchor.BN(1000000000),
-        taskQueue
-      );
-       await createAtaAndMint(
-         provider,
-         config.networkMint,
-         new anchor.BN(1),
-         me
-       );
       await program.methods
         .initializeTaskQueueV0({
           name,
-          crankReward: new anchor.BN(10),
+          minCrankReward: new anchor.BN(10),
           capacity: 100,
         })
         .accounts({
@@ -290,7 +276,7 @@ describe("tuktuk", () => {
     it("allows scheduling a task", async () => {
       const freeTask1 = taskKey(taskQueue, 0)[0];
       const freeTask2 = taskKey(taskQueue, 1)[0];
-     
+      const crankTurner = Keypair.generate();
       const method = await cpiProgram.methods.schedule(0).accounts({
         taskQueue,
         task: freeTask1,
@@ -301,38 +287,34 @@ describe("tuktuk", () => {
           toPubkey: taskQueue!,
           lamports: 1000000000,
         }),
-      ]);
-      await sendInstructions(provider, [
+        SystemProgram.transfer({
+          fromPubkey: me,
+          toPubkey: crankTurner.publicKey,
+          lamports: 1000000000,
+        }),
         SystemProgram.transfer({
           fromPubkey: me,
           toPubkey: queueAuthority!,
           lamports: 1000000000,
         }),
       ]);
-       const tasks = new Array(50).fill(0).map((_, index) => index);
-       for (const taskId of tasks) {
-         (await cpiProgram.methods.schedule(taskId).accounts({
-            taskQueue,
-            task: taskKey(taskQueue, taskId)[0],
-          }).rpc()
-        );
-      }
-      // await method.rpc();
-      // await (
-      //   await runTask({
-      //     program,
-      //     task: freeTask1,
-      //     rewardsDestinationWallet: me,
-      //   })
-      // ).rpc({ skipPreflight: true });
-      // await sleep(1000);
-      // (
-      //   await runTask({
-      //     program,
-      //     task: freeTask2,
-      //     rewardsDestinationWallet: me,
-      //   })
-      // ).rpc({ skipPreflight: true });
+
+      await method.rpc({ skipPreflight: true });
+      await (
+        await runTask({
+          program,
+          task: freeTask1,
+          crankTurner: crankTurner.publicKey,
+        })
+      ).signers([crankTurner]).rpc({ skipPreflight: true });
+      await sleep(1000);
+      (
+        await runTask({
+          program,
+          task: freeTask2,
+          crankTurner: crankTurner.publicKey,
+        })
+      ).signers([crankTurner]).rpc({ skipPreflight: true });
     });
   });
 });

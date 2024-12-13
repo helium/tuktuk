@@ -1,4 +1,7 @@
-use anchor_lang::prelude::*;
+use anchor_lang::{
+    prelude::*,
+    system_program::{transfer, Transfer},
+};
 
 use crate::{
     error::ErrorCode,
@@ -44,6 +47,24 @@ pub struct QueueTaskV0<'info> {
 }
 
 pub fn handler(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
+    let crank_reward = args
+        .crank_reward
+        .unwrap_or(ctx.accounts.task_queue.min_crank_reward);
+    require_gte!(crank_reward, ctx.accounts.task_queue.min_crank_reward);
+
+    let rented_amount = ctx.accounts.task.to_account_info().lamports();
+
+    transfer(
+        CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.payer.to_account_info(),
+                to: ctx.accounts.task.to_account_info(),
+            },
+        ),
+        crank_reward,
+    )?;
+
     let mut transaction = args.transaction.clone();
     transaction
         .accounts
@@ -53,9 +74,8 @@ pub fn handler(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
         task_queue: ctx.accounts.task_queue.key(),
         id: args.id,
         trigger: args.trigger,
-        crank_reward: args
-            .crank_reward
-            .unwrap_or(ctx.accounts.task_queue.default_crank_reward),
+        rent_amount: rented_amount,
+        crank_reward,
         rent_refund: ctx.accounts.payer.key(),
         transaction,
         bump_seed: ctx.bumps.task,

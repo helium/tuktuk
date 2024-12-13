@@ -20,7 +20,6 @@ pub struct InitializeTuktukConfigV0<'info> {
       constraint = TESTING || approver.key() == APPROVER
     )]
     pub approver: Signer<'info>,
-    pub network_mint: Account<'info, Mint>,
     /// CHECK: Is getting set by signer
     pub authority: UncheckedAccount<'info>,
     #[account(
@@ -39,7 +38,6 @@ pub fn handler(
     args: InitializeTuktukConfigArgsV0,
 ) -> Result<()> {
     ctx.accounts.tuktuk_config.set_inner(TuktukConfigV0 {
-        network_mint: ctx.accounts.network_mint.key(),
         authority: ctx.accounts.authority.key(),
         bump_seed: ctx.bumps.tuktuk_config,
         min_task_queue_id: 0,

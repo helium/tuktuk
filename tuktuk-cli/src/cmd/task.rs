@@ -5,7 +5,7 @@ use clap::{Args, Subcommand};
 use clock::SYSVAR_CLOCK;
 use serde::Serialize;
 use solana_sdk::{pubkey::Pubkey, signer::Signer, transaction::Transaction};
-use tuktuk_program::{types::TriggerV0, TaskQueueV0, TaskV0, TuktukConfigV0};
+use tuktuk_program::{types::TriggerV0, TaskQueueV0, TaskV0};
 use tuktuk_sdk::prelude::*;
 
 use super::task_queue::TaskQueueArg;
@@ -46,11 +46,6 @@ impl TaskCmd {
                     .as_ref()
                     .anchor_accounts::<TaskV0>(&task_keys)
                     .await?;
-                let tuktuk_config: TuktukConfigV0 = client
-                    .as_ref()
-                    .anchor_account(&tuktuk::config_key())
-                    .await?
-                    .ok_or_else(|| anyhow!("Tuktuk config account not found"))?;
 
                 let clock_acc = client.rpc_client.get_account(&SYSVAR_CLOCK).await?;
                 let clock: solana_sdk::clock::Clock = bincode::deserialize(&clock_acc.data)?;
@@ -66,21 +61,13 @@ impl TaskCmd {
                                 client.as_ref(),
                                 pubkey,
                                 client.payer.pubkey(),
-                                client.payer.pubkey(),
                                 &HashSet::new(),
                             )
                             .await
                             {
                                 // Create and simulate the transaction
-                                // Ensure they have an associated token account for hnt
-                                let init_idemp = spl_associated_token_account::instruction::create_associated_token_account_idempotent(
-                                    &client.payer.pubkey(),
-                                    &client.payer.pubkey(),
-                                    &tuktuk_config.network_mint,
-                                    &spl_token::id(),
-                                );
                                 let mut tx = Transaction::new_with_payer(
-                                    &[init_idemp, run_ix.instruction],
+                                    &[run_ix.instruction],
                                     Some(&client.payer.pubkey()),
                                 );
                                 let recent_blockhash =

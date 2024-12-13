@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use clap::{Args, Subcommand};
 use serde::Serialize;
-use solana_sdk::{pubkey::Pubkey, signer::Signer};
+use solana_sdk::{pubkey::Pubkey, signer::Signer, system_instruction::transfer};
 use tuktuk::task_queue_name_mapping_key;
 use tuktuk_program::{TaskQueueV0, TuktukConfigV0};
 use tuktuk_sdk::prelude::*;
@@ -33,10 +33,14 @@ pub enum Cmd {
         capacity: u16,
         #[arg(long)]
         name: String,
-        #[arg(long, help = "Initial funding amount in bones")]
+        #[arg(
+            long,
+            help = "Initial funding amount in bones. Task queue funding is only required to pay extra rent for tasks that run as a result of other tasks.",
+            default_value = "0"
+        )]
         funding_amount: u64,
         #[arg(long, help = "Default crank reward in bones")]
-        crank_reward: u64,
+        min_crank_reward: u64,
     },
     Get {
         #[command(flatten)]
@@ -88,43 +92,13 @@ impl TaskQueueArg {
 
 impl TaskQueueCmd {
     async fn fund_task_queue(client: &CliClient, task_queue_key: &Pubkey, amount: u64) -> Result {
-        let tuktuk_config: TuktukConfigV0 = client
-            .as_ref()
-            .anchor_account(&tuktuk::config_key())
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("Tuktuk config account not found"))?;
-
-        let task_queue_ata = spl_associated_token_account::get_associated_token_address(
-            task_queue_key,
-            &tuktuk_config.network_mint,
-        );
-        let payer_ata = spl_associated_token_account::get_associated_token_address(
-            &client.payer.pubkey(),
-            &tuktuk_config.network_mint,
-        );
-
-        let init_idemp =
-            spl_associated_token_account::instruction::create_associated_token_account_idempotent(
-                &client.payer.pubkey(),
-                task_queue_key,
-                &tuktuk_config.network_mint,
-                &spl_token::id(),
-            );
-
-        let ix = spl_token::instruction::transfer(
-            &spl_token::id(),
-            &payer_ata,
-            &task_queue_ata,
-            &client.payer.pubkey(),
-            &[],
-            amount,
-        )?;
+        let ix = transfer(&client.payer.pubkey(), &task_queue_key, amount);
 
         send_instructions(
             client.rpc_client.clone(),
             &client.payer,
             client.opts.ws_url().as_str(),
-            vec![init_idemp, ix],
+            vec![ix],
             &[],
         )
         .await
@@ -137,7 +111,7 @@ impl TaskQueueCmd {
                 update_authority,
                 capacity,
                 name,
-                crank_reward,
+                min_crank_reward,
                 funding_amount,
             } => {
                 let client = opts.client().await?;
@@ -147,7 +121,7 @@ impl TaskQueueCmd {
                     client.payer.pubkey(),
                     tuktuk_program::types::InitializeTaskQueueArgsV0 {
                         capacity: *capacity,
-                        crank_reward: *crank_reward,
+                        min_crank_reward: *min_crank_reward,
                         name: name.clone(),
                     },
                     *queue_authority,
@@ -183,19 +157,7 @@ impl TaskQueueCmd {
                     .anchor_account(&key)
                     .await?
                     .ok_or_else(|| anyhow::anyhow!("Task queue not found: {}", key))?;
-                let config_account: TuktukConfigV0 = client
-                    .as_ref()
-                    .anchor_account(&tuktuk::config_key())
-                    .await?
-                    .ok_or_else(|| anyhow::anyhow!("Tuktuk config account not found"))?;
-                let task_queue_ata = spl_associated_token_account::get_associated_token_address(
-                    &key,
-                    &config_account.network_mint,
-                );
-                let task_queue_balance = client
-                    .rpc_client
-                    .get_token_account_balance(&task_queue_ata)
-                    .await?;
+                let task_queue_balance = client.rpc_client.get_balance(&key).await?;
 
                 print_json(&TaskQueue {
                     pubkey: key,
@@ -204,8 +166,8 @@ impl TaskQueueCmd {
                     capacity: task_queue.capacity,
                     queue_authority: task_queue.queue_authority,
                     update_authority: task_queue.update_authority,
-                    default_crank_reward: task_queue.default_crank_reward,
-                    balance: task_queue_balance.amount,
+                    min_crank_reward: task_queue.min_crank_reward,
+                    balance: task_queue_balance,
                 })?;
             }
             Cmd::Get { task_queue } => {
@@ -220,19 +182,8 @@ impl TaskQueueCmd {
                     .anchor_account(&task_queue_key)
                     .await?
                     .ok_or_else(|| anyhow::anyhow!("Task queue not found: {}", task_queue_key))?;
-                let config_account: TuktukConfigV0 = client
-                    .rpc_client
-                    .anchor_account(&tuktuk::config_key())
-                    .await?
-                    .ok_or_else(|| anyhow::anyhow!("Tuktuk config account not found"))?;
-                let task_queue_ata = spl_associated_token_account::get_associated_token_address(
-                    &task_queue_key,
-                    &config_account.network_mint,
-                );
-                let task_queue_balance = client
-                    .rpc_client
-                    .get_token_account_balance(&task_queue_ata)
-                    .await?;
+
+                let task_queue_balance = client.rpc_client.get_balance(&task_queue_key).await?;
                 let serializable = TaskQueue {
                     pubkey: task_queue_key,
                     id: task_queue.id,
@@ -240,8 +191,8 @@ impl TaskQueueCmd {
                     queue_authority: task_queue.queue_authority,
                     update_authority: task_queue.update_authority,
                     name: task_queue.name,
-                    default_crank_reward: task_queue.default_crank_reward,
-                    balance: task_queue_balance.amount,
+                    min_crank_reward: task_queue.min_crank_reward,
+                    balance: task_queue_balance,
                 };
                 print_json(&serializable)?;
             }
@@ -296,6 +247,6 @@ pub struct TaskQueue {
     #[serde(with = "serde_pubkey")]
     pub update_authority: Pubkey,
     pub name: String,
-    pub default_crank_reward: u64,
-    pub balance: String,
+    pub min_crank_reward: u64,
+    pub balance: u64,
 }

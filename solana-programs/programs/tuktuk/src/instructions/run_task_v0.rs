@@ -3,12 +3,12 @@ use anchor_lang::{
     solana_program::{self, instruction::Instruction},
     system_program,
 };
-use anchor_spl::token::{transfer, Token, Transfer};
 
 use crate::{
     error::ErrorCode,
-    state::{CompiledTransactionV0, TaskQueueV0, TaskV0, TriggerV0},
-    task_queue_seeds, task_seeds,
+    resize_to_fit::IgnoreWriter,
+    state::{CompiledTransactionV0, TaskQueueV0, TaskV0, TriggerV0, TuktukConfigV0},
+    task_seeds,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
@@ -35,16 +35,12 @@ pub struct RunTaskArgsV0 {
 
 #[derive(Accounts)]
 pub struct RunTaskV0<'info> {
-    // Having this here allows us to make sure the payer isn't used in
-    // any of the sub instructions
-    pub payer: Signer<'info>,
+    #[account(mut)]
+    pub crank_turner: Signer<'info>,
     /// CHECK: Via has one
     #[account(mut)]
     pub rent_refund: AccountInfo<'info>,
-    #[account(
-        mut,
-        has_one = rewards_source,
-    )]
+    #[account(mut)]
     pub task_queue: Account<'info, TaskQueueV0>,
     #[account(
         mut,
@@ -54,13 +50,6 @@ pub struct RunTaskV0<'info> {
         constraint = task.trigger.is_active()? @ ErrorCode::TaskNotReady,
     )]
     pub task: Box<Account<'info, TaskV0>>,
-    /// CHECK: Via CPI
-    #[account(mut)]
-    pub rewards_source: AccountInfo<'info>,
-    /// CHECK: Via CPI
-    #[account(mut)]
-    pub rewards_destination: AccountInfo<'info>,
-    pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }
 
@@ -100,7 +89,7 @@ pub fn handler<'info>(
     {
         require_neq!(
             account.key(),
-            ctx.accounts.payer.key(),
+            ctx.accounts.crank_turner.key(),
             ErrorCode::InvalidAccount
         );
         let signers_end = transaction.num_ro_signers + transaction.num_rw_signers;
@@ -171,18 +160,22 @@ pub fn handler<'info>(
         }
     }
 
-    transfer(
-        CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
-            Transfer {
-                from: ctx.accounts.rewards_source.to_account_info(),
-                to: ctx.accounts.rewards_destination.to_account_info(),
-                authority: ctx.accounts.task_queue.to_account_info(),
-            },
-            &[task_queue_seeds!(ctx.accounts.task_queue)],
-        ),
-        ctx.accounts.task.crank_reward,
-    )?;
+    let reward = ctx.accounts.task.crank_reward;
+    // 5% fee
+    let protocol_fee = reward.checked_mul(5).unwrap().checked_div(100).unwrap();
+    let task_fee = reward.saturating_sub(protocol_fee);
+    **ctx
+        .accounts
+        .task
+        .to_account_info()
+        .try_borrow_mut_lamports()? -= reward;
+    **ctx.accounts.crank_turner.try_borrow_mut_lamports()? += task_fee;
+    **ctx
+        .accounts
+        .task_queue
+        .to_account_info()
+        .try_borrow_mut_lamports()? += protocol_fee;
+    ctx.accounts.task_queue.uncollected_protocol_fees += protocol_fee;
 
     let mut free_task_ids = args.free_task_ids.clone();
     // Reverse so we're popping from the end
@@ -202,22 +195,27 @@ pub fn handler<'info>(
         require_eq!(key, free_task_account.key(), ErrorCode::InvalidTaskPDA);
 
         // Initialize the task
-        let task_data = TaskV0 {
+        let mut task_data = TaskV0 {
             task_queue: task_queue_key,
             id: task_id, // Use the provided task_id instead
             rent_refund: task_queue_key,
             trigger: task.trigger.clone(),
             transaction: task.transaction.clone(),
-            crank_reward: task.crank_reward.unwrap_or(task_queue.default_crank_reward),
+            crank_reward: task.crank_reward.unwrap_or(task_queue.min_crank_reward),
             bump_seed,
             queued_at: Clock::get()?.unix_timestamp,
             free_tasks: task.free_tasks,
+            rent_amount: 0,
         };
 
         ctx.accounts.task_queue.set_task_exists(task_data.id, true);
 
-        let task_size = ctx.accounts.task.to_account_info().data_len();
+        let writer = &mut IgnoreWriter { total: 0 };
+        task_data.try_serialize(writer)?;
+        // Descriminator + extra padding
+        let task_size = writer.total + 8 + 60;
         let lamports = Rent::get()?.minimum_balance(task_size);
+        task_data.rent_amount = lamports;
 
         // Create and allocate the account
         let task_queue_info = ctx.accounts.task_queue.to_account_info();
@@ -250,8 +248,20 @@ pub fn handler<'info>(
             ctx.program_id,
         )?;
 
-        **task_queue_info.try_borrow_mut_lamports()? -= lamports;
-        **free_task_account.try_borrow_mut_lamports()? += lamports;
+        let task_info = ctx.accounts.task.to_account_info();
+        let task_remaining_lamports = task_info.lamports();
+        let lamports_from_task = task_remaining_lamports.min(lamports);
+        let lamports_needed_from_queue = lamports.saturating_sub(lamports_from_task);
+
+        if lamports_from_task > 0 {
+            **task_info.try_borrow_mut_lamports()? -= lamports_from_task;
+            **free_task_account.try_borrow_mut_lamports()? += lamports_from_task;
+        }
+
+        if lamports_needed_from_queue > 0 {
+            **task_queue_info.try_borrow_mut_lamports()? -= lamports_needed_from_queue;
+            **free_task_account.try_borrow_mut_lamports()? += lamports_needed_from_queue;
+        }
 
         let mut data = free_task_account.try_borrow_mut_data()?;
         task_data.try_serialize(&mut &mut data[..])?;

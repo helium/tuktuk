@@ -5,13 +5,13 @@ import {
   Program,
 } from "@coral-xyz/anchor";
 import { Tuktuk } from "@helium/tuktuk-idls/lib/types/tuktuk";
+import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import {
   AccountMeta,
   PublicKey,
   TransactionInstruction,
 } from "@solana/web3.js";
-import { customSignerKey, taskKey, tuktukConfigKey } from "./pdas";
-import { getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { taskKey, tuktukConfigKey } from "./pdas";
 
 export type CompiledTransactionV0 =
   IdlTypes<Tuktuk>["compiledTransactionV0"];
@@ -142,21 +142,18 @@ function nextAvailableTaskIds(taskBitmap: Buffer, n: number): number[] {
 export async function runTask({
   program,
   task,
-  rewardsDestinationWallet,
+  crankTurner,
 }: {
   program: Program<Tuktuk>;
   task: PublicKey;
-  rewardsDestinationWallet: PublicKey;
+  crankTurner: PublicKey;
 }) {
   const {
     taskQueue,
     freeTasks,
-    transaction: { numRwSigners, numRoSigners, numRw, accounts, signerSeeds },
+    transaction: { numRwSigners, numRoSigners, numRw, accounts },
   } = await program.account.taskV0.fetch(task);
   const taskQueueAcc = await program.account.taskQueueV0.fetch(taskQueue);
-  const configAcc = await program.account.tuktukConfigV0.fetch(
-    tuktukConfigKey()[0]
-  );
 
   const remainingAccounts = accounts.map((acc, index) => {
     return {
@@ -184,10 +181,7 @@ export async function runTask({
     })
     .accounts({
       task,
-      rewardsDestination: getAssociatedTokenAddressSync(
-        configAcc.networkMint,
-        rewardsDestinationWallet
-      ),
+      crankTurner,
     })
     .remainingAccounts([...remainingAccounts, ...freeTasksAccounts]);
 }
