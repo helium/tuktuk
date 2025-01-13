@@ -11,16 +11,27 @@ pub struct RunTaskReturnV0 {
     pub tasks: Vec<TaskReturnV0>,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct TaskReturnV0 {
     pub trigger: TriggerV0,
     // Note that you can pass accounts from the remaining accounts to reduce
     // the size of the transaction
-    pub transaction: CompiledTransactionV0,
+    pub transaction: TransactionSourceV0,
     pub crank_reward: Option<u64>,
     // Number of free tasks to append to the end of the accounts. This allows
     // you to easily add new tasks
     pub free_tasks: u8,
+}
+
+impl Default for TaskReturnV0 {
+    fn default() -> Self {
+        TaskReturnV0 {
+            trigger: TriggerV0::Now,
+            transaction: TransactionSourceV0::CompiledV0(CompiledTransactionV0::default()),
+            crank_reward: None,
+            free_tasks: 0,
+        }
+    }
 }
 
 #[allow(clippy::derivable_impls)]
@@ -36,7 +47,8 @@ pub use self::{
         client, types,
     },
     types::{
-        CompiledInstructionV0, CompiledTransactionV0, InitializeTuktukConfigArgsV0, TriggerV0,
+        CompiledInstructionV0, CompiledTransactionV0, InitializeTuktukConfigArgsV0,
+        TransactionSourceV0, TriggerV0,
     },
 };
 

@@ -1,5 +1,5 @@
-use solana_client::pubsub_client::PubsubClientError;
-use solana_sdk::program_error::ProgramError;
+use solana_client::{client_error::reqwest, pubsub_client::PubsubClientError};
+use solana_sdk::{program_error::ProgramError, pubkey::ParsePubkeyError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -24,6 +24,14 @@ pub enum Error {
     TooManyTasks,
     #[error("Price arithmetic error")]
     PriceArithmeticError,
+    #[error("Failed to fetch remote transaction")]
+    FetchRemoteTransactionError(#[from] reqwest::Error),
+    #[error("Failed to decode base64")]
+    DecodeBase64Error(#[from] base64::DecodeError),
+    #[error("Invalid transaction: {0}")]
+    InvalidTransaction(&'static str),
+    #[error("Failed to parse pubkey: {0}")]
+    ParsePubkeyError(#[from] ParsePubkeyError),
 }
 
 impl From<solana_client::client_error::ClientError> for Error {

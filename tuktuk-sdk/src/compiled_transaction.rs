@@ -1,8 +1,17 @@
-use std::{collections::HashSet, result::Result};
+use std::{collections::HashSet, result::Result, str::FromStr};
 
 use anchor_lang::{prelude::AccountMeta, InstructionData, ToAccountMetas};
-use solana_sdk::{instruction::Instruction, pubkey::Pubkey};
-use tuktuk_program::{tuktuk, TaskQueueV0, TaskV0};
+use base64::{prelude::BASE64_STANDARD, Engine};
+use bytemuck::{bytes_of, Pod, Zeroable};
+use serde::Deserialize;
+use solana_client::client_error::reqwest;
+use solana_sdk::{
+    ed25519_instruction::{DATA_START, PUBKEY_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE},
+    ed25519_program,
+    instruction::Instruction,
+    pubkey::Pubkey,
+};
+use tuktuk_program::{tuktuk, TaskQueueV0, TaskV0, TransactionSourceV0};
 
 use crate::{client::GetAnchorAccount, error::Error};
 
@@ -36,7 +45,7 @@ fn next_available_task_ids_excluding_in_progress(
 }
 
 pub struct RunTaskResult {
-    pub instruction: Instruction,
+    pub instructions: Vec<Instruction>,
     pub free_task_ids: Vec<u16>,
 }
 
@@ -65,27 +74,6 @@ pub async fn run_ix(
 
     let transaction = &task.transaction;
 
-    let remaining_accounts: Vec<AccountMeta> = task
-        .transaction
-        .accounts
-        .iter()
-        .enumerate()
-        .map(|(index, acc)| {
-            let is_writable = index < transaction.num_rw_signers as usize
-                || (index >= (transaction.num_rw_signers + transaction.num_ro_signers) as usize
-                    && index
-                        < (transaction.num_rw_signers
-                            + transaction.num_ro_signers
-                            + transaction.num_rw) as usize);
-
-            AccountMeta {
-                pubkey: *acc,
-                is_signer: false,
-                is_writable,
-            }
-        })
-        .collect();
-
     let free_tasks = next_available
         .iter()
         .map(|id| AccountMeta {
@@ -99,32 +87,206 @@ pub async fn run_ix(
         })
         .collect::<Vec<_>>();
 
-    let ix_accounts = tuktuk_program::client::accounts::RunTaskV0 {
-        rent_refund: task.rent_refund,
-        task_queue: task.task_queue,
-        task: task_key,
-        crank_turner: payer,
-        system_program: solana_sdk::system_program::id(),
-    };
+    match transaction {
+        TransactionSourceV0::CompiledV0(transaction) => {
+            let remaining_accounts: Vec<AccountMeta> = transaction
+                .accounts
+                .iter()
+                .enumerate()
+                .map(|(index, acc)| {
+                    let is_writable = index < transaction.num_rw_signers as usize
+                        || (index
+                            >= (transaction.num_rw_signers + transaction.num_ro_signers) as usize
+                            && index
+                                < (transaction.num_rw_signers
+                                    + transaction.num_ro_signers
+                                    + transaction.num_rw)
+                                    as usize);
 
-    let all_accounts = [
-        ix_accounts.to_account_metas(None),
+                    AccountMeta {
+                        pubkey: *acc,
+                        is_signer: false,
+                        is_writable,
+                    }
+                })
+                .collect();
+
+            let ix_accounts = tuktuk_program::client::accounts::RunTaskV0 {
+                rent_refund: task.rent_refund,
+                task_queue: task.task_queue,
+                task: task_key,
+                crank_turner: payer,
+                system_program: solana_sdk::system_program::id(),
+                sysvar_instructions: solana_sdk::sysvar::instructions::id(),
+            };
+
+            let all_accounts = [
+                ix_accounts.to_account_metas(None),
+                remaining_accounts,
+                free_tasks,
+            ]
+            .concat();
+
+            Ok(Some(RunTaskResult {
+                instructions: vec![Instruction {
+                    program_id: tuktuk_program::ID,
+                    accounts: all_accounts,
+                    data: tuktuk::client::args::RunTaskV0 {
+                        args: tuktuk_program::types::RunTaskArgsV0 {
+                            free_task_ids: next_available.clone(),
+                        },
+                    }
+                    .data(),
+                }],
+                free_task_ids: next_available,
+            }))
+        }
+        TransactionSourceV0::RemoteV0 { signer, url } => {
+            // Fetch the remote transaction
+            let remote_transaction =
+                fetch_remote_transaction(&task_key, &task.queued_at, url, &payer).await?;
+            let message = remote_transaction.transaction;
+            let signature = remote_transaction.signature;
+            let mut instruction_data = Vec::with_capacity(
+                DATA_START
+                    .saturating_add(SIGNATURE_SERIALIZED_SIZE)
+                    .saturating_add(PUBKEY_SERIALIZED_SIZE)
+                    .saturating_add(message.len()),
+            );
+
+            let num_signatures: u8 = 1;
+            let public_key_offset = DATA_START;
+            let signature_offset = public_key_offset.saturating_add(PUBKEY_SERIALIZED_SIZE);
+            let message_data_offset = signature_offset.saturating_add(SIGNATURE_SERIALIZED_SIZE);
+
+            // add padding byte so that offset structure is aligned
+            instruction_data.extend_from_slice(bytes_of(&[num_signatures, 0]));
+
+            let offsets = Ed25519SignatureOffsets {
+                signature_offset: signature_offset as u16,
+                signature_instruction_index: u16::MAX,
+                public_key_offset: public_key_offset as u16,
+                public_key_instruction_index: u16::MAX,
+                message_data_offset: message_data_offset as u16,
+                message_data_size: message.len() as u16,
+                message_instruction_index: u16::MAX,
+            };
+
+            instruction_data.extend_from_slice(bytes_of(&offsets));
+            instruction_data.extend_from_slice(signer.to_bytes().as_ref());
+            instruction_data.extend_from_slice(&signature);
+            instruction_data.extend_from_slice(&message);
+
+            Ok(Some(RunTaskResult {
+                instructions: vec![
+                    Instruction {
+                        program_id: ed25519_program::ID,
+                        accounts: vec![],
+                        data: instruction_data,
+                    },
+                    Instruction {
+                        program_id: tuktuk_program::ID,
+                        accounts: [
+                            tuktuk::client::accounts::RunTaskV0 {
+                                rent_refund: task.rent_refund,
+                                task_queue: task.task_queue,
+                                task: task_key,
+                                crank_turner: payer,
+                                system_program: solana_sdk::system_program::id(),
+                                sysvar_instructions: solana_sdk::sysvar::instructions::id(),
+                            }
+                            .to_account_metas(None),
+                            remote_transaction.remaining_accounts,
+                            free_tasks,
+                        ]
+                        .concat(),
+                        data: tuktuk::client::args::RunTaskV0 {
+                            args: tuktuk_program::types::RunTaskArgsV0 {
+                                free_task_ids: next_available.clone(),
+                            },
+                        }
+                        .data(),
+                    },
+                ],
+                free_task_ids: next_available,
+            }))
+        }
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone, Zeroable, Pod, Eq, PartialEq)]
+#[repr(C)]
+pub struct Ed25519SignatureOffsets {
+    signature_offset: u16,             // offset to ed25519 signature of 64 bytes
+    signature_instruction_index: u16,  // instruction index to find signature
+    public_key_offset: u16,            // offset to public key of 32 bytes
+    public_key_instruction_index: u16, // instruction index to find public key
+    message_data_offset: u16,          // offset to start of message data
+    message_data_size: u16,            // size of message data
+    message_instruction_index: u16,    // index of instruction data to get message data
+}
+
+#[derive(Deserialize)]
+struct RemoteAccountMeta {
+    pubkey: String,
+    is_writable: bool,
+    is_signer: bool,
+}
+
+#[derive(Deserialize)]
+struct RemoteResponse {
+    transaction: String,
+    remaining_accounts: Vec<RemoteAccountMeta>,
+    signature: String,
+}
+
+struct FetchedRemoteResponse {
+    transaction: Vec<u8>,
+    remaining_accounts: Vec<AccountMeta>,
+    signature: Vec<u8>,
+}
+
+async fn fetch_remote_transaction(
+    task: &Pubkey,
+    task_queued_at: &i64,
+    url: &str,
+    payer: &Pubkey,
+) -> Result<FetchedRemoteResponse, Error> {
+    let client = reqwest::Client::new();
+    let response = client
+        .post(url)
+        .json(&serde_json::json!({
+            "payer": payer.to_string(),
+            "task": task.to_string(),
+            "task_queued_at": task_queued_at.to_string()
+        }))
+        .send()
+        .await?;
+
+    let json: RemoteResponse = response.json().await?;
+
+    let remaining_accounts = json
+        .remaining_accounts
+        .into_iter()
+        .map(|acc| {
+            Ok(AccountMeta {
+                pubkey: Pubkey::from_str(&acc.pubkey).map_err(Error::from)?,
+                is_writable: acc.is_writable,
+                is_signer: acc.is_signer,
+            })
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
+
+    let transaction_bytes = BASE64_STANDARD
+        .decode(&json.transaction)
+        .map_err(Error::from)?;
+    let signature_bytes = BASE64_STANDARD
+        .decode(&json.signature)
+        .map_err(Error::from)?;
+
+    Ok(FetchedRemoteResponse {
+        transaction: transaction_bytes,
         remaining_accounts,
-        free_tasks,
-    ]
-    .concat();
-
-    Ok(Some(RunTaskResult {
-        instruction: Instruction {
-            program_id: tuktuk_program::ID,
-            accounts: all_accounts,
-            data: tuktuk::client::args::RunTaskV0 {
-                args: tuktuk_program::types::RunTaskArgsV0 {
-                    free_task_ids: next_available.clone(),
-                },
-            }
-            .data(),
-        },
-        free_task_ids: next_available,
-    }))
+        signature: signature_bytes,
+    })
 }

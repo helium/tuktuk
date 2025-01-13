@@ -27,6 +27,9 @@ async-trait = { version = "0" }
 spl-associated-token-account = { workspace = true }
 spl-token = { workspace = true }
 tuktuk-program = { path = "../tuktuk-program" }
+base64 = "0.22.1"
+serde_json = "1.0.135"
+bytemuck = "1.21.0"
 
 [features]
 default = []

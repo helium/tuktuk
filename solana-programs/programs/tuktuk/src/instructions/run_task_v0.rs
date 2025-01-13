@@ -1,14 +1,21 @@
 use anchor_lang::{
     prelude::*,
-    solana_program::{self, instruction::Instruction},
+    solana_program::{
+        self,
+        hash::hash,
+        instruction::Instruction,
+        sysvar::instructions::{
+            load_current_index_checked, load_instruction_at_checked, ID as IX_ID,
+        },
+    },
     system_program,
 };
 
 use crate::{
     error::ErrorCode,
     resize_to_fit::IgnoreWriter,
-    state::{CompiledTransactionV0, TaskQueueV0, TaskV0, TriggerV0, TuktukConfigV0},
-    task_seeds,
+    state::{CompiledTransactionV0, TaskQueueV0, TaskV0, TransactionSourceV0, TriggerV0},
+    task_seeds, utils,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
@@ -17,11 +24,22 @@ pub struct RunTaskReturnV0 {
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
+pub struct RemoteTaskTransactionV0 {
+    pub task: Pubkey,
+    pub task_queued_at: i64,
+    pub remaining_accounts_hash: [u8; 32],
+    pub num_accounts: u8,
+    // NOTE: The `.accounts` should be empty here, it's instead done via
+    // remaining_accounts_hash
+    pub transaction: CompiledTransactionV0,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
 pub struct TaskReturnV0 {
     pub trigger: TriggerV0,
     // Note that you can pass accounts from the remaining accounts to reduce
     // the size of the transaction
-    pub transaction: CompiledTransactionV0,
+    pub transaction: TransactionSourceV0,
     pub crank_reward: Option<u64>,
     // Number of free tasks to append to the end of the accounts. This allows
     // you to easily add new tasks
@@ -51,6 +69,13 @@ pub struct RunTaskV0<'info> {
     )]
     pub task: Box<Account<'info, TaskV0>>,
     pub system_program: Program<'info, System>,
+
+    /// CHECK: The address check is needed because otherwise
+    /// the supplied Sysvar could be anything else.
+    /// The Instruction Sysvar has not been implemented
+    /// in the Anchor framework yet, so this is the safe approach.
+    #[account(address = IX_ID)]
+    pub sysvar_instructions: AccountInfo<'info>,
 }
 
 pub fn handler<'info>(
@@ -58,8 +83,51 @@ pub fn handler<'info>(
     args: RunTaskArgsV0,
 ) -> Result<()> {
     ctx.accounts.task_queue.updated_at = Clock::get()?.unix_timestamp;
-    let transaction = &ctx.accounts.task.transaction;
-
+    let remaining_accounts = ctx.remaining_accounts;
+    let transaction_source = ctx.accounts.task.transaction.clone();
+    let transaction = match transaction_source {
+        TransactionSourceV0::CompiledV0(compiled_tx) => compiled_tx,
+        TransactionSourceV0::RemoteV0 { signer, .. } => {
+            let ix_index =
+                load_current_index_checked(&ctx.accounts.sysvar_instructions.to_account_info())?;
+            let ix: Instruction = load_instruction_at_checked(
+                ix_index.checked_sub(1).unwrap() as usize,
+                &ctx.accounts.sysvar_instructions,
+            )?;
+            let data = utils::ed25519::verify_ed25519_ix(&ix, signer.to_bytes().as_slice())?;
+            let mut remote_tx = RemoteTaskTransactionV0::deserialize(&mut data.as_slice())?;
+            require_eq!(
+                remote_tx.task,
+                ctx.accounts.task.key(),
+                ErrorCode::InvalidTask
+            );
+            require_eq!(
+                remote_tx.task_queued_at,
+                ctx.accounts.task.queued_at,
+                ErrorCode::InvalidTaskQueuedAt
+            );
+            // Verify all the remaining accounts and update the remote_tx.transaction.accounts
+            let remaining_accounts_hash = hash(
+                &remaining_accounts[..remote_tx.num_accounts as usize]
+                    .iter()
+                    .map(|acc| {
+                        let mut data = Vec::with_capacity(34); // 32 bytes for pubkey + 2 bytes for flags
+                        data.extend_from_slice(&acc.key.to_bytes());
+                        data.push(if acc.is_writable { 1 } else { 0 });
+                        data.push(if acc.is_signer { 1 } else { 0 });
+                        remote_tx.transaction.accounts.push(*acc.key);
+                        data
+                    })
+                    .collect::<Vec<_>>()
+                    .concat(),
+            );
+            require!(
+                remaining_accounts_hash.to_bytes() == remote_tx.remaining_accounts_hash,
+                ErrorCode::InvalidRemainingAccountsHash
+            );
+            remote_tx.transaction
+        }
+    };
     let prefix: Vec<&[u8]> = vec![b"custom", ctx.accounts.task.task_queue.as_ref()];
     // Need to convert to &[&[u8]] because invoke_signed expects that
     let signers_inner_u8: Vec<Vec<&[u8]>> = transaction
@@ -83,7 +151,7 @@ pub fn handler<'info>(
         .collect::<std::collections::HashSet<Pubkey>>();
 
     // Validate txn
-    for (index, account) in ctx.remaining_accounts[..transaction.accounts.len()]
+    for (index, account) in remaining_accounts[..transaction.accounts.len()]
         .iter()
         .enumerate()
     {
@@ -123,7 +191,7 @@ pub fn handler<'info>(
     let free_tasks_start_index = transaction.accounts.len();
     for i in 0..ctx.accounts.task.free_tasks {
         let free_task_index = free_tasks_start_index + i as usize;
-        let free_task_account = &ctx.remaining_accounts[free_task_index];
+        let free_task_account = &remaining_accounts[free_task_index];
         require!(
             free_task_account.data_is_empty(),
             ErrorCode::FreeTaskAccountNotEmpty
@@ -136,7 +204,7 @@ pub fn handler<'info>(
         let mut account_infos = Vec::new();
 
         for i in &ix.accounts {
-            let acct = ctx.remaining_accounts[*i as usize].clone();
+            let acct = remaining_accounts[*i as usize].clone();
             accounts.push(acct.clone());
             account_infos.push(AccountMeta {
                 pubkey: acct.key(),
@@ -147,7 +215,7 @@ pub fn handler<'info>(
 
         solana_program::program::invoke_signed(
             &Instruction {
-                program_id: *ctx.remaining_accounts[ix.program_id_index as usize].key,
+                program_id: *remaining_accounts[ix.program_id_index as usize].key,
                 accounts: account_infos,
                 data: ix.data.clone(),
             },
@@ -155,7 +223,9 @@ pub fn handler<'info>(
             &signers,
         )?;
         if let Some((_, return_data)) = solana_program::program::get_return_data() {
+            msg!("Return data: {:?}", return_data);
             let queue_task_return = RunTaskReturnV0::deserialize(&mut return_data.as_slice())?;
+            msg!("Parsed");
             tasks.extend(queue_task_return.tasks);
         }
     }
@@ -183,7 +253,7 @@ pub fn handler<'info>(
 
     for (i, task) in tasks.iter().enumerate() {
         let free_task_index = free_tasks_start_index + i;
-        let free_task_account = &ctx.remaining_accounts[free_task_index];
+        let free_task_account = &remaining_accounts[free_task_index];
         let task_queue = &mut ctx.accounts.task_queue;
         let task_queue_key = task_queue.key();
 

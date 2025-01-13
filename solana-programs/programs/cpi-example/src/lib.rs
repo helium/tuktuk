@@ -12,7 +12,7 @@ pub mod cpi_example {
             types::TriggerV0,
         },
         types::QueueTaskArgsV0,
-        RunTaskReturnV0, TaskReturnV0,
+        RunTaskReturnV0, TaskReturnV0, TransactionSourceV0,
     };
 
     use super::*;
@@ -47,7 +47,7 @@ pub mod cpi_example {
             ),
             QueueTaskArgsV0 {
                 trigger: TriggerV0::Now,
-                transaction: compiled_tx,
+                transaction: TransactionSourceV0::CompiledV0(compiled_tx),
                 crank_reward: None,
                 free_tasks: 1,
                 id: task_id,
@@ -77,7 +77,7 @@ pub mod cpi_example {
         Ok(RunTaskReturnV0 {
             tasks: vec![TaskReturnV0 {
                 trigger: TriggerV0::Timestamp(Clock::get()?.unix_timestamp + 1),
-                transaction: compiled_tx,
+                transaction: TransactionSourceV0::CompiledV0(compiled_tx),
                 crank_reward: None,
                 free_tasks: 1,
             }],

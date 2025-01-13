@@ -5,6 +5,7 @@ pub mod instructions;
 pub use instructions::*;
 pub mod resize_to_fit;
 pub mod state;
+pub mod utils;
 
 declare_id!("tuktukUrfhXT6ZT77QTU8RQtvgL967uRuVagWF57zVA");
 

@@ -29,8 +29,7 @@ impl TimedTask {
         if let Some(run_ix) = run_ix {
             task_ids.extend(run_ix.free_task_ids.clone());
             let recent_blockhash = rpc_client.get_latest_blockhash().await?;
-            let mut tx =
-                Transaction::new_with_payer(&[run_ix.instruction.clone()], Some(&payer.pubkey()));
+            let mut tx = Transaction::new_with_payer(&run_ix.instructions, Some(&payer.pubkey()));
             tx.message.recent_blockhash = recent_blockhash;
             let simulated = rpc_client.simulate_transaction(&tx).await?;
             if let Some(err) = simulated.value.err {
@@ -51,7 +50,7 @@ impl TimedTask {
                         in_flight_task_ids: run_ix.free_task_ids,
                         ..self.clone()
                     },
-                    instructions: vec![run_ix.instruction],
+                    instructions: run_ix.instructions,
                 })
                 .await?;
         }

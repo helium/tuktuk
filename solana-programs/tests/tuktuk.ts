@@ -12,6 +12,8 @@ import {
   taskKey,
   runTask,
   customSignerKey,
+  RemoteTaskTransactionV0,
+  hashRemainingAccounts,
 } from "@helium/tuktuk-sdk";
 import {
   AccountMeta,
@@ -24,7 +26,10 @@ import chai from "chai";
 import {
   createAtaAndMint,
   createMint,
+  populateMissingDraftInfo,
+  sendAndConfirmWithRetry,
   sendInstructions,
+  toVersionedTx,
 } from "@helium/spl-utils";
 import { ensureIdls, makeid } from "./utils";
 import {
@@ -32,6 +37,7 @@ import {
   createTransferInstruction,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
+import { sign } from "tweetnacl";
 const { expect } = chai;
 
 describe("tuktuk", () => {
@@ -135,7 +141,9 @@ describe("tuktuk", () => {
         .queueTaskV0({
           id: 0,
           trigger: { now: {} },
-          transaction,
+          transaction: {
+            compiledV0: [transaction],
+          },
           crankReward: null,
           freeTasks: 0,
         })
@@ -167,6 +175,96 @@ describe("tuktuk", () => {
       expect(taskQueueAcc).to.be.null;
     });
 
+    describe("with a remote transaction", () => {
+      let task: PublicKey;
+      let signer = Keypair.generate();
+      const crankTurner = Keypair.generate();
+      beforeEach(async () => {
+        task = taskKey(taskQueue, 0)[0];
+        await sendInstructions(provider, [
+          SystemProgram.transfer({
+            fromPubkey: me,
+            toPubkey: crankTurner.publicKey,
+            lamports: 10000000000,
+          }),
+        ]);
+        await program.methods
+          .queueTaskV0({
+            id: 0,
+            // trigger: { timestamp: [new anchor.BN(Date.now() / 1000 + 30)] },
+            trigger: { now: {} },
+            transaction: {
+              remoteV0: {
+                url: "http://localhost:3000/tx",
+                signer: signer.publicKey,
+              },
+            },
+            crankReward: null,
+            freeTasks: 0,
+          })
+          .accounts({
+            payer: crankTurner.publicKey,
+            taskQueue,
+            task,
+          })
+          .signers([crankTurner])
+          .rpc();
+      });
+
+      it("allows running a task", async () => {
+        const taskAcc = await program.account.taskV0.fetch(task);
+        const ixs = await runTask({
+          program,
+          task,
+          crankTurner: crankTurner.publicKey,
+          fetcher: async () => {
+            let remoteTx = new RemoteTaskTransactionV0({
+              task,
+              taskQueuedAt: taskAcc.queuedAt,
+              transaction: {
+                ...transaction,
+                accounts: remainingAccounts.map((acc) => acc.pubkey),
+              },
+            });
+            return {
+              remoteTaskTransaction: RemoteTaskTransactionV0.serialize(
+                program.coder.types,
+                remoteTx
+              ),
+              remainingAccounts: remainingAccounts,
+              signature: Buffer.from(
+                sign.detached(
+                  Uint8Array.from(
+                    RemoteTaskTransactionV0.serialize(
+                      program.coder.types,
+                      remoteTx
+                    )
+                  ),
+                  signer.secretKey
+                )
+              ),
+            };
+          },
+        });
+        const tx = toVersionedTx(
+          await populateMissingDraftInfo(provider.connection, {
+            feePayer: crankTurner.publicKey,
+            instructions: ixs,
+          })
+        );
+        await tx.sign([crankTurner]);
+        await sendAndConfirmWithRetry(
+          provider.connection,
+          Buffer.from(tx.serialize()),
+          {
+            skipPreflight: true,
+            maxRetries: 0,
+          },
+          "confirmed"
+        );
+      });
+    });
+
     describe("with a task", () => {
       let task: PublicKey;
       beforeEach(async () => {
@@ -176,7 +274,9 @@ describe("tuktuk", () => {
             id: 0,
             // trigger: { timestamp: [new anchor.BN(Date.now() / 1000 + 30)] },
             trigger: { now: {} },
-            transaction,
+            transaction: {
+              compiledV0: [transaction],
+            },
             crankReward: null,
             freeTasks: 0,
           })
@@ -198,16 +298,26 @@ describe("tuktuk", () => {
             lamports: 1000000000,
           }),
         ]);
-        console.log(
-          await (
-            await runTask({
-              program,
-              task,
-              crankTurner: crankTurner.publicKey,
-            })
-          )
-            .signers([crankTurner])
-            .rpc({ skipPreflight: true })
+        const ixs = await runTask({
+          program,
+          task,
+          crankTurner: crankTurner.publicKey,
+        });
+        const tx = toVersionedTx(
+          await populateMissingDraftInfo(provider.connection, {
+            feePayer: crankTurner.publicKey,
+            instructions: ixs,
+          })
+        );
+        await tx.sign([crankTurner]);
+        await sendAndConfirmWithRetry(
+          provider.connection,
+          Buffer.from(tx.serialize()),
+          {
+            skipPreflight: true,
+            maxRetries: 0,
+          },
+          "confirmed"
         );
       });
 
@@ -300,21 +410,49 @@ describe("tuktuk", () => {
       ]);
 
       await method.rpc({ skipPreflight: true });
-      await (
-        await runTask({
-          program,
-          task: freeTask1,
-          crankTurner: crankTurner.publicKey,
+      const ixs = await runTask({
+        program,
+        task: freeTask1,
+        crankTurner: crankTurner.publicKey,
+      });
+      const tx = toVersionedTx(
+        await populateMissingDraftInfo(provider.connection, {
+          feePayer: crankTurner.publicKey,
+          instructions: ixs,
         })
-      ).signers([crankTurner]).rpc({ skipPreflight: true });
+      );
+      await tx.sign([crankTurner]);
+      await sendAndConfirmWithRetry(
+        provider.connection,
+        Buffer.from(tx.serialize()),
+        {
+          skipPreflight: true,
+          maxRetries: 0,
+        },
+        "confirmed"
+      );
       await sleep(1000);
-      (
-        await runTask({
-          program,
-          task: freeTask2,
-          crankTurner: crankTurner.publicKey,
+      const ixs2 = await runTask({
+        program,
+        task: freeTask2,
+        crankTurner: crankTurner.publicKey,
+      });
+      const tx2 = toVersionedTx(
+        await populateMissingDraftInfo(provider.connection, {
+          feePayer: crankTurner.publicKey,
+          instructions: ixs2,
         })
-      ).signers([crankTurner]).rpc({ skipPreflight: true });
+      );
+      await tx2.sign([crankTurner]);
+      await sendAndConfirmWithRetry(
+        provider.connection,
+        Buffer.from(tx2.serialize()),
+        {
+          skipPreflight: true,
+          maxRetries: 0,
+        },
+        "confirmed"
+      );
     });
   });
 });

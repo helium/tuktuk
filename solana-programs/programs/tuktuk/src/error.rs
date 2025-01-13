@@ -22,4 +22,14 @@ pub enum ErrorCode {
     InvalidTaskPDA,
     #[msg("Task queue insufficient funds")]
     TaskQueueInsufficientFunds,
+    #[msg("Sig verification failed")]
+    SigVerificationFailed,
+    #[msg("Invalid transaction source")]
+    InvalidTransactionSource,
+    #[msg("Invalid task")]
+    InvalidTask,
+    #[msg("Invalid task queued at")]
+    InvalidTaskQueuedAt,
+    #[msg("Invalid remaining accounts hash")]
+    InvalidRemainingAccountsHash,
 }

@@ -6,7 +6,7 @@ use anchor_lang::{
 use crate::{
     error::ErrorCode,
     resize_to_fit::resize_to_fit,
-    state::{CompiledTransactionV0, TaskQueueV0, TaskV0, TriggerV0},
+    state::{TaskQueueV0, TaskV0, TransactionSourceV0, TriggerV0},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
@@ -15,7 +15,7 @@ pub struct QueueTaskArgsV0 {
     pub trigger: TriggerV0,
     // Note that you can pass accounts from the remaining accounts to reduce
     // the size of the transaction
-    pub transaction: CompiledTransactionV0,
+    pub transaction: TransactionSourceV0,
     pub crank_reward: Option<u64>,
     // Number of free tasks to append to the end of the accounts. This allows
     // you to easily add new tasks
@@ -66,9 +66,12 @@ pub fn handler(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
     )?;
 
     let mut transaction = args.transaction.clone();
-    transaction
-        .accounts
-        .extend(ctx.remaining_accounts.iter().map(|a| a.key()));
+    if let TransactionSourceV0::CompiledV0(mut compiled_tx) = transaction {
+        compiled_tx
+            .accounts
+            .extend(ctx.remaining_accounts.iter().map(|a| a.key()));
+        transaction = TransactionSourceV0::CompiledV0(compiled_tx);
+    }
     ctx.accounts.task.set_inner(TaskV0 {
         free_tasks: args.free_tasks,
         task_queue: ctx.accounts.task_queue.key(),

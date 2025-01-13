@@ -67,7 +67,7 @@ impl TaskCmd {
                             {
                                 // Create and simulate the transaction
                                 let mut tx = Transaction::new_with_payer(
-                                    &[run_ix.instruction],
+                                    &run_ix.instructions,
                                     Some(&client.payer.pubkey()),
                                 );
                                 let recent_blockhash =

@@ -223,6 +223,15 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "sysvar_instructions",
+          "docs": [
+            "the supplied Sysvar could be anything else.",
+            "The Instruction Sysvar has not been implemented",
+            "in the Anchor framework yet, so this is the safe approach."
+          ],
+          "address": "Sysvar1nstructions1111111111111111111111111"
         }
       ],
       "args": [
@@ -305,6 +314,31 @@
       "code": 6009,
       "name": "TaskQueueInsufficientFunds",
       "msg": "Task queue insufficient funds"
+    },
+    {
+      "code": 6010,
+      "name": "SigVerificationFailed",
+      "msg": "Sig verification failed"
+    },
+    {
+      "code": 6011,
+      "name": "InvalidTransactionSource",
+      "msg": "Invalid transaction source"
+    },
+    {
+      "code": 6012,
+      "name": "InvalidTask",
+      "msg": "Invalid task"
+    },
+    {
+      "code": 6013,
+      "name": "InvalidTaskQueuedAt",
+      "msg": "Invalid task queued at"
+    },
+    {
+      "code": 6014,
+      "name": "InvalidRemainingAccountsHash",
+      "msg": "Invalid remaining accounts hash"
     }
   ],
   "types": [
@@ -439,7 +473,7 @@
             "name": "transaction",
             "type": {
               "defined": {
-                "name": "CompiledTransactionV0"
+                "name": "TransactionSourceV0"
               }
             }
           },
@@ -583,7 +617,7 @@
             "name": "transaction",
             "type": {
               "defined": {
-                "name": "CompiledTransactionV0"
+                "name": "TransactionSourceV0"
               }
             }
           },
@@ -598,6 +632,37 @@
           {
             "name": "free_tasks",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TransactionSourceV0",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "CompiledV0",
+            "fields": [
+              {
+                "defined": {
+                  "name": "CompiledTransactionV0"
+                }
+              }
+            ]
+          },
+          {
+            "name": "RemoteV0",
+            "fields": [
+              {
+                "name": "url",
+                "type": "string"
+              },
+              {
+                "name": "signer",
+                "type": "pubkey"
+              }
+            ]
           }
         ]
       }
