@@ -12,6 +12,10 @@ export async function ensureIdls() {
       name: "cpi_example",
       pid: "cpic9j9sjqvhn2ZX3mqcCgzHKCwiiBTyEszyCwN7MBC",
     },
+    {
+      name: "cron",
+      pid: "cronAjRZnJn3MTP3B9kE62NWDrjSuAPVXf9c4hu4grM",
+    },
   ];
   await Promise.all(
     programs.map(async (program) => {

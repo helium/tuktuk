@@ -43,5 +43,9 @@ pub fn handler(ctx: Context<CloseTaskQueueV0>) -> Result<()> {
         ctx.accounts.tuktuk_config.min_task_queue_id = ctx.accounts.task_queue.id + 1;
     }
 
+    if ctx.accounts.task_queue.id == ctx.accounts.tuktuk_config.next_task_queue_id - 1 {
+        ctx.accounts.tuktuk_config.next_task_queue_id -= 1;
+    }
+
     Ok(())
 }

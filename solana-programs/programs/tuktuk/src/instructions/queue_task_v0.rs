@@ -52,19 +52,6 @@ pub fn handler(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
         .unwrap_or(ctx.accounts.task_queue.min_crank_reward);
     require_gte!(crank_reward, ctx.accounts.task_queue.min_crank_reward);
 
-    let rented_amount = ctx.accounts.task.to_account_info().lamports();
-
-    transfer(
-        CpiContext::new(
-            ctx.accounts.system_program.to_account_info(),
-            Transfer {
-                from: ctx.accounts.payer.to_account_info(),
-                to: ctx.accounts.task.to_account_info(),
-            },
-        ),
-        crank_reward,
-    )?;
-
     let mut transaction = args.transaction.clone();
     if let TransactionSourceV0::CompiledV0(mut compiled_tx) = transaction {
         compiled_tx
@@ -77,7 +64,7 @@ pub fn handler(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
         task_queue: ctx.accounts.task_queue.key(),
         id: args.id,
         trigger: args.trigger,
-        rent_amount: rented_amount,
+        rent_amount: 0,
         crank_reward,
         rent_refund: ctx.accounts.payer.key(),
         transaction,
@@ -91,6 +78,20 @@ pub fn handler(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
         &ctx.accounts.payer.to_account_info(),
         &ctx.accounts.system_program.to_account_info(),
         &ctx.accounts.task,
+    )?;
+
+    let rented_amount = ctx.accounts.task.to_account_info().lamports();
+    ctx.accounts.task.rent_amount = rented_amount;
+
+    transfer(
+        CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.payer.to_account_info(),
+                to: ctx.accounts.task.to_account_info(),
+            },
+        ),
+        crank_reward,
     )?;
 
     Ok(())

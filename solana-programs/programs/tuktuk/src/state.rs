@@ -1,5 +1,7 @@
 use anchor_lang::prelude::*;
 
+use crate::error::ErrorCode;
+
 #[account]
 #[derive(Default, InitSpace)]
 pub struct TuktukConfigV0 {
@@ -30,19 +32,6 @@ pub struct TaskQueueV0 {
     pub task_bitmap: Vec<u8>,
     pub name: String,
 }
-
-// pub struct CronJobV0 {
-//     pub trigger: String,
-//     pub task_queue: Pubkey,
-//     pub current_task_idx: u32,
-//     pub current_exec_ts: i64,
-//     pub tasks: Vec<TransactionSourceV0>,
-// }
-
-// add_tasks_to_cron_job_v0
-// remove_tasks_from_cron_job_v0
-// update_cron_job_v0
-// pub queue_upcoming_tasks_v0
 
 #[macro_export]
 macro_rules! task_queue_seeds {

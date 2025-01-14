@@ -7,11 +7,13 @@ skip-lint = false
 [programs.localnet]
 tuktuk = "tuktukUrfhXT6ZT77QTU8RQtvgL967uRuVagWF57zVA"
 cpi_example = "cpic9j9sjqvhn2ZX3mqcCgzHKCwiiBTyEszyCwN7MBC"
+cron = "cronAjRZnJn3MTP3B9kE62NWDrjSuAPVXf9c4hu4grM"
 
 [workspace]
 members = [
   "programs/tuktuk",
-  "programs/cpi-example"
+  "programs/cpi-example",
+  "programs/cron"
 ]
 
 [registry]

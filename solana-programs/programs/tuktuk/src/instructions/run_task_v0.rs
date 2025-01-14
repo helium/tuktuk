@@ -223,9 +223,7 @@ pub fn handler<'info>(
             &signers,
         )?;
         if let Some((_, return_data)) = solana_program::program::get_return_data() {
-            msg!("Return data: {:?}", return_data);
             let queue_task_return = RunTaskReturnV0::deserialize(&mut return_data.as_slice())?;
-            msg!("Parsed");
             tasks.extend(queue_task_return.tasks);
         }
     }
@@ -284,7 +282,8 @@ pub fn handler<'info>(
         task_data.try_serialize(writer)?;
         // Descriminator + extra padding
         let task_size = writer.total + 8 + 60;
-        let lamports = Rent::get()?.minimum_balance(task_size);
+        let rent_lamports = Rent::get()?.minimum_balance(task_size);
+        let lamports = rent_lamports + task_data.crank_reward;
         task_data.rent_amount = lamports;
 
         // Create and allocate the account

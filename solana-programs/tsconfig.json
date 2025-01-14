@@ -6,6 +6,9 @@
     },
     {
       "path": "./packages/tuktuk-sdk"
+    },
+    {
+      "path": "./packages/cron-sdk"
     }
   ]
 }

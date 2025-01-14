@@ -3,10 +3,6 @@ use anchor_lang::{
     solana_program::hash::hash,
     system_program::{transfer, Transfer},
 };
-use anchor_spl::{
-    associated_token::AssociatedToken,
-    token::{Token, TokenAccount},
-};
 
 use crate::state::{TaskQueueNameMappingV0, TaskQueueV0, TuktukConfigV0};
 
@@ -93,5 +89,6 @@ pub fn handler(ctx: Context<InitializeTaskQueueV0>, args: InitializeTaskQueueArg
             bump_seed: ctx.bumps.task_queue_name_mapping,
         });
     ctx.accounts.tuktuk_config.next_task_queue_id += 1;
+
     Ok(())
 }
