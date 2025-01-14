@@ -144,7 +144,7 @@ pub async fn run_ix(
         TransactionSourceV0::RemoteV0 { signer, url } => {
             // Fetch the remote transaction
             let remote_transaction =
-                fetch_remote_transaction(&task_key, &task.queued_at, url, &payer).await?;
+                fetch_remote_transaction(&task.task_queue, &task_key, &task.queued_at, url).await?;
             let message = remote_transaction.transaction;
             let signature = remote_transaction.signature;
             let mut instruction_data = Vec::with_capacity(
@@ -247,17 +247,17 @@ struct FetchedRemoteResponse {
 }
 
 async fn fetch_remote_transaction(
+    task_queue: &Pubkey,
     task: &Pubkey,
     task_queued_at: &i64,
     url: &str,
-    payer: &Pubkey,
 ) -> Result<FetchedRemoteResponse, Error> {
     let client = reqwest::Client::new();
     let response = client
         .post(url)
         .json(&serde_json::json!({
-            "payer": payer.to_string(),
             "task": task.to_string(),
+            "task_queue": task_queue.to_string(),
             "task_queued_at": task_queued_at.to_string()
         }))
         .send()

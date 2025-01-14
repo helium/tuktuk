@@ -24,7 +24,29 @@ impl TimedTask {
             .entry(self.task_queue_key)
             .or_insert_with(HashSet::new);
 
-        let run_ix = run_ix(rpc_client.as_ref(), self.task_key, payer.pubkey(), task_ids).await?;
+        let maybe_run_ix =
+            run_ix(rpc_client.as_ref(), self.task_key, payer.pubkey(), task_ids).await;
+
+        if let Err(err) = maybe_run_ix {
+            info!(?self, ?err, "getting instructions failed");
+            if self.total_retries < self.max_retries {
+                ctx.task_queue
+                    .add_task(TimedTask {
+                        total_retries: self.total_retries + 1,
+                        // Try again in 30 seconds
+                        task_time: self.task_time + 30,
+                        task_key: self.task_key,
+                        task_queue_key: self.task_queue_key,
+                        max_retries: self.max_retries,
+                        in_flight_task_ids: self.in_flight_task_ids.clone(),
+                    })
+                    .await?;
+            }
+            return Ok(());
+        }
+
+        let run_ix = maybe_run_ix.unwrap();
+
         let ctx = ctx.clone();
         if let Some(run_ix) = run_ix {
             task_ids.extend(run_ix.free_task_ids.clone());

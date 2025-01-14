@@ -230,24 +230,24 @@ async function defaultFetcher({
   task,
   taskQueuedAt,
   url,
-  payer,
+  taskQueue,
 }: {
   task: PublicKey;
+  taskQueue: PublicKey;
   taskQueuedAt: BN;
   url: string;
-  payer: PublicKey;
 }): Promise<{
   remoteTaskTransaction: Buffer;
   remainingAccounts: AccountMeta[];
   signature: Buffer;
 }> {
   const resp = await axios.post(url, {
-    payer: payer.toBase58(),
     task: task.toBase58(),
     task_queued_at: taskQueuedAt.toString(),
+    task_queue: taskQueue.toBase58(),
   });
-  const txB64 = resp.data.transaction;
-  const remainingAccounts = resp.data.remainingAccounts.map((acc) => {
+  const { transaction: txB64, signature, remaining_accounts } = resp.data;;
+  const remainingAccounts = remaining_accounts.map((acc) => {
     return {
       pubkey: new PublicKey(acc.pubkey),
       isWritable: acc.is_writable,
@@ -257,7 +257,7 @@ async function defaultFetcher({
   return {
     remoteTaskTransaction: Buffer.from(txB64, "base64"),
     remainingAccounts,
-    signature: Buffer.from(resp.data.signature, "base64"),
+    signature: Buffer.from(signature, "base64"),
   };
 }
 
@@ -274,12 +274,11 @@ export async function runTask({
     task,
     taskQueuedAt,
     url,
-    payer
   }: {
     task: PublicKey,
     taskQueuedAt: BN,
+    taskQueue: PublicKey,
     url: string,
-    payer: PublicKey
   }) => Promise<{
     remoteTaskTransaction: Buffer;
     remainingAccounts: AccountMeta[];
@@ -344,7 +343,7 @@ export async function runTask({
       task,
       taskQueuedAt: queuedAt,
       url: transaction.remoteV0.url,
-      payer: crankTurner,
+      taskQueue,
     });
 
     return [

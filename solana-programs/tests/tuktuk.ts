@@ -195,7 +195,7 @@ describe("tuktuk", () => {
             trigger: { now: {} },
             transaction: {
               remoteV0: {
-                url: "http://localhost:3000/tx",
+                url: "http://localhost:3002/remote",
                 signer: signer.publicKey,
               },
             },
