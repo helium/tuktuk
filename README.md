@@ -125,17 +125,16 @@ You can see an example of this in the [remote-server-example](./solana-programs/
 You can queue such a task by using `remoteV0` instead of `compileV0` in the `QueueTaskV0` instruction.
 
 ```typescript
-await program.methods
-  .queueTaskV0({
-    id: taskId,
-    trigger: { now: {} },
-    transaction: {
-      remoteV0: {
-        url: "http://localhost:3002/remote",
-        signer: me,
-      },
+await program.methods.queueTaskV0({
+  id: taskId,
+  trigger: { now: {} },
+  transaction: {
+    remoteV0: {
+      url: "http://localhost:3002/remote",
+      signer: me,
     },
-  })
+  },
+});
 ```
 
 ### Monitoring the Task Queue
@@ -150,7 +149,6 @@ Note that this will only show you tasks that have not been run. Tasks that have 
 
 If a task is active but has not yet been run, the cli will display a simulation result for the task. This is to help you debug the task if for some reason it is not running.
 
-
 ### Cron Tasks
 
 Sometimes, it's helpful to run a task on a specific schedule. You can do this by creating a cron job. A cron job will queue tasks onto a task queue at a specific time. The following example will queue a task every minute. Note that you will need to keep the cron funded so that it can, in turn, fund the task queue for each task it creates.
@@ -161,6 +159,54 @@ tuktuk -u <your-solana-url> cron create --name <your-cron-job-name> --task-queue
 
 A single cron job can queue multiple transactions. You can add transactions to a cron job by using the `cron-transaction` command. To add a normal transaction to a cron job, it is easier to write a script:
 
+```typescript
+import {
+  compileTransaction,
+  taskKey,
+  customSignerKey,
+  tuktukConfigKey
+} from "@helium/tuktuk-sdk";
+import { init as initCron, cronJobKey } from "@helium/cron-sdk";
+
+const cronProgram = await initCron(provider);
+const cronJob = cronJobKey(provider.wallet.publicKey, 0)[0]
+const taskQueue = taskQueueKey(tuktukConfigKey()[0], Buffer.from("my queue name"));
+const taskId = 0;
+const task = taskKey(taskQueue, taskId)[0];
+
+// Create a PDA wallet associated with the task queue
+const [wallet, bump] = customSignerKey(taskQueue, [Buffer.from("test")]);
+const instructions: TransactionInstruction[] = [
+  new TransactionInstruction({
+    keys: [{ pubkey: wallet, isSigner: true, isWritable: true }],
+    data: Buffer.from("I'm a remote transaction!", "utf-8"),
+    programId: new PublicKey(
+      "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
+    ),
+  }),
+];
+
+// Compile the instructions and PDA into the args expected by the tuktuk program
+const ({ transaction, remainingAccounts } = await compileTransaction(
+  instructions,
+  [[Buffer.from("test"), bumpBuffer]]
+));
+
+await cronProgram.methods
+  .addCronTransactionV0({
+    index: 0,
+    transactionSource: {
+      compiledV0: [transaction],
+    },
+  })
+  .accounts({
+    payer: me,
+    cronJob,
+    cronJobTransaction: cronJobTransactionKey(cronJob, 0)[0],
+  })
+  .remainingAccounts(remainingAccounts)
+  .rpc({ skipPreflight: true });
+```
 
 To add a remote transaction, you can use the `create-remote` command:
 

@@ -96,7 +96,7 @@ impl TaskQueueCmd {
         task_queue_key: &Pubkey,
         amount: u64,
     ) -> Result<Instruction> {
-        let ix = transfer(&client.payer.pubkey(), &task_queue_key, amount);
+        let ix = transfer(&client.payer.pubkey(), task_queue_key, amount);
 
         Ok(ix)
     }

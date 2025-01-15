@@ -71,7 +71,7 @@ impl CronTransactionCmd {
                         index: *index,
                         transaction_source: TransactionSourceV0::RemoteV0 {
                             url: url.to_string(),
-                            signer: signer.clone(),
+                            signer: *signer,
                         },
                     },
                 )?;
@@ -89,7 +89,7 @@ impl CronTransactionCmd {
                     cron_job: cron_job_key,
                     transaction_source: Some(TransactionSource::RemoteV0 {
                         url: url.to_string(),
-                        signer: signer.clone(),
+                        signer: *signer,
                     }),
                 })?;
             }
