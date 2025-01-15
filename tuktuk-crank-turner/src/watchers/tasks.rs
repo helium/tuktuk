@@ -45,7 +45,7 @@ pub async fn get_and_watch_tasks(
                     task_key,
                     total_retries: 0,
                     max_retries: args.max_retries,
-                    task_queue_key: task_queue_key,
+                    task_queue_key,
                     in_flight_task_ids: vec![],
                 },
                 TriggerV0::Timestamp(ts) => TimedTask {
@@ -53,7 +53,7 @@ pub async fn get_and_watch_tasks(
                     task_key,
                     total_retries: 0,
                     max_retries: args.max_retries,
-                    task_queue_key: task_queue_key,
+                    task_queue_key,
                     in_flight_task_ids: vec![],
                 },
             },
@@ -81,7 +81,7 @@ pub async fn get_and_watch_tasks(
                                     task_key,
                                     total_retries: 0,
                                     max_retries: args.max_retries,
-                                    task_queue_key: task_queue_key,
+                                    task_queue_key,
                                     in_flight_task_ids: vec![],
                                 },
                                 TriggerV0::Timestamp(ts) => TimedTask {
@@ -89,7 +89,7 @@ pub async fn get_and_watch_tasks(
                                     task_key,
                                     total_retries: 0,
                                     max_retries: args.max_retries,
-                                    task_queue_key: task_queue_key,
+                                    task_queue_key,
                                     in_flight_task_ids: vec![],
                                 },
                             };
