@@ -1,7 +1,5 @@
 use anchor_lang::prelude::*;
 
-use crate::error::ErrorCode;
-
 #[account]
 #[derive(Default, InitSpace)]
 pub struct TuktukConfigV0 {

@@ -1,5 +1,5 @@
 use anchor_lang::{prelude::*, solana_program::instruction::Instruction, InstructionData};
-use tuktuk_program::{tuktuk::program::Tuktuk, TaskQueueV0};
+use tuktuk_program::tuktuk::program::Tuktuk;
 
 declare_id!("cpic9j9sjqvhn2ZX3mqcCgzHKCwiiBTyEszyCwN7MBC");
 

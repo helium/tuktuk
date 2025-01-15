@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use anchor_lang::{prelude::*, solana_program::instruction::Instruction, InstructionData};
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 use clockwork_cron::Schedule;
 use tuktuk_program::{
     compile_transaction,
@@ -81,8 +81,10 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
     }
 
     let ts = Clock::get().unwrap().unix_timestamp;
-    let now =
-        &DateTime::<Utc>::from_naive_utc_and_offset(NaiveDateTime::from_timestamp(ts, 0), Utc);
+    let now = &DateTime::<Utc>::from_naive_utc_and_offset(
+        DateTime::from_timestamp(ts, 0).unwrap().naive_utc(),
+        Utc,
+    );
 
     ctx.accounts.user_cron_jobs.bump_seed = ctx.bumps.user_cron_jobs;
     ctx.accounts.user_cron_jobs.authority = ctx.accounts.authority.key();

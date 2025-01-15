@@ -5,7 +5,7 @@ use anchor_lang::{
     solana_program::{instruction::Instruction, program::MAX_RETURN_DATA},
     InstructionData,
 };
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 use clockwork_cron::Schedule;
 use tuktuk_program::{
     compile_transaction, RunTaskReturnV0, TaskQueueV0, TaskReturnV0, TransactionSourceV0, TriggerV0,
@@ -79,8 +79,10 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
         let schedule = Schedule::from_str(&ctx.accounts.cron_job.schedule).unwrap();
         // Find the next execution time after the last one
         let ts = ctx.accounts.cron_job.current_exec_ts;
-        let date_time_ts =
-            &DateTime::<Utc>::from_naive_utc_and_offset(NaiveDateTime::from_timestamp(ts, 0), Utc);
+        let date_time_ts = &DateTime::<Utc>::from_naive_utc_and_offset(
+            DateTime::from_timestamp(ts, 0).unwrap().naive_utc(),
+            Utc,
+        );
         ctx.accounts.cron_job.current_exec_ts =
             schedule.next_after(date_time_ts).unwrap().timestamp();
         msg!(
