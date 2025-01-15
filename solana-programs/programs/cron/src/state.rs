@@ -21,8 +21,9 @@ pub struct CronJobV0 {
     pub schedule: String,
     pub name: String,
     pub current_exec_ts: i64,
-    pub current_transaction_idx: u32,
-    pub max_transaction_idx: u32,
+    pub current_transaction_id: u32,
+    pub num_transactions: u32,
+    pub next_transaction_id: u32,
     pub bump_seed: u8,
 }
 

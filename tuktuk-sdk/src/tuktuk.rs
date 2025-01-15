@@ -57,6 +57,254 @@ pub fn create_config(
     Ok(create_ix)
 }
 
+pub mod cron {
+    use anchor_lang::{InstructionData, ToAccountMetas};
+    use itertools::Itertools;
+    use solana_sdk::{instruction::Instruction, pubkey::Pubkey};
+    use tuktuk_program::{
+        cron::{
+            self,
+            cron::{
+                accounts::{CronJobV0, UserCronJobsV0},
+                types::InitializeCronJobArgsV0,
+            },
+            ID,
+        },
+        TaskQueueV0,
+    };
+
+    use super::{hash_name, task};
+    use crate::{client::GetAnchorAccount, error::Error};
+
+    pub fn user_cron_jobs_key(authority: &Pubkey) -> Pubkey {
+        Pubkey::find_program_address(&[b"user_cron_jobs", authority.as_ref()], &ID).0
+    }
+
+    pub fn cron_job_key(authority: &Pubkey, cron_job_id: u32) -> Pubkey {
+        Pubkey::find_program_address(
+            &[
+                b"cron_job",
+                authority.as_ref(),
+                &cron_job_id.to_le_bytes()[..],
+            ],
+            &cron::ID,
+        )
+        .0
+    }
+
+    pub fn name_mapping_key(authority: &Pubkey, name: &str) -> Pubkey {
+        Pubkey::find_program_address(
+            &[
+                b"cron_job_name_mapping",
+                authority.as_ref(),
+                &hash_name(name),
+            ],
+            &cron::ID,
+        )
+        .0
+    }
+
+    pub fn keys(authority: &Pubkey, user_cron_jobs: &UserCronJobsV0) -> Result<Vec<Pubkey>, Error> {
+        let cron_job_ids = 0..user_cron_jobs.next_cron_job_id;
+        let cron_job_keys = cron_job_ids
+            .map(|id| self::cron_job_key(authority, id))
+            .collect_vec();
+        Ok(cron_job_keys)
+    }
+
+    pub fn create_ix(
+        payer: Pubkey,
+        authority: Pubkey,
+        user_crons_key: Pubkey,
+        cron_job_key: Pubkey,
+        task_queue_key: Pubkey,
+        queue_authority: Pubkey,
+        task_id: u16,
+        args: InitializeCronJobArgsV0,
+    ) -> Result<Instruction, Error> {
+        Ok(Instruction {
+            program_id: ID,
+            accounts: cron::cron::client::accounts::InitializeCronJobV0 {
+                task_queue: task_queue_key,
+                payer,
+                system_program: solana_sdk::system_program::ID,
+                authority,
+                user_cron_jobs: user_crons_key,
+                cron_job: cron_job_key,
+                cron_job_name_mapping: self::name_mapping_key(&authority, &args.name),
+                task: task::key(&task_queue_key, task_id),
+                tuktuk_program: tuktuk_program::ID,
+                queue_authority,
+            }
+            .to_account_metas(None),
+            data: cron::cron::client::args::InitializeCronJobV0 { args }.data(),
+        })
+    }
+
+    pub async fn create<C: GetAnchorAccount>(
+        client: &C,
+        payer: Pubkey,
+        args: InitializeCronJobArgsV0,
+        authority: Option<Pubkey>,
+        task_queue_key: Pubkey,
+    ) -> Result<(Pubkey, Instruction), Error> {
+        let authority = authority.unwrap_or(payer);
+        let user_crons_key = self::user_cron_jobs_key(&authority);
+        let user_cron_jobs: Option<UserCronJobsV0> = client.anchor_account(&user_crons_key).await?;
+
+        let cron_job_key = self::cron_job_key(
+            &authority,
+            user_cron_jobs.map_or(0, |ucj| ucj.next_cron_job_id),
+        );
+        let task_queue: TaskQueueV0 = client
+            .anchor_account(&task_queue_key)
+            .await?
+            .ok_or_else(|| Error::AccountNotFound)?;
+
+        let ix = create_ix(
+            payer,
+            authority,
+            user_crons_key,
+            cron_job_key,
+            task_queue_key,
+            task_queue.queue_authority,
+            task_queue.next_available_task_id().unwrap(),
+            args,
+        )?;
+
+        Ok((cron_job_key, ix))
+    }
+
+    pub fn close_ix(
+        cron_job_key: Pubkey,
+        payer: Pubkey,
+        authority: Pubkey,
+        refund: Pubkey,
+        user_crons_key: Pubkey,
+        name: String,
+    ) -> Result<Instruction, Error> {
+        Ok(Instruction {
+            program_id: cron::ID,
+            accounts: cron::cron::client::accounts::CloseCronJobV0 {
+                refund,
+                payer,
+                authority: payer,
+                user_cron_jobs: user_crons_key,
+                cron_job: cron_job_key,
+                cron_job_name_mapping: self::name_mapping_key(&authority, &name),
+                system_program: solana_sdk::system_program::ID,
+            }
+            .to_account_metas(None),
+            data: cron::cron::client::args::CloseCronJobV0 {}.data(),
+        })
+    }
+
+    pub async fn close<C: GetAnchorAccount>(
+        client: &C,
+        cron_job_key: Pubkey,
+        payer: Pubkey,
+        authority: Option<Pubkey>,
+        refund: Option<Pubkey>,
+    ) -> Result<Instruction, Error> {
+        let authority = authority.unwrap_or(payer);
+        let refund = refund.unwrap_or(payer);
+        let user_crons_key = self::user_cron_jobs_key(&authority);
+        let cron_job: CronJobV0 = client
+            .anchor_account(&cron_job_key)
+            .await?
+            .ok_or_else(|| Error::AccountNotFound)?;
+
+        close_ix(
+            cron_job_key,
+            payer,
+            authority,
+            refund,
+            user_crons_key,
+            cron_job.name,
+        )
+    }
+}
+
+pub mod cron_job_transaction {
+    use anchor_lang::{InstructionData, ToAccountMetas};
+    use itertools::Itertools;
+    use solana_sdk::{instruction::Instruction, pubkey::Pubkey};
+    use tuktuk_program::cron::{
+        self,
+        cron::{
+            accounts::CronJobV0,
+            types::{AddCronTransactionArgsV0, RemoveCronTransactionArgsV0},
+        },
+    };
+
+    use crate::error::Error;
+
+    pub fn key(cron_job_key: &Pubkey, cron_job_transaction_id: u32) -> Pubkey {
+        Pubkey::find_program_address(
+            &[
+                b"cron_job_transaction",
+                cron_job_key.as_ref(),
+                &cron_job_transaction_id.to_le_bytes()[..],
+            ],
+            &cron::ID,
+        )
+        .0
+    }
+
+    pub fn keys(cron_job_key: &Pubkey, cron_job: &CronJobV0) -> Result<Vec<Pubkey>, Error> {
+        let cron_job_transaction_ids = 0..cron_job.next_transaction_id;
+        let cron_job_transaction_keys = cron_job_transaction_ids
+            .map(|id| self::key(cron_job_key, id))
+            .collect_vec();
+        Ok(cron_job_transaction_keys)
+    }
+
+    pub fn add_transaction(
+        payer: Pubkey,
+        cron_job_key: Pubkey,
+        args: AddCronTransactionArgsV0,
+    ) -> Result<(Pubkey, Instruction), Error> {
+        let cron_job_transaction_key = self::key(&cron_job_key, args.index);
+
+        Ok((
+            cron_job_transaction_key,
+            Instruction {
+                program_id: cron::ID,
+                accounts: cron::cron::client::accounts::AddCronTransactionV0 {
+                    payer,
+                    cron_job: cron_job_key,
+                    cron_job_transaction: cron_job_transaction_key,
+                    system_program: solana_sdk::system_program::ID,
+                    authority: payer,
+                }
+                .to_account_metas(None),
+                data: cron::cron::client::args::AddCronTransactionV0 { args }.data(),
+            },
+        ))
+    }
+
+    pub fn remove_transaction(
+        payer: Pubkey,
+        cron_job_key: Pubkey,
+        args: RemoveCronTransactionArgsV0,
+    ) -> Result<Instruction, Error> {
+        let cron_job_transaction_key = self::key(&cron_job_key, args.index);
+
+        Ok(Instruction {
+            program_id: cron::ID,
+            accounts: cron::cron::client::accounts::RemoveCronTransactionV0 {
+                rent_refund: payer,
+                authority: payer,
+                cron_job: cron_job_key,
+                cron_job_transaction: cron_job_transaction_key,
+                system_program: solana_sdk::system_program::ID,
+            }
+            .to_account_metas(None),
+            data: cron::cron::client::args::RemoveCronTransactionV0 { args }.data(),
+        })
+    }
+}
+
 pub mod task_queue {
     use tuktuk::accounts::TuktukConfigV0;
 
@@ -204,6 +452,7 @@ pub mod task {
     use itertools::Itertools;
     use solana_sdk::{instruction::Instruction, pubkey::Pubkey};
     use tokio::sync::Mutex;
+    use tuktuk_program::TaskV0;
 
     use super::{
         tuktuk::{self, accounts::TaskQueueV0},
@@ -322,5 +571,47 @@ pub mod task {
         });
 
         Ok((result, unsubscribe))
+    }
+
+    pub fn dequeue_ix(
+        task_queue_key: Pubkey,
+        queue_authority: Pubkey,
+        rent_refund: Pubkey,
+        index: u16,
+    ) -> Result<Instruction, Error> {
+        Ok(Instruction {
+            program_id: ID,
+            accounts: tuktuk::client::accounts::DequeueTaskV0 {
+                task_queue: task_queue_key,
+                rent_refund,
+                task: self::key(&task_queue_key, index),
+                queue_authority,
+            }
+            .to_account_metas(None),
+            data: tuktuk::client::args::DequeueTaskV0 {}.data(),
+        })
+    }
+
+    pub async fn dequeue<C: GetAnchorAccount>(
+        client: &C,
+        task_queue_key: Pubkey,
+        index: u16,
+    ) -> Result<Instruction, Error> {
+        let task_queue: TaskQueueV0 = client
+            .anchor_account(&task_queue_key)
+            .await?
+            .ok_or_else(|| Error::AccountNotFound)?;
+
+        let task: TaskV0 = client
+            .anchor_account(&self::key(&task_queue_key, index))
+            .await?
+            .ok_or_else(|| Error::AccountNotFound)?;
+
+        Ok(self::dequeue_ix(
+            task_queue_key,
+            task_queue.queue_authority,
+            task.rent_refund,
+            index,
+        )?)
     }
 }

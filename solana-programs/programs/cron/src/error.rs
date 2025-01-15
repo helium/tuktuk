@@ -12,4 +12,6 @@ pub enum ErrorCode {
     Overflow,
     #[msg("Invalid data increase")]
     InvalidDataIncrease,
+    #[msg("Cron job has transactions")]
+    CronJobHasTransactions,
 }

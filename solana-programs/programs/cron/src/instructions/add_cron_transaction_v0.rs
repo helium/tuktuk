@@ -37,8 +37,8 @@ pub struct AddCronTransactionV0<'info> {
 
 pub fn handler(ctx: Context<AddCronTransactionV0>, args: AddCronTransactionArgsV0) -> Result<()> {
     let cron_job = &mut ctx.accounts.cron_job;
-    cron_job.max_transaction_idx = cron_job.max_transaction_idx.max(args.index);
-
+    cron_job.next_transaction_id = cron_job.next_transaction_id.max(args.index + 1);
+    cron_job.num_transactions += 1;
     let mut transaction = args.transaction_source.clone();
     if let TransactionSourceV0::CompiledV0(mut compiled_tx) = transaction {
         compiled_tx

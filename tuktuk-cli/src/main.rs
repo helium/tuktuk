@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use tuktuk_cli::{
-    cmd::{task, task_queue, tuktuk_config, Opts},
+    cmd::{cron, cron_transaction, task, task_queue, tuktuk_config, Opts},
     result::Result,
 };
 
@@ -20,6 +20,8 @@ pub enum Cmd {
     TuktukConfig(tuktuk_config::TuktukConfigCmd),
     Task(task::TaskCmd),
     TaskQueue(task_queue::TaskQueueCmd),
+    Cron(cron::CronCmd),
+    CronTransaction(cron_transaction::CronTransactionCmd),
 }
 
 #[tokio::main]
@@ -33,5 +35,7 @@ async fn run(cli: Cli) -> Result {
         Cmd::TuktukConfig(cmd) => cmd.run(cli.opts).await,
         Cmd::Task(cmd) => cmd.run(cli.opts).await,
         Cmd::TaskQueue(cmd) => cmd.run(cli.opts).await,
+        Cmd::Cron(cmd) => cmd.run(cli.opts).await,
+        Cmd::CronTransaction(cmd) => cmd.run(cli.opts).await,
     }
 }

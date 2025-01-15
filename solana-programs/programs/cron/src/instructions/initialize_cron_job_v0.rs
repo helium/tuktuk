@@ -25,7 +25,6 @@ pub struct InitializeCronJobArgsV0 {
     pub schedule: String,
     pub name: String,
     pub free_tasks_per_transaction: u8,
-    pub capacity: u16,
 }
 
 #[derive(Accounts)]
@@ -97,12 +96,12 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
         schedule: args.schedule,
         name: args.name.clone(),
         current_exec_ts: schedule.unwrap().next_after(now).unwrap().timestamp(),
-        current_transaction_idx: 0,
-        max_transaction_idx: 0,
+        current_transaction_id: 0,
+        next_transaction_id: 0,
         bump_seed: ctx.bumps.cron_job,
+        num_transactions: 0,
     });
     ctx.accounts.user_cron_jobs.next_cron_job_id += 1;
-
     ctx.accounts
         .cron_job_name_mapping
         .set_inner(CronJobNameMappingV0 {
@@ -111,8 +110,8 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
             bump_seed: ctx.bumps.cron_job_name_mapping,
         });
 
-    let remaining_accounts = (ctx.accounts.cron_job.current_transaction_idx
-        ..ctx.accounts.cron_job.current_transaction_idx + QUEUED_TASKS_PER_QUEUE as u32)
+    let remaining_accounts = (ctx.accounts.cron_job.current_transaction_id
+        ..ctx.accounts.cron_job.current_transaction_id + QUEUED_TASKS_PER_QUEUE as u32)
         .map(|i| {
             Pubkey::find_program_address(
                 &[

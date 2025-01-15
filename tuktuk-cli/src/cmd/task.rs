@@ -4,12 +4,14 @@ use anyhow::anyhow;
 use clap::{Args, Subcommand};
 use clock::SYSVAR_CLOCK;
 use serde::Serialize;
+use solana_client::rpc_config::RpcSimulateTransactionConfig;
 use solana_sdk::{pubkey::Pubkey, signer::Signer, transaction::Transaction};
 use tuktuk_program::{types::TriggerV0, TaskQueueV0, TaskV0};
 use tuktuk_sdk::prelude::*;
 
-use super::task_queue::TaskQueueArg;
+use super::{task_queue::TaskQueueArg, TransactionSource};
 use crate::{
+    client::send_instructions,
     cmd::Opts,
     result::Result,
     serde::{print_json, serde_pubkey},
@@ -17,6 +19,8 @@ use crate::{
 
 #[derive(Debug, Args)]
 pub struct TaskCmd {
+    #[arg(long, default_value = "false")]
+    pub verbose: bool,
     #[command(subcommand)]
     pub cmd: Cmd,
 }
@@ -26,6 +30,12 @@ pub enum Cmd {
     List {
         #[command(flatten)]
         task_queue: TaskQueueArg,
+    },
+    Close {
+        #[command(flatten)]
+        task_queue: TaskQueueArg,
+        #[arg(short, long)]
+        id: u16,
     },
 }
 
@@ -73,14 +83,34 @@ impl TaskCmd {
                                 let recent_blockhash =
                                     client.rpc_client.get_latest_blockhash().await?;
                                 tx.message.recent_blockhash = recent_blockhash;
-                                let sim_result =
-                                    client.rpc_client.simulate_transaction(&tx).await?;
+                                let sim_result = client
+                                    .rpc_client
+                                    .simulate_transaction_with_config(
+                                        &tx,
+                                        RpcSimulateTransactionConfig {
+                                            commitment: Some(solana_sdk::commitment_config::CommitmentConfig::confirmed()),
+                                            sig_verify: true,
+                                            ..Default::default()
+                                        },
+                                    )
+                                    .await;
 
-                                simulation_result = Some(SimulationResult {
-                                    error: sim_result.value.err.map(|e| e.to_string()),
-                                    logs: Some(sim_result.value.logs.unwrap_or_default()),
-                                    compute_units: sim_result.value.units_consumed,
-                                });
+                                match sim_result {
+                                    Ok(simulated) => {
+                                        simulation_result = Some(SimulationResult {
+                                            error: simulated.value.err.map(|e| e.to_string()),
+                                            logs: Some(simulated.value.logs.unwrap_or_default()),
+                                            compute_units: simulated.value.units_consumed,
+                                        });
+                                    }
+                                    Err(err) => {
+                                        simulation_result = Some(SimulationResult {
+                                            error: Some(err.to_string()),
+                                            logs: None,
+                                            compute_units: None,
+                                        });
+                                    }
+                                }
                             }
                         }
 
@@ -91,10 +121,31 @@ impl TaskCmd {
                             crank_reward: task.crank_reward,
                             rent_refund: task.rent_refund,
                             simulation_result,
+                            transaction: if self.verbose {
+                                Some(TransactionSource::from(task.transaction.clone()))
+                            } else {
+                                None
+                            },
                         });
                     }
                 }
                 print_json(&json_tasks)?;
+            }
+            Cmd::Close {
+                task_queue,
+                id: index,
+            } => {
+                let client = opts.client().await?;
+                let task_queue_pubkey = task_queue.get_pubkey(&client).await?.unwrap();
+                let ix = tuktuk::task::dequeue(client.as_ref(), task_queue_pubkey, *index).await?;
+                send_instructions(
+                    client.rpc_client.clone(),
+                    &client.payer,
+                    client.opts.ws_url().as_str(),
+                    vec![ix],
+                    &[],
+                )
+                .await?;
             }
         }
         Ok(())
@@ -111,6 +162,7 @@ struct Task {
     pub trigger: Trigger,
     pub crank_reward: u64,
     pub simulation_result: Option<SimulationResult>,
+    pub transaction: Option<TransactionSource>,
 }
 
 #[derive(Serialize)]

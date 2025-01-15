@@ -1,7 +1,8 @@
 use std::{collections::HashSet, sync::Arc};
 
 use futures::{Stream, StreamExt, TryStreamExt};
-use solana_sdk::{signer::Signer, transaction::Transaction};
+use solana_client::rpc_config::RpcSimulateTransactionConfig;
+use solana_sdk::{commitment_config::CommitmentLevel, signer::Signer, transaction::Transaction};
 use solana_transaction_utils::queue::{TransactionQueueError, TransactionTask};
 use tokio_graceful_shutdown::SubsystemHandle;
 use tracing::info;
@@ -53,17 +54,47 @@ impl TimedTask {
             let recent_blockhash = rpc_client.get_latest_blockhash().await?;
             let mut tx = Transaction::new_with_payer(&run_ix.instructions, Some(&payer.pubkey()));
             tx.message.recent_blockhash = recent_blockhash;
-            let simulated = rpc_client.simulate_transaction(&tx).await?;
-            if let Some(err) = simulated.value.err {
-                info!(
-                    ?self,
-                    ?err,
-                    ?simulated.value.logs,
-                    "task simulation failed",
-                );
-                return self
-                    .handle_completion(ctx, Some(TransactionQueueError::TransactionError(err)))
-                    .await;
+            let simulated = rpc_client
+                .simulate_transaction_with_config(
+                    &tx,
+                    RpcSimulateTransactionConfig {
+                        commitment: Some(
+                            solana_sdk::commitment_config::CommitmentConfig::confirmed(),
+                        ),
+                        sig_verify: true,
+                        ..Default::default()
+                    },
+                )
+                .await;
+            // info!(?simulated, "simulated");
+            match simulated {
+                Ok(simulated) => {
+                    if let Some(err) = simulated.value.err {
+                        info!(
+                                    ?self,
+                            ?err,
+                            ?simulated.value.logs,
+                            "task simulation failed",
+                        );
+                        drop(in_progress);
+                        return self
+                            .handle_completion(
+                                ctx,
+                                Some(TransactionQueueError::TransactionError(err)),
+                            )
+                            .await;
+                    }
+                }
+                Err(err) => {
+                    drop(in_progress);
+                    info!(?self, ?err, "task simulation failed");
+                    return self
+                        .handle_completion(
+                            ctx,
+                            Some(TransactionQueueError::RawTransactionError(err.to_string())),
+                        )
+                        .await;
+                }
             }
 
             tx_sender
@@ -89,7 +120,6 @@ impl TimedTask {
         let task_ids = in_progress
             .entry(self.task_queue_key)
             .or_insert_with(HashSet::new);
-
         for task_id in &self.in_flight_task_ids {
             task_ids.remove(task_id);
         }

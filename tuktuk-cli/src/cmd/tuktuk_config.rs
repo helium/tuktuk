@@ -13,8 +13,6 @@ use crate::{
 
 #[derive(Debug, Args)]
 pub struct TuktukConfigCmd {
-    #[arg(long, default_value = "false")]
-    pub detailed: bool,
     #[command(subcommand)]
     pub cmd: Cmd,
 }

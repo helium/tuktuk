@@ -8,8 +8,12 @@ use solana_client::{
     tpu_client::TpuClientConfig,
 };
 use solana_sdk::{
-    commitment_config::CommitmentConfig, instruction::Instruction, message::Message,
-    signature::Keypair, signer::Signer, transaction::TransactionError,
+    commitment_config::{CommitmentConfig, CommitmentLevel},
+    instruction::Instruction,
+    message::Message,
+    signature::Keypair,
+    signer::Signer,
+    transaction::TransactionError,
 };
 use tokio::{
     sync::mpsc::{channel, Receiver, Sender},
@@ -31,6 +35,8 @@ pub struct TransactionTask<T: Send + Clone> {
 pub enum TransactionQueueError {
     #[error("Transaction error: {0}")]
     TransactionError(#[from] TransactionError),
+    #[error("Raw transaction error: {0}")]
+    RawTransactionError(String),
     #[error("Fee too high")]
     FeeTooHigh,
 }
@@ -49,6 +55,7 @@ pub struct TransactionQueueArgs<T: Send + Clone> {
     pub receiver: Receiver<TransactionTask<T>>,
     pub result_sender: Sender<CompletedTransactionTask<T>>,
     pub max_sol_fee: u64,
+    pub send_in_parallel: bool,
 }
 
 pub struct TransactionQueueHandles<T: Send + Clone> {
@@ -82,6 +89,7 @@ pub fn create_transaction_queue<T: Send + Clone + 'static>(
         receiver: mut rx,
         result_sender: result_tx,
         max_sol_fee,
+        send_in_parallel,
     } = args;
     let thread: JoinHandle<()> = tokio::spawn(async move {
         let mut tasks: Vec<TransactionTask<T>> = Vec::new();
@@ -120,32 +128,64 @@ pub fn create_transaction_queue<T: Send + Clone + 'static>(
                         continue;
                     }
                     let messages: Vec<Message> = with_auto_compute.iter().map(|(msg, _)| msg.clone()).collect();
-                    let results = send_and_confirm_transactions_in_parallel(
-                        rpc_client.clone(),
-                        Some(tpu_client),
-                        &messages,
-                        &[&payer],
-                        SendAndConfirmConfig {
-                            with_spinner: true,
-                            resign_txs_count: Some(5),
-                        },
-                    ).await.expect("Failed to send txs");
                     let mut task_results: std::collections::HashMap<usize, Option<TransactionQueueError>> = std::collections::HashMap::new();
-                    for (i, result) in results.iter().enumerate() {
-                        for task_id in &txs[i].1 {
-                                if let Some(err) = result {
-                                    task_results.insert(*task_id, Some(TransactionQueueError::TransactionError(err.clone())));
-                                } else if !task_results.contains_key(task_id) {
-                                    task_results.insert(*task_id, None);
+                    if !send_in_parallel {
+                        // Send transactions without confirmation
+                        for (i, message) in messages.iter().enumerate() {
+                            let mut tx = solana_sdk::transaction::VersionedTransaction::try_new(
+                                    solana_sdk::message::VersionedMessage::Legacy(message.clone()),
+                                    &[&payer],
+                                ).unwrap();
+                            tx.message.set_recent_blockhash(blockhash.0);
+                            match rpc_client.send_transaction_with_config(
+                                &tx,
+                                solana_client::rpc_config::RpcSendTransactionConfig {
+                                    skip_preflight: false,
+                                    preflight_commitment: Some(CommitmentLevel::Confirmed),
+                                    ..Default::default()
+                                },
+                            ).await {
+                                Ok(_) => {
+                                    for task_id in &with_auto_compute[i].1 {
+                                        task_results.insert(*task_id, None);
+                                    }
                                 }
+                                Err(err) => {
+                                    for task_id in &with_auto_compute[i].1 {
+                                        task_results.insert(*task_id, Some(TransactionQueueError::RawTransactionError(
+                                            err.to_string()
+                                        )));
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        let results = send_and_confirm_transactions_in_parallel(
+                            rpc_client.clone(),
+                            Some(tpu_client),
+                            &messages,
+                            &[&payer],
+                            SendAndConfirmConfig {
+                                with_spinner: true,
+                                resign_txs_count: Some(5),
+                            },
+                        ).await.expect("Failed to send txs");
+                        for (i, result) in results.iter().enumerate() {
+                            for task_id in &txs[i].1 {
+                                    if let Some(err) = result {
+                                        task_results.insert(*task_id, Some(TransactionQueueError::TransactionError(err.clone())));
+                                    } else if !task_results.contains_key(task_id) {
+                                        task_results.insert(*task_id, None);
+                                    }
+                            }
                         }
                     }
                     for (task_id, err) in task_results {
-                        result_tx.send(CompletedTransactionTask {
-                            err,
-                            task: tasks[task_id].clone(),
-                        }).await.unwrap();
-                    }
+                            result_tx.send(CompletedTransactionTask {
+                                err,
+                                task: tasks[task_id].clone(),
+                            }).await.unwrap();
+                        }
                     tasks.clear();
                 }
 

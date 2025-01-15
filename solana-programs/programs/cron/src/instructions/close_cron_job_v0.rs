@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 
 use crate::{
+    error::ErrorCode,
     hash_name,
     state::{CronJobNameMappingV0, CronJobV0, UserCronJobsV0},
 };
@@ -20,6 +21,7 @@ pub struct CloseCronJobV0<'info> {
         close = refund,
         has_one = authority,
         has_one = user_cron_jobs,
+        constraint = cron_job.num_transactions == 0 @ ErrorCode::CronJobHasTransactions
     )]
     pub cron_job: Box<Account<'info, CronJobV0>>,
     #[account(
@@ -30,9 +32,9 @@ pub struct CloseCronJobV0<'info> {
             authority.key().as_ref(),
             &hash_name(cron_job.name.as_str())
         ],
-        bump = task_queue_name_mapping.bump_seed
+        bump = cron_job_name_mapping.bump_seed
     )]
-    pub task_queue_name_mapping: Account<'info, CronJobNameMappingV0>,
+    pub cron_job_name_mapping: Account<'info, CronJobNameMappingV0>,
     pub system_program: Program<'info, System>,
 }
 

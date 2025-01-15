@@ -2,7 +2,9 @@ use std::str::FromStr;
 
 use clap::{Args, Subcommand};
 use serde::Serialize;
-use solana_sdk::{pubkey::Pubkey, signer::Signer, system_instruction::transfer};
+use solana_sdk::{
+    instruction::Instruction, pubkey::Pubkey, signer::Signer, system_instruction::transfer,
+};
 use tuktuk::task_queue_name_mapping_key;
 use tuktuk_program::{TaskQueueV0, TuktukConfigV0};
 use tuktuk_sdk::prelude::*;
@@ -16,8 +18,6 @@ use crate::{
 
 #[derive(Debug, Args)]
 pub struct TaskQueueCmd {
-    #[arg(long, default_value = "false")]
-    pub detailed: bool,
     #[command(subcommand)]
     pub cmd: Cmd,
 }
@@ -35,11 +35,11 @@ pub enum Cmd {
         name: String,
         #[arg(
             long,
-            help = "Initial funding amount in bones. Task queue funding is only required to pay extra rent for tasks that run as a result of other tasks.",
+            help = "Initial funding amount in lamports. Task queue funding is only required to pay extra rent for tasks that run as a result of other tasks.",
             default_value = "0"
         )]
         funding_amount: u64,
-        #[arg(long, help = "Default crank reward in bones")]
+        #[arg(long, help = "Default crank reward in lamports")]
         min_crank_reward: u64,
     },
     Get {
@@ -49,7 +49,7 @@ pub enum Cmd {
     Fund {
         #[command(flatten)]
         task_queue: TaskQueueArg,
-        #[arg(long, help = "Amount to fund the task queue with, in bones")]
+        #[arg(long, help = "Amount to fund the task queue with, in lamports")]
         amount: u64,
     },
     Close {
@@ -91,17 +91,14 @@ impl TaskQueueArg {
 }
 
 impl TaskQueueCmd {
-    async fn fund_task_queue(client: &CliClient, task_queue_key: &Pubkey, amount: u64) -> Result {
+    async fn fund_task_queue_ix(
+        client: &CliClient,
+        task_queue_key: &Pubkey,
+        amount: u64,
+    ) -> Result<Instruction> {
         let ix = transfer(&client.payer.pubkey(), &task_queue_key, amount);
 
-        send_instructions(
-            client.rpc_client.clone(),
-            &client.payer,
-            client.opts.ws_url().as_str(),
-            vec![ix],
-            &[],
-        )
-        .await
+        Ok(ix)
     }
 
     pub async fn run(&self, opts: Opts) -> Result {
@@ -141,13 +138,13 @@ impl TaskQueueCmd {
                         config.min_deposit
                     ));
                 }
-                Self::fund_task_queue(&client, &key, config.min_deposit).await?;
+                let fund_ix = Self::fund_task_queue_ix(&client, &key, *funding_amount).await?;
 
                 send_instructions(
                     client.rpc_client.clone(),
                     &client.payer,
                     client.opts.ws_url().as_str(),
-                    vec![ix],
+                    vec![fund_ix, ix],
                     &[],
                 )
                 .await?;
@@ -204,7 +201,15 @@ impl TaskQueueCmd {
                     )
                 })?;
 
-                Self::fund_task_queue(&client, &task_queue_key, *amount).await?;
+                let fund_ix = Self::fund_task_queue_ix(&client, &task_queue_key, *amount).await?;
+                send_instructions(
+                    client.rpc_client.clone(),
+                    &client.payer,
+                    client.opts.ws_url().as_str(),
+                    vec![fund_ix],
+                    &[],
+                )
+                .await?;
             }
             Cmd::Close { task_queue } => {
                 let client = opts.client().await?;

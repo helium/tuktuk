@@ -17,6 +17,10 @@ use crate::{
 };
 
 pub const QUEUED_TASKS_PER_QUEUE: u8 = 3;
+// Queue tasks 5 minutes before the cron job is scheduled to run
+// This way we don't take up space in the task queue for tasks that are running
+// A long time from now
+pub const QUEUE_TASK_DELAY: i64 = 60 * 5;
 
 #[derive(Accounts)]
 pub struct QueueCronTasksV0<'info> {
@@ -33,8 +37,7 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
 
     // Add as man
     let mut i = 0;
-    while ctx.accounts.cron_job.current_transaction_idx
-        < ctx.accounts.cron_job.max_transaction_idx + 1
+    while ctx.accounts.cron_job.current_transaction_id < ctx.accounts.cron_job.next_transaction_id
         && i < QUEUED_TASKS_PER_QUEUE as usize
     {
         let transaction = ctx.remaining_accounts[i].clone();
@@ -66,15 +69,13 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
             tasks.push(new_task);
         }
 
-        ctx.accounts.cron_job.current_transaction_idx += 1;
+        ctx.accounts.cron_job.current_transaction_id += 1;
         i += 1;
     }
 
     // If we reached the end this time, reset to 0 and move the next execution time forward
-    if ctx.accounts.cron_job.current_transaction_idx
-        == ctx.accounts.cron_job.max_transaction_idx + 1
-    {
-        ctx.accounts.cron_job.current_transaction_idx = 0;
+    if ctx.accounts.cron_job.current_transaction_id == ctx.accounts.cron_job.next_transaction_id {
+        ctx.accounts.cron_job.current_transaction_id = 0;
         let schedule = Schedule::from_str(&ctx.accounts.cron_job.schedule).unwrap();
         // Find the next execution time after the last one
         let ts = ctx.accounts.cron_job.current_exec_ts;
@@ -89,8 +90,8 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
         );
     }
 
-    let remaining_accounts = (ctx.accounts.cron_job.current_transaction_idx
-        ..ctx.accounts.cron_job.current_transaction_idx + (QUEUED_TASKS_PER_QUEUE - 1) as u32)
+    let remaining_accounts = (ctx.accounts.cron_job.current_transaction_id
+        ..ctx.accounts.cron_job.current_transaction_id + (QUEUED_TASKS_PER_QUEUE - 1) as u32)
         .map(|i| {
             Pubkey::find_program_address(
                 &[
@@ -125,7 +126,7 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
     )?;
 
     tasks.push(TaskReturnV0 {
-        trigger: TriggerV0::Timestamp(ctx.accounts.cron_job.current_exec_ts),
+        trigger: TriggerV0::Timestamp(ctx.accounts.cron_job.current_exec_ts - QUEUE_TASK_DELAY),
         transaction: TransactionSourceV0::CompiledV0(queue_tx),
         crank_reward: None,
         free_tasks: QUEUED_TASKS_PER_QUEUE,

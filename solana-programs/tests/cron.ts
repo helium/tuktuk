@@ -162,7 +162,6 @@ describe("cron", () => {
         .initializeCronJobV0({
           name,
           schedule: "*/1 * * * * *", // Run every second
-          capacity: 10,
           freeTasksPerTransaction: 5,
         })
         .accounts({

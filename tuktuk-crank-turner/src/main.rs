@@ -112,6 +112,7 @@ impl Cli {
                         receiver: handles.receiver,
                         result_sender: handles.result_sender,
                         max_sol_fee: settings.max_sol_fee,
+                        send_in_parallel: true,
                     })
                     .run(handle)
                 }

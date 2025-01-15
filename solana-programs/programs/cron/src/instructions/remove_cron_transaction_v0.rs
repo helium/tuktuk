@@ -30,8 +30,9 @@ pub fn handler(
     ctx: Context<RemoveCronTransactionV0>,
     args: RemoveCronTransactionArgsV0,
 ) -> Result<()> {
-    if ctx.accounts.cron_job.max_transaction_idx == args.index {
-        ctx.accounts.cron_job.max_transaction_idx -= 1;
+    ctx.accounts.cron_job.num_transactions -= 1;
+    if ctx.accounts.cron_job.next_transaction_id == args.index {
+        ctx.accounts.cron_job.next_transaction_id -= 1;
     }
     Ok(())
 }
