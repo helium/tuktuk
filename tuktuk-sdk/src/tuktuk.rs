@@ -112,6 +112,7 @@ pub mod cron {
         Ok(cron_job_keys)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn create_ix(
         payer: Pubkey,
         authority: Pubkey,
@@ -607,11 +608,11 @@ pub mod task {
             .await?
             .ok_or_else(|| Error::AccountNotFound)?;
 
-        Ok(self::dequeue_ix(
+        self::dequeue_ix(
             task_queue_key,
             task_queue.queue_authority,
             task.rent_refund,
             index,
-        )?)
+        )
     }
 }
