@@ -15,3 +15,6 @@ runs:
         shell: bash
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.80.1
