@@ -123,6 +123,7 @@ jobs:
       matrix:
         test:
           - tests/tuktuk.ts
+          - tests/cron.ts
     steps:
       - uses: actions/checkout@v3
       - uses: ./.github/actions/build-anchor/

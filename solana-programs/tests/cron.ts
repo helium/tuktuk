@@ -53,7 +53,7 @@ describe("cron", () => {
   const me = provider.wallet.publicKey;
   const tuktukConfig = tuktukConfigKey()[0];
 
-  beforeEach(async () => {
+  before(async () => {
     await ensureIdls();
     tuktukProgram = await initTuktuk(provider);
     cronProgram = await initCron(provider);

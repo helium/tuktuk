@@ -49,7 +49,7 @@ describe("tuktuk", () => {
   const me = provider.wallet.publicKey;
   const tuktukConfig = tuktukConfigKey()[0];
 
-  beforeEach(async () => {
+  before(async () => {
     await ensureIdls();
     program = await init(provider);
   });
