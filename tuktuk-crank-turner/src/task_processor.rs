@@ -2,7 +2,7 @@ use std::{collections::HashSet, sync::Arc};
 
 use futures::{Stream, StreamExt, TryStreamExt};
 use solana_client::rpc_config::RpcSimulateTransactionConfig;
-use solana_sdk::{commitment_config::CommitmentLevel, signer::Signer, transaction::Transaction};
+use solana_sdk::{commitment_config::CommitmentConfig, signer::Signer, transaction::Transaction};
 use solana_transaction_utils::queue::{TransactionQueueError, TransactionTask};
 use tokio_graceful_shutdown::SubsystemHandle;
 use tracing::info;
@@ -51,15 +51,18 @@ impl TimedTask {
         let ctx = ctx.clone();
         if let Some(run_ix) = run_ix {
             task_ids.extend(run_ix.free_task_ids.clone());
-            let recent_blockhash = rpc_client.get_latest_blockhash().await?;
+            let (recent_blockhash, _) = rpc_client
+                .get_latest_blockhash_with_commitment(CommitmentConfig::finalized())
+                .await?;
             let mut tx = Transaction::new_with_payer(&run_ix.instructions, Some(&payer.pubkey()));
             tx.message.recent_blockhash = recent_blockhash;
+            tx.sign(&[&payer], recent_blockhash);
             let simulated = rpc_client
                 .simulate_transaction_with_config(
                     &tx,
                     RpcSimulateTransactionConfig {
                         commitment: Some(
-                            solana_sdk::commitment_config::CommitmentConfig::confirmed(),
+                            solana_sdk::commitment_config::CommitmentConfig::processed(),
                         ),
                         sig_verify: true,
                         ..Default::default()

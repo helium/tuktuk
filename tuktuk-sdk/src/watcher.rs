@@ -6,9 +6,12 @@ use futures::{
     future::{BoxFuture, Future},
     stream::{unfold, Stream, StreamExt},
 };
-use solana_account_decoder::UiAccount;
-use solana_client::nonblocking::{pubsub_client::PubsubClient, rpc_client::RpcClient};
-use solana_sdk::{account::Account, pubkey::Pubkey};
+use solana_account_decoder::{UiAccount, UiAccountEncoding};
+use solana_client::{
+    nonblocking::{pubsub_client::PubsubClient, rpc_client::RpcClient},
+    rpc_config::RpcAccountInfoConfig,
+};
+use solana_sdk::{account::Account, commitment_config::CommitmentConfig, pubkey::Pubkey};
 use tokio::{
     sync::{broadcast, Mutex},
     time::interval,
@@ -22,6 +25,7 @@ pub struct PubsubTracker {
     watched_pubkeys: Arc<Mutex<HashMap<Pubkey, Option<Account>>>>,
     publisher: broadcast::Sender<(Pubkey, Account)>, // Change to broadcast::Sender
     requery_interval: Duration,
+    commitment: CommitmentConfig,
 }
 
 fn account_from_ui_account(value: &UiAccount) -> Account {
@@ -39,6 +43,7 @@ impl PubsubTracker {
         client: Arc<RpcClient>,
         pubsub: Arc<PubsubClient>,
         requery_interval: Duration,
+        commitment: CommitmentConfig,
     ) -> Self {
         Self {
             client,
@@ -46,6 +51,7 @@ impl PubsubTracker {
             watched_pubkeys: Arc::new(Mutex::new(HashMap::new())),
             publisher: broadcast::Sender::new(1000),
             requery_interval,
+            commitment,
         }
     }
 
@@ -60,7 +66,17 @@ impl PubsubTracker {
         Error,
     > {
         // Subscribe to account updates
-        let (subscription, unsub) = self.pubsub.account_subscribe(&pubkey, None).await?;
+        let (subscription, unsub) = self
+            .pubsub
+            .account_subscribe(
+                &pubkey,
+                Some(RpcAccountInfoConfig {
+                    commitment: Some(self.commitment),
+                    encoding: Some(UiAccountEncoding::Base64Zstd),
+                    ..Default::default()
+                }),
+            )
+            .await?;
 
         self.watched_pubkeys.lock().await.insert(pubkey, None);
 
@@ -78,8 +94,8 @@ impl PubsubTracker {
                             Some(s) = subscription.next() => {
                                 let mut account = account_from_ui_account(&s.value);
                                 if account.data.is_empty() {
-                                    account = match client.get_account(&pubkey).await {
-                                        Ok(acc) => acc,
+                                    account = match client.get_account_with_commitment(&pubkey, self.commitment).await {
+                                        Ok(acc) => acc.value.unwrap(),
                                         Err(e) => return Some((Err(Error::from(e)), (subscription, publisher_receiver))),
                                     };
                                 }

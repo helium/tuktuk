@@ -83,6 +83,7 @@ impl TaskCmd {
                                 let recent_blockhash =
                                     client.rpc_client.get_latest_blockhash().await?;
                                 tx.message.recent_blockhash = recent_blockhash;
+                                tx.sign(&[&client.payer], recent_blockhash);
                                 let sim_result = client
                                     .rpc_client
                                     .simulate_transaction_with_config(

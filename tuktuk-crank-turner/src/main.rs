@@ -47,7 +47,16 @@ impl Cli {
         let solana_ws_url = settings.rpc_ws_url;
 
         // Create a non-blocking RPC client
+        // We can work off of processed accounts because we simulate the next tx before actually
+        // sending it.
+        let commitment = CommitmentConfig::processed();
         let rpc_client = Arc::new(RpcClient::new_with_commitment(
+            solana_url.clone(),
+            commitment,
+        ));
+
+        // For sending transactions, we need to use confirmed commitment
+        let tx_sender_rpc_client = Arc::new(RpcClient::new_with_commitment(
             solana_url.clone(),
             CommitmentConfig::confirmed(),
         ));
@@ -62,6 +71,7 @@ impl Cli {
             Arc::clone(&rpc_client),
             pubsub_client,
             Duration::from_secs(60),
+            commitment,
         ));
 
         let now_rx = clock::track(Arc::clone(&rpc_client), Arc::clone(&pubsub_tracker)).await?;
@@ -105,7 +115,7 @@ impl Cli {
             top_level.start(SubsystemBuilder::new("transaction-queue", {
                 move |handle| {
                     TransactionSenderSubsystem::new(TransactionQueueArgs {
-                        rpc_client,
+                        rpc_client: tx_sender_rpc_client,
                         ws_url: solana_ws_url.clone(),
                         payer,
                         batch_duration: Duration::from_secs(1),
