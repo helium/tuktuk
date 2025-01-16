@@ -1,14 +1,15 @@
 use std::str::FromStr;
 
-use anchor_lang::{
-    prelude::*,
-    solana_program::{instruction::Instruction, program::MAX_RETURN_DATA},
-    InstructionData,
-};
+use anchor_lang::{prelude::*, solana_program::instruction::Instruction, InstructionData};
 use chrono::{DateTime, Utc};
 use clockwork_cron::Schedule;
 use tuktuk_program::{
-    compile_transaction, RunTaskReturnV0, TaskQueueV0, TaskReturnV0, TransactionSourceV0, TriggerV0,
+    compile_transaction,
+    write_return_tasks::{
+        write_return_tasks, AccountWithSeeds, PayerInfo, WriteReturnTasksArgs,
+        WriteReturnTasksReturn,
+    },
+    RunTaskReturnV0, TaskQueueV0, TaskReturnV0, TransactionSourceV0, TriggerV0,
 };
 
 use crate::{
@@ -30,48 +31,31 @@ pub struct QueueCronTasksV0<'info> {
     )]
     pub cron_job: Box<Account<'info, CronJobV0>>,
     pub task_queue: Box<Account<'info, TaskQueueV0>>,
+    /// CHECK: Used to write return data
+    #[account(
+        mut,
+        seeds = [b"task_return_account_1", cron_job.key().as_ref()],
+        bump
+    )]
+    pub task_return_account_1: AccountInfo<'info>,
+    /// CHECK: Used to write return data
+    #[account(
+        mut,
+        seeds = [b"task_return_account_2", cron_job.key().as_ref()],
+        bump
+    )]
+    pub task_return_account_2: AccountInfo<'info>,
+    pub system_program: Program<'info, System>,
 }
 
 pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
-    let mut tasks = vec![];
+    let max_num_tasks_remaining =
+        ctx.accounts.cron_job.next_transaction_id - ctx.accounts.cron_job.current_transaction_id;
+    let num_tasks_to_queue =
+        (ctx.accounts.cron_job.num_tasks_per_queue_call as u32).min(max_num_tasks_remaining);
+    ctx.accounts.cron_job.current_transaction_id += num_tasks_to_queue;
 
-    // Add as man
-    let mut i = 0;
-    while ctx.accounts.cron_job.current_transaction_id < ctx.accounts.cron_job.next_transaction_id
-        && i < QUEUED_TASKS_PER_QUEUE as usize
-    {
-        let transaction = ctx.remaining_accounts[i].clone();
-        if !transaction.data_is_empty() {
-            let parsed_transaction: CronJobTransactionV0 =
-                AccountDeserialize::try_deserialize(&mut &transaction.data.borrow()[..])?;
-            let new_task = TaskReturnV0 {
-                trigger: TriggerV0::Timestamp(ctx.accounts.cron_job.current_exec_ts),
-                transaction: parsed_transaction.transaction,
-                crank_reward: None,
-                free_tasks: ctx.accounts.cron_job.free_tasks_per_transaction,
-            };
-
-            // Calculate size with new task
-            let return_value = RunTaskReturnV0 {
-                tasks: tasks
-                    .iter()
-                    .chain(std::iter::once(&new_task))
-                    .cloned()
-                    .collect(),
-            };
-            let new_size = return_value.try_to_vec()?.len();
-
-            // Leave some room for the next re-queue
-            if new_size > (MAX_RETURN_DATA - ((QUEUED_TASKS_PER_QUEUE as usize) * 32 + 128)) {
-                break;
-            }
-
-            tasks.push(new_task);
-        }
-
-        ctx.accounts.cron_job.current_transaction_id += 1;
-        i += 1;
-    }
+    let trigger = TriggerV0::Timestamp(ctx.accounts.cron_job.current_exec_ts);
 
     // If we reached the end this time, reset to 0 and move the next execution time forward
     if ctx.accounts.cron_job.current_transaction_id == ctx.accounts.cron_job.next_transaction_id {
@@ -86,14 +70,15 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
         ctx.accounts.cron_job.current_exec_ts =
             schedule.next_after(date_time_ts).unwrap().timestamp();
         msg!(
-            "Finished execution ts: {}, moving to {}",
+            "Will have finished execution ts: {}, moving to {}",
             ts,
             ctx.accounts.cron_job.current_exec_ts
         );
     }
 
     let remaining_accounts = (ctx.accounts.cron_job.current_transaction_id
-        ..ctx.accounts.cron_job.current_transaction_id + (QUEUED_TASKS_PER_QUEUE - 1) as u32)
+        ..ctx.accounts.cron_job.current_transaction_id
+            + ctx.accounts.cron_job.num_tasks_per_queue_call as u32)
         .map(|i| {
             Pubkey::find_program_address(
                 &[
@@ -114,6 +99,9 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
                 crate::__cpi_client_accounts_queue_cron_tasks_v0::QueueCronTasksV0 {
                     cron_job: ctx.accounts.cron_job.to_account_info(),
                     task_queue: ctx.accounts.task_queue.to_account_info(),
+                    task_return_account_1: ctx.accounts.task_return_account_1.to_account_info(),
+                    task_return_account_2: ctx.accounts.task_return_account_2.to_account_info(),
+                    system_program: ctx.accounts.system_program.to_account_info(),
                 }
                 .to_account_metas(None),
                 remaining_accounts
@@ -126,31 +114,77 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
         }],
         vec![],
     )?;
+    let free_tasks_per_transaction = ctx.accounts.cron_job.free_tasks_per_transaction;
+    let tasks = (0..num_tasks_to_queue as usize)
+        .filter_map(|i| {
+            let transaction = ctx.remaining_accounts[i].clone();
+            if transaction.data_is_empty() {
+                return None;
+            }
 
-    tasks.push(TaskReturnV0 {
-        trigger: TriggerV0::Timestamp(ctx.accounts.cron_job.current_exec_ts - QUEUE_TASK_DELAY),
-        transaction: TransactionSourceV0::CompiledV0(queue_tx),
-        crank_reward: None,
-        free_tasks: QUEUED_TASKS_PER_QUEUE,
-    });
+            let parsed_transaction: CronJobTransactionV0 =
+                AccountDeserialize::try_deserialize(&mut &transaction.data.borrow()[..]).ok()?;
 
+            Some(TaskReturnV0 {
+                trigger,
+                transaction: parsed_transaction.transaction,
+                crank_reward: None,
+                free_tasks: free_tasks_per_transaction,
+            })
+        })
+        .chain(std::iter::once(TaskReturnV0 {
+            trigger: TriggerV0::Timestamp(ctx.accounts.cron_job.current_exec_ts - QUEUE_TASK_DELAY),
+            transaction: TransactionSourceV0::CompiledV0(queue_tx),
+            crank_reward: None,
+            free_tasks: ctx.accounts.cron_job.num_tasks_per_queue_call + 1,
+        }));
+
+    let WriteReturnTasksReturn {
+        used_accounts,
+        total_tasks,
+    } = write_return_tasks(WriteReturnTasksArgs {
+        program_id: crate::ID,
+        payer_info: PayerInfo::PdaPayer(ctx.accounts.cron_job.to_account_info()),
+        accounts: vec![
+            AccountWithSeeds {
+                account: ctx.accounts.task_return_account_1.to_account_info(),
+                seeds: vec![
+                    b"task_return_account_1".to_vec(),
+                    ctx.accounts.cron_job.key().as_ref().to_vec(),
+                    vec![ctx.bumps.task_return_account_1],
+                ],
+            },
+            AccountWithSeeds {
+                account: ctx.accounts.task_return_account_2.to_account_info(),
+                seeds: vec![
+                    b"task_return_account_2".to_vec(),
+                    ctx.accounts.cron_job.key().as_ref().to_vec(),
+                    vec![ctx.bumps.task_return_account_2],
+                ],
+            },
+        ],
+        system_program: ctx.accounts.system_program.to_account_info(),
+        tasks,
+    })?;
+    msg!("Queued {} tasks", total_tasks);
     // Transfer needed lamports from the cron job to the task queue
     let cron_job_info = ctx.accounts.cron_job.to_account_info();
     let cron_job_min_lamports = Rent::get()?.minimum_balance(cron_job_info.data_len());
-    let lamports = ctx.accounts.task_queue.min_crank_reward * tasks.len() as u64;
+    let lamports = ctx.accounts.task_queue.min_crank_reward * total_tasks as u64;
     require_gt!(
         cron_job_info.lamports(),
         cron_job_min_lamports + lamports,
         ErrorCode::InsufficientFunds
     );
 
-    **cron_job_info.try_borrow_mut_lamports()? -= lamports;
-    **ctx
-        .accounts
+    cron_job_info.sub_lamports(lamports)?;
+    ctx.accounts
         .task_queue
         .to_account_info()
-        .try_borrow_mut_lamports()? += lamports;
+        .add_lamports(lamports)?;
 
-    msg!("Queuing {} tasks", tasks.len());
-    Ok(RunTaskReturnV0 { tasks })
+    Ok(RunTaskReturnV0 {
+        tasks: vec![],
+        accounts: used_accounts,
+    })
 }

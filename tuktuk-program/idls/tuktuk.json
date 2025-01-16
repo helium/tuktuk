@@ -339,6 +339,11 @@
       "code": 6014,
       "name": "InvalidRemainingAccountsHash",
       "msg": "Invalid remaining accounts hash"
+    },
+    {
+      "code": 6015,
+      "name": "InvalidRentRefund",
+      "msg": "Invalid rent refund"
     }
   ],
   "types": [

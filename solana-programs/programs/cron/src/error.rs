@@ -14,4 +14,6 @@ pub enum ErrorCode {
     InvalidDataIncrease,
     #[msg("Cron job has transactions")]
     CronJobHasTransactions,
+    #[msg("Invalid number of tasks per queue call")]
+    InvalidNumTasksPerQueueCall,
 }

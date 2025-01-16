@@ -30,6 +30,7 @@ import {
   sendAndConfirmWithRetry,
   sendInstructions,
   toVersionedTx,
+  withPriorityFees,
 } from "@helium/spl-utils";
 import { ensureIdls, makeid } from "./utils";
 import {
@@ -447,6 +448,111 @@ describe("tuktuk", () => {
       await sendAndConfirmWithRetry(
         provider.connection,
         Buffer.from(tx2.serialize()),
+        {
+          skipPreflight: true,
+          maxRetries: 0,
+        },
+        "confirmed"
+      );
+    });
+
+    it("allows multiple tasks with account return", async () => {
+      let freeTasks: PublicKey[] = [];
+      for (let i = 0; i < 21; i++) {
+        freeTasks.push(taskKey(taskQueue, i)[0]);
+      }
+      const crankTurner = Keypair.generate();
+      const method = await cpiProgram.methods.scheduleWithAccountReturn(0).accounts({
+        taskQueue,
+        task: freeTasks[0],
+      });
+      await sendInstructions(provider, [
+        SystemProgram.transfer({
+          fromPubkey: me,
+          toPubkey: taskQueue!,
+          lamports: 1000000000,
+        }),
+        SystemProgram.transfer({
+          fromPubkey: me,
+          toPubkey: crankTurner.publicKey,
+          lamports: 1000000000,
+        }),
+        SystemProgram.transfer({
+          fromPubkey: me,
+          toPubkey: queueAuthority!,
+          lamports: 1000000000,
+        }),
+      ]);
+
+      await method.rpc({ skipPreflight: true });
+      const ixs = await runTask({
+        program,
+        task: freeTasks[0],
+        crankTurner: crankTurner.publicKey,
+      });
+      const tx = toVersionedTx(
+        await populateMissingDraftInfo(provider.connection, {
+          feePayer: crankTurner.publicKey,
+          instructions: await withPriorityFees({
+            instructions: ixs,
+            connection: provider.connection,
+            feePayer: crankTurner.publicKey,
+            computeUnits: 1000000000,
+          }),
+        })
+      );
+      await tx.sign([crankTurner]);
+      await sendAndConfirmWithRetry(
+        provider.connection,
+        Buffer.from(tx.serialize()),
+        {
+          skipPreflight: true,
+          maxRetries: 0,
+        },
+        "confirmed"
+      );
+      await sleep(1000);
+      const ixs2 = await runTask({
+        program,
+        task: freeTasks[1],
+        crankTurner: crankTurner.publicKey,
+      });
+      const tx2 = toVersionedTx(
+        await populateMissingDraftInfo(provider.connection, {
+          feePayer: crankTurner.publicKey,
+          instructions: await withPriorityFees({
+            instructions: ixs2,
+            connection: provider.connection,
+            feePayer: crankTurner.publicKey,
+            computeUnits: 1000000000,
+          }),
+        })
+      );
+      await tx2.sign([crankTurner]);
+      await sendAndConfirmWithRetry(
+        provider.connection,
+        Buffer.from(tx2.serialize()),
+        {
+          skipPreflight: true,
+          maxRetries: 0,
+        },
+        "confirmed"
+      );
+      const ixs3 = await runTask({
+        program,
+        task: freeTasks[2],
+        crankTurner: crankTurner.publicKey,
+      });
+      const tx3 = toVersionedTx(
+        await populateMissingDraftInfo(provider.connection, {
+          feePayer: crankTurner.publicKey,
+          instructions: ixs3,
+        })
+      );
+      await tx3.sign([crankTurner]);
+      await sendAndConfirmWithRetry(
+        provider.connection,
+        Buffer.from(tx3.serialize()),
         {
           skipPreflight: true,
           maxRetries: 0,

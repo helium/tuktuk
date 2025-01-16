@@ -18,6 +18,7 @@ pub struct CronJobV0 {
     pub task_queue: Pubkey,
     pub authority: Pubkey,
     pub free_tasks_per_transaction: u8,
+    pub num_tasks_per_queue_call: u8,
     pub schedule: String,
     pub name: String,
     pub current_exec_ts: i64,

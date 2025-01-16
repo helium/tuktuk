@@ -136,6 +136,42 @@
           "writable": true
         },
         {
+          "name": "task_return_account_1",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116, 97, 115, 107, 95, 114, 101, 116, 117, 114, 110, 95, 97,
+                  99, 99, 111, 117, 110, 116, 95, 49
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "cron_job"
+              }
+            ]
+          }
+        },
+        {
+          "name": "task_return_account_2",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116, 97, 115, 107, 95, 114, 101, 116, 117, 114, 110, 95, 97,
+                  99, 99, 111, 117, 110, 116, 95, 50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "cron_job"
+              }
+            ]
+          }
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         },
@@ -166,6 +202,48 @@
         {
           "name": "task_queue",
           "relations": ["cron_job"]
+        },
+        {
+          "name": "task_return_account_1",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116, 97, 115, 107, 95, 114, 101, 116, 117, 114, 110, 95, 97,
+                  99, 99, 111, 117, 110, 116, 95, 49
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "cron_job"
+              }
+            ]
+          }
+        },
+        {
+          "name": "task_return_account_2",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116, 97, 115, 107, 95, 114, 101, 116, 117, 114, 110, 95, 97,
+                  99, 99, 111, 117, 110, 116, 95, 50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "cron_job"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [],
@@ -267,6 +345,11 @@
       "code": 6005,
       "name": "CronJobHasTransactions",
       "msg": "Cron job has transactions"
+    },
+    {
+      "code": 6006,
+      "name": "InvalidNumTasksPerQueueCall",
+      "msg": "Invalid number of tasks per queue call"
     }
   ],
   "types": [
@@ -428,6 +511,10 @@
             "type": "u8"
           },
           {
+            "name": "num_tasks_per_queue_call",
+            "type": "u8"
+          },
+          {
             "name": "schedule",
             "type": "string"
           },
@@ -474,6 +561,10 @@
           {
             "name": "free_tasks_per_transaction",
             "type": "u8"
+          },
+          {
+            "name": "num_tasks_per_queue_call",
+            "type": "u8"
           }
         ]
       }
@@ -503,6 +594,12 @@
                   "name": "TaskReturnV0"
                 }
               }
+            }
+          },
+          {
+            "name": "accounts",
+            "type": {
+              "vec": "pubkey"
             }
           }
         ]

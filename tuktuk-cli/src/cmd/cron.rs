@@ -37,8 +37,10 @@ pub enum Cmd {
         schedule: String,
         #[arg(long)]
         name: String,
-        #[arg(long)]
+        #[arg(long, value_parser = clap::value_parser!(u8).range(0..=15))]
         free_tasks_per_transaction: u8,
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=15))]
+        num_tasks_per_queue_call: u8,
         #[arg(long, help = "Initial funding amount in lamports", default_value = "0")]
         funding_amount: u64,
     },
@@ -110,6 +112,7 @@ impl CronCmd {
                 name,
                 free_tasks_per_transaction,
                 funding_amount,
+                num_tasks_per_queue_call,
             } => {
                 let client = opts.client().await?;
                 let task_queue_key = task_queue.get_pubkey(&client).await?.ok_or_else(|| {
@@ -125,6 +128,7 @@ impl CronCmd {
                         name: name.clone(),
                         schedule: schedule.clone(),
                         free_tasks_per_transaction: *free_tasks_per_transaction,
+                        num_tasks_per_queue_call: *num_tasks_per_queue_call,
                     },
                     *authority,
                     task_queue_key,
@@ -162,6 +166,7 @@ impl CronCmd {
                     current_transaction_id: cron_job.current_transaction_id,
                     next_transaction_id: cron_job.next_transaction_id,
                     balance: cron_job_balance,
+                    num_tasks_per_queue_call: *num_tasks_per_queue_call,
                 })?;
             }
             Cmd::Get { cron } => {
@@ -189,6 +194,7 @@ impl CronCmd {
                     next_transaction_id: cron_job.next_transaction_id,
                     name: cron_job.name,
                     balance: cron_job_balance,
+                    num_tasks_per_queue_call: cron_job.num_tasks_per_queue_call,
                 };
                 print_json(&serializable)?;
             }
@@ -268,6 +274,7 @@ impl CronCmd {
                             next_transaction_id: cron_job.next_transaction_id,
                             name: cron_job.name,
                             balance: cron_job_balance,
+                            num_tasks_per_queue_call: cron_job.num_tasks_per_queue_call,
                         });
                     }
                 }
@@ -296,5 +303,6 @@ pub struct CronJob {
     pub current_exec_ts: i64,
     pub current_transaction_id: u32,
     pub next_transaction_id: u32,
+    pub num_tasks_per_queue_call: u8,
     pub balance: u64,
 }

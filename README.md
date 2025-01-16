@@ -154,7 +154,7 @@ If a task is active but has not yet been run, the cli will display a simulation 
 Sometimes, it's helpful to run a task on a specific schedule. You can do this by creating a cron job. A cron job will queue tasks onto a task queue at a specific time. The following example will queue a task every minute. Note that you will need to keep the cron funded so that it can, in turn, fund the task queue for each task it creates.
 
 ```
-tuktuk -u <your-solana-url> cron create --name <your-cron-job-name> --task-queue-name <your-queue-name>  --schedule "0 * * * * *" --free-tasks-per-transaction 0 --funding-amount 1000000000
+tuktuk -u <your-solana-url> k --name <your-cron-job-name> --task-queue-name <your-queue-name>  --schedule "0 * * * * *" --free-tasks-per-transaction 0 --funding-amount 1000000000 --num-tasks-per-queue-call <number of txs you expect, max of 15>
 ```
 
 A single cron job can queue multiple transactions. You can add transactions to a cron job by using the `cron-transaction` command. To add a normal transaction to a cron job, it is easier to write a script:

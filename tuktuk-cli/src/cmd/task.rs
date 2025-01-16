@@ -76,8 +76,14 @@ impl TaskCmd {
                             .await
                             {
                                 // Create and simulate the transaction
+                                let mut updated_instructions = vec![
+                                    solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(
+                                        1900000,
+                                    ),
+                                ];
+                                updated_instructions.extend(run_ix.instructions.clone());
                                 let mut tx = Transaction::new_with_payer(
-                                    &run_ix.instructions,
+                                    &updated_instructions,
                                     Some(&client.payer.pubkey()),
                                 );
                                 let recent_blockhash =

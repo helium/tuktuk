@@ -32,6 +32,8 @@ pub enum Error {
     InvalidTransaction(&'static str),
     #[error("Failed to parse pubkey: {0}")]
     ParsePubkeyError(#[from] ParsePubkeyError),
+    #[error("Not enough free tasks to construct transaction")]
+    NotEnoughFreeTasks,
 }
 
 impl From<solana_client::client_error::ClientError> for Error {

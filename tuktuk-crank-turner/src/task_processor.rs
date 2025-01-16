@@ -54,7 +54,13 @@ impl TimedTask {
             let (recent_blockhash, _) = rpc_client
                 .get_latest_blockhash_with_commitment(CommitmentConfig::finalized())
                 .await?;
-            let mut tx = Transaction::new_with_payer(&run_ix.instructions, Some(&payer.pubkey()));
+            let mut updated_instructions = vec![
+                solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(
+                    1900000,
+                ),
+            ];
+            updated_instructions.extend(run_ix.instructions.clone());
+            let mut tx = Transaction::new_with_payer(&updated_instructions, Some(&payer.pubkey()));
             tx.message.recent_blockhash = recent_blockhash;
             tx.sign(&[&payer], recent_blockhash);
             let simulated = rpc_client

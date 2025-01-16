@@ -32,4 +32,8 @@ pub enum ErrorCode {
     InvalidTaskQueuedAt,
     #[msg("Invalid remaining accounts hash")]
     InvalidRemainingAccountsHash,
+    #[msg("Invalid rent refund")]
+    InvalidRentRefund,
+    #[msg("Invalid task id")]
+    InvalidTaskId,
 }

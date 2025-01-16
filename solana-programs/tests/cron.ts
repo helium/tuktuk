@@ -32,6 +32,7 @@ import {
   sendAndConfirmWithRetry,
   sendInstructions,
   toVersionedTx,
+  withPriorityFees,
 } from "@helium/spl-utils";
 import { ensureIdls, makeid } from "./utils";
 import {
@@ -163,6 +164,7 @@ describe("cron", () => {
           name,
           schedule: "*/1 * * * * *", // Run every second
           freeTasksPerTransaction: 5,
+          numTasksPerQueueCall: 1
         })
         .accounts({
           payer: me,
@@ -199,7 +201,11 @@ describe("cron", () => {
       const tx = toVersionedTx(
         await populateMissingDraftInfo(provider.connection, {
           feePayer: crankTurner.publicKey,
-          instructions: ixs,
+          instructions: await withPriorityFees({
+            instructions: ixs,
+            connection: provider.connection,
+            computeUnits: 1000000,
+          })
         })
       );
 
@@ -234,7 +240,11 @@ describe("cron", () => {
       const tx2 = toVersionedTx(
         await populateMissingDraftInfo(provider.connection, {
           feePayer: crankTurner.publicKey,
-          instructions: [...ixs2, ...ixs3],
+          instructions: await withPriorityFees({
+            instructions: [...ixs2, ...ixs3],
+            connection: provider.connection,
+            computeUnits: 1000000,
+          })
         })
       );
 

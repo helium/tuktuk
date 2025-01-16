@@ -3,6 +3,10 @@ use std::collections::HashMap;
 use anchor_lang::{prelude::*, solana_program::instruction::Instruction};
 
 pub mod cron;
+pub mod write_return_tasks;
+
+pub use write_return_tasks::write_return_tasks;
+
 declare_id!("tuktukUrfhXT6ZT77QTU8RQtvgL967uRuVagWF57zVA");
 
 declare_program!(tuktuk);
@@ -10,6 +14,7 @@ declare_program!(tuktuk);
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
 pub struct RunTaskReturnV0 {
     pub tasks: Vec<TaskReturnV0>,
+    pub accounts: Vec<Pubkey>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]

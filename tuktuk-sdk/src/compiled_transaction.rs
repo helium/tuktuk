@@ -16,12 +16,13 @@ use tuktuk_program::{tuktuk, TaskQueueV0, TaskV0, TransactionSourceV0};
 use crate::{client::GetAnchorAccount, error::Error};
 
 fn next_available_task_ids_excluding_in_progress(
+    capacity: u16,
     task_bitmap: &[u8],
     n: u8,
     in_progress_task_ids: &HashSet<u16>,
-) -> Vec<u16> {
+) -> Result<Vec<u16>, Error> {
     if n == 0 {
-        return vec![];
+        return Ok(vec![]);
     }
 
     let mut available_task_ids = Vec::new();
@@ -29,19 +30,26 @@ fn next_available_task_ids_excluding_in_progress(
         if *byte != 0xff {
             // If byte is not all 1s
             for bit_idx in 0..8 {
-                if byte & (1 << bit_idx) == 0 {
-                    let id = (byte_idx * 8 + bit_idx) as u16;
-                    if !in_progress_task_ids.contains(&id) {
-                        available_task_ids.push(id);
-                        if available_task_ids.len() == n as usize {
-                            return available_task_ids;
-                        }
+                let id = (byte_idx * 8 + bit_idx) as u16;
+                if id < capacity
+                    && byte & (1 << bit_idx) == 0
+                    && !in_progress_task_ids.contains(&id)
+                {
+                    available_task_ids.push(id);
+                    if available_task_ids.len() == n as usize {
+                        return Ok(available_task_ids);
                     }
                 }
             }
         }
     }
-    available_task_ids
+
+    // Return error if we couldn't find enough free task IDs
+    if available_task_ids.len() < n as usize && n > 0 {
+        Err(Error::NotEnoughFreeTasks)
+    } else {
+        Ok(available_task_ids)
+    }
 }
 
 pub struct RunTaskResult {
@@ -67,10 +75,11 @@ pub async fn run_ix(
 
     // Get next available task IDs excluding in-progress ones
     let next_available = next_available_task_ids_excluding_in_progress(
+        task_queue.capacity,
         &task_queue.task_bitmap,
         task.free_tasks,
         in_progress_task_ids,
-    );
+    )?;
 
     let transaction = &task.transaction;
 

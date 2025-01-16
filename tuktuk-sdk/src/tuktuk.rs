@@ -104,6 +104,14 @@ pub mod cron {
         .0
     }
 
+    pub fn task_return_account_1_key(cron_job: &Pubkey) -> Pubkey {
+        Pubkey::find_program_address(&[b"task_return_account_1", cron_job.as_ref()], &cron::ID).0
+    }
+
+    pub fn task_return_account_2_key(cron_job: &Pubkey) -> Pubkey {
+        Pubkey::find_program_address(&[b"task_return_account_2", cron_job.as_ref()], &cron::ID).0
+    }
+
     pub fn keys(authority: &Pubkey, user_cron_jobs: &UserCronJobsV0) -> Result<Vec<Pubkey>, Error> {
         let cron_job_ids = 0..user_cron_jobs.next_cron_job_id;
         let cron_job_keys = cron_job_ids
@@ -136,6 +144,8 @@ pub mod cron {
                 task: task::key(&task_queue_key, task_id),
                 tuktuk_program: tuktuk_program::ID,
                 queue_authority,
+                task_return_account_1: self::task_return_account_1_key(&cron_job_key),
+                task_return_account_2: self::task_return_account_2_key(&cron_job_key),
             }
             .to_account_metas(None),
             data: cron::cron::client::args::InitializeCronJobV0 { args }.data(),

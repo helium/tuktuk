@@ -13,7 +13,6 @@ use tuktuk_program::{
     TaskQueueV0, TransactionSourceV0, TriggerV0,
 };
 
-use super::QUEUED_TASKS_PER_QUEUE;
 use crate::{
     error::ErrorCode,
     hash_name,
@@ -25,6 +24,7 @@ pub struct InitializeCronJobArgsV0 {
     pub schedule: String,
     pub name: String,
     pub free_tasks_per_transaction: u8,
+    pub num_tasks_per_queue_call: u8,
 }
 
 #[derive(Accounts)]
@@ -68,12 +68,37 @@ pub struct InitializeCronJobV0<'info> {
     /// CHECK: Initialized in CPI
     #[account(mut)]
     pub task: AccountInfo<'info>,
+    /// CHECK: Used to write return data
+    #[account(
+        seeds = [b"task_return_account_1", cron_job.key().as_ref()],
+        bump
+    )]
+    pub task_return_account_1: AccountInfo<'info>,
+    /// CHECK: Used to write return data
+    #[account(
+        seeds = [b"task_return_account_2", cron_job.key().as_ref()],
+        bump
+    )]
+    pub task_return_account_2: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
     pub tuktuk_program: Program<'info, Tuktuk>,
 }
 
 pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0) -> Result<()> {
     let schedule = Schedule::from_str(&args.schedule);
+    require_gt!(
+        args.num_tasks_per_queue_call,
+        0,
+        ErrorCode::InvalidNumTasksPerQueueCall
+    );
+
+    // Do not allow more than 15 tasks per queue call otherwise the queue_cron_tasks_v0 will
+    // be too large to fit in a single transaction.
+    require_gte!(
+        15,
+        args.num_tasks_per_queue_call,
+        ErrorCode::InvalidNumTasksPerQueueCall
+    );
 
     if let Err(e) = schedule {
         msg!("Invalid schedule: {}", e);
@@ -95,6 +120,7 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
         task_queue: ctx.accounts.task_queue.key(),
         authority: ctx.accounts.authority.key(),
         free_tasks_per_transaction: args.free_tasks_per_transaction,
+        num_tasks_per_queue_call: args.num_tasks_per_queue_call,
         schedule: args.schedule,
         name: args.name.clone(),
         current_exec_ts: schedule.unwrap().next_after(now).unwrap().timestamp(),
@@ -113,7 +139,8 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
         });
 
     let remaining_accounts = (ctx.accounts.cron_job.current_transaction_id
-        ..ctx.accounts.cron_job.current_transaction_id + QUEUED_TASKS_PER_QUEUE as u32)
+        ..ctx.accounts.cron_job.current_transaction_id
+            + ctx.accounts.cron_job.num_tasks_per_queue_call as u32)
         .map(|i| {
             Pubkey::find_program_address(
                 &[
@@ -133,6 +160,9 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
                 crate::__cpi_client_accounts_queue_cron_tasks_v0::QueueCronTasksV0 {
                     cron_job: ctx.accounts.cron_job.to_account_info(),
                     task_queue: ctx.accounts.task_queue.to_account_info(),
+                    task_return_account_1: ctx.accounts.task_return_account_1.to_account_info(),
+                    task_return_account_2: ctx.accounts.task_return_account_2.to_account_info(),
+                    system_program: ctx.accounts.system_program.to_account_info(),
                 }
                 .to_account_metas(None),
                 remaining_accounts
@@ -161,7 +191,7 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
             trigger: TriggerV0::Now,
             transaction: TransactionSourceV0::CompiledV0(queue_tx),
             crank_reward: None,
-            free_tasks: QUEUED_TASKS_PER_QUEUE,
+            free_tasks: ctx.accounts.cron_job.num_tasks_per_queue_call + 1,
             id: ctx.accounts.task_queue.next_available_task_id().unwrap(),
         },
     )?;
