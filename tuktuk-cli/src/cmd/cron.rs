@@ -117,7 +117,7 @@ impl CronCmd {
     async fn requeue_cron_job_ix(client: &CliClient, cron_job_key: &Pubkey) -> Result<Instruction> {
         let cron_job: CronJobV0 = client
             .rpc_client
-            .anchor_account(&cron_job_key)
+            .anchor_account(cron_job_key)
             .await?
             .ok_or_else(|| anyhow::anyhow!("Cron job not found: {}", cron_job_key))?;
         let task_queue: TaskQueueV0 = client
@@ -150,10 +150,10 @@ impl CronCmd {
                         cron_job: *cron_job_key,
                         task_queue: cron_job.task_queue,
                         task_return_account_1: tuktuk::cron::task_return_account_1_key(
-                            &cron_job_key,
+                            cron_job_key,
                         ),
                         task_return_account_2: tuktuk::cron::task_return_account_1_key(
-                            &cron_job_key,
+                            cron_job_key,
                         ),
                         system_program: solana_sdk::system_program::ID,
                     }
