@@ -40,9 +40,7 @@ pub struct WriteReturnTasksReturn {
 // Fills accounts with tasks up to the maximum length of 10kb, then moves on to the next account until it is out of tasks.
 // It should return a vector of the pubkeys of the accounts it used.
 // Note that tuktuk does not clean up these accounts, but you can reuse them with this method (it will overwrite)
-pub fn write_return_tasks<'info, I>(
-    args: WriteReturnTasksArgs<'info, I>,
-) -> Result<WriteReturnTasksReturn>
+pub fn write_return_tasks<I>(args: WriteReturnTasksArgs<'_, I>) -> Result<WriteReturnTasksReturn>
 where
     I: Iterator<Item = TaskReturnV0>,
 {

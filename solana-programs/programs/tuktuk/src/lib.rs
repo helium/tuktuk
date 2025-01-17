@@ -46,7 +46,7 @@ pub mod tuktuk {
         close_task_queue_v0::handler(ctx)
     }
 
-    pub fn dummy_ix(ctx: Context<DummyIx>) -> Result<()> {
+    pub fn dummy_ix(_ctx: Context<DummyIx>) -> Result<()> {
         Err(error!(crate::error::ErrorCode::DummyInstruction))
     }
 }
