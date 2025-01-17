@@ -8,7 +8,7 @@ use crate::error::ErrorCode;
 /// Verify Ed25519Program instruction and get the data from it
 pub fn verify_ed25519_ix(ix: &Instruction, pubkey: &[u8]) -> Result<Vec<u8>> {
     if ix.program_id != ED25519_ID {
-        return Err(ErrorCode::SigVerificationFailed.into());
+        return Err(error!(ErrorCode::SigVerificationFailed));
     }
 
     check_ed25519_data(&ix.data, pubkey)
@@ -45,12 +45,12 @@ pub fn check_ed25519_data(data: &[u8], pubkey: &[u8]) -> Result<Vec<u8>> {
         || public_key_instruction_index != u16::MAX.to_le_bytes()
         || message_instruction_index != u16::MAX.to_le_bytes()
     {
-        return Err(ErrorCode::SigVerificationFailed.into());
+        return Err(error!(ErrorCode::SigVerificationFailed));
     }
 
     // Arguments
     if data_pubkey != pubkey {
-        return Err(ErrorCode::SigVerificationFailed.into());
+        return Err(error!(ErrorCode::SigVerificationFailed));
     }
 
     Ok(data_msg.to_vec())

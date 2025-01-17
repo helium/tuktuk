@@ -64,6 +64,12 @@ pub enum Cmd {
     Requeue {
         #[command(flatten)]
         cron: CronArg,
+        #[arg(
+            long,
+            help = "Force requeue even if the cron job doesn't think it is removed from queue",
+            default_value = "false"
+        )]
+        force: bool,
     },
     Close {
         #[command(flatten)]
@@ -152,7 +158,7 @@ impl CronCmd {
                         task_return_account_1: tuktuk::cron::task_return_account_1_key(
                             cron_job_key,
                         ),
-                        task_return_account_2: tuktuk::cron::task_return_account_1_key(
+                        task_return_account_2: tuktuk::cron::task_return_account_2_key(
                             cron_job_key,
                         ),
                         system_program: solana_sdk::system_program::ID,
@@ -281,7 +287,7 @@ impl CronCmd {
                 };
                 print_json(&serializable)?;
             }
-            Cmd::Requeue { cron } => {
+            Cmd::Requeue { cron, force } => {
                 let client = opts.client().await?;
                 let cron_job_key = cron.get_pubkey(&client).await?.ok_or_else(|| {
                     anyhow::anyhow!("Must provide cron-name, cron-id, or cron-pubkey")
@@ -292,7 +298,7 @@ impl CronCmd {
                     .await?
                     .ok_or_else(|| anyhow::anyhow!("Cron job not found: {}", cron_job_key))?;
 
-                if cron_job.removed_from_queue {
+                if cron_job.removed_from_queue || *force {
                     let ix = Self::requeue_cron_job_ix(&client, &cron_job_key).await?;
                     send_instructions(
                         client.rpc_client.clone(),
