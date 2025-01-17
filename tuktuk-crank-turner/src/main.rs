@@ -118,7 +118,7 @@ impl Cli {
                         rpc_client: tx_sender_rpc_client,
                         ws_url: solana_ws_url.clone(),
                         payer,
-                        batch_duration: Duration::from_secs(1),
+                        batch_duration: settings.batch_duration,
                         receiver: handles.receiver,
                         result_sender: handles.result_sender,
                         max_sol_fee: settings.max_sol_fee,

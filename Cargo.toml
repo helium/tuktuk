@@ -54,6 +54,7 @@ spl-associated-token-account = "2.3.0"
 spl-token = "4.0.0"
 itertools = "0.13"
 tokio-graceful-shutdown = "0.15"
+solana-transaction-utils = { path = "./solana-transaction-utils" }
 
 [profile.release]
 debug = true

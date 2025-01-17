@@ -26,14 +26,12 @@ pub enum ErrorCode {
     SigVerificationFailed,
     #[msg("Invalid transaction source")]
     InvalidTransactionSource,
-    #[msg("Invalid task")]
-    InvalidTask,
-    #[msg("Invalid task queued at")]
-    InvalidTaskQueuedAt,
-    #[msg("Invalid remaining accounts hash")]
-    InvalidRemainingAccountsHash,
+    #[msg("Invalid task verification hash")]
+    InvalidVerificationAccountsHash,
     #[msg("Invalid rent refund")]
     InvalidRentRefund,
     #[msg("Invalid task id")]
     InvalidTaskId,
+    #[msg("Invalid discriminator")]
+    InvalidDiscriminator,
 }

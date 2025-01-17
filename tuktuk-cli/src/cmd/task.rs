@@ -5,7 +5,12 @@ use clap::{Args, Subcommand};
 use clock::SYSVAR_CLOCK;
 use serde::Serialize;
 use solana_client::rpc_config::RpcSimulateTransactionConfig;
-use solana_sdk::{pubkey::Pubkey, signer::Signer, transaction::Transaction};
+use solana_sdk::{
+    message::{v0, VersionedMessage},
+    pubkey::Pubkey,
+    signer::Signer,
+    transaction::VersionedTransaction,
+};
 use tuktuk_program::{types::TriggerV0, TaskQueueV0, TaskV0};
 use tuktuk_sdk::prelude::*;
 
@@ -82,14 +87,15 @@ impl TaskCmd {
                                     ),
                                 ];
                                 updated_instructions.extend(run_ix.instructions.clone());
-                                let mut tx = Transaction::new_with_payer(
-                                    &updated_instructions,
-                                    Some(&client.payer.pubkey()),
-                                );
                                 let recent_blockhash =
                                     client.rpc_client.get_latest_blockhash().await?;
-                                tx.message.recent_blockhash = recent_blockhash;
-                                tx.sign(&[&client.payer], recent_blockhash);
+                                let message = VersionedMessage::V0(v0::Message::try_compile(
+                                    &client.payer.pubkey(),
+                                    &updated_instructions,
+                                    &run_ix.lookup_tables,
+                                    recent_blockhash,
+                                )?);
+                                let tx = VersionedTransaction::try_new(message, &[&client.payer])?;
                                 let sim_result = client
                                     .rpc_client
                                     .simulate_transaction_with_config(

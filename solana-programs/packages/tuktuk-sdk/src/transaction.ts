@@ -17,40 +17,44 @@ import axios from "axios";
 import { sha256 } from "js-sha256";
 import { taskKey } from "./pdas";
 
-export function hashRemainingAccounts(
+export function verificationHash(
+  task: PublicKey,
+  taskQueuedAt: BN,
   remainingAccounts: AccountMeta[]
 ): Buffer {
+  let taskQueuedAtBuf = Buffer.alloc(8);
+  taskQueuedAtBuf.writeBigInt64LE(BigInt(taskQueuedAt.toString()));
   return Buffer.from(
     sha256(
-      Buffer.concat(
-        remainingAccounts.map((acc) =>
-          Buffer.concat([
-            acc.pubkey.toBuffer(),
-            Buffer.from([acc.isWritable ? 1 : 0, acc.isSigner ? 1 : 0]),
-          ])
+      Buffer.concat([
+        task.toBuffer(),
+        taskQueuedAtBuf,
+        Buffer.concat(
+          remainingAccounts.map((acc) =>
+            Buffer.concat([
+              acc.pubkey.toBuffer(),
+              Buffer.from([acc.isWritable ? 1 : 0, acc.isSigner ? 1 : 0]),
+            ])
+          )
         )
-      )
+      ])
     ),
     "hex"
   );
 }
 
 export class RemoteTaskTransactionV0 {
-  task: PublicKey;
-  taskQueuedAt: BN;
-  numAccounts: number;
   transaction: CompiledTransactionV0;
-  remainingAccountsHash: Buffer;
+  verificationHash: Buffer;
 
   constructor(fields: {
     task: PublicKey;
     taskQueuedAt: BN;
     transaction: CompiledTransactionV0;
   }) {
-    this.task = fields.task;
-    this.taskQueuedAt = fields.taskQueuedAt;
-    this.numAccounts = fields.transaction.accounts.length;
-    this.remainingAccountsHash = hashRemainingAccounts(
+    this.verificationHash = verificationHash(
+      fields.task,
+      fields.taskQueuedAt,
       fields.transaction.accounts.map((acc, index) => {
         const isWritable =
           index < fields.transaction.numRwSigners ||
@@ -72,33 +76,17 @@ export class RemoteTaskTransactionV0 {
   }
 
   static serialize(coder: TypesCoder, value: RemoteTaskTransactionV0): Buffer {
-    let queuedAtBuf = Buffer.alloc(8);
-    queuedAtBuf.writeBigInt64LE(BigInt(value.taskQueuedAt.toString()));
     return Buffer.concat([
-      value.task.toBuffer(),
-      queuedAtBuf,
-      value.remainingAccountsHash,
-      Buffer.from([value.numAccounts]),
+      sighash("tuktuk", "RemoteTaskTransactionV0"),
+      value.verificationHash,
       coder.encode("compiledTransactionV0", value.transaction),
     ]);
   }
+}
 
-  // static deserialize(
-  //   value: Buffer,
-  //   coder: TypesCoder
-  // ): RemoteTaskTransactionV0 {
-  //   let task = new PublicKey(value.subarray(0, 32));
-  //   let taskQueuedAt = value.readBigInt64LE(32);
-  //   let remainingAccountsHash = value.subarray(40, 72);
-  //   let transaction = coder.decode("compiledTransactionV0", value.subarray(73));
-  //   return new RemoteTaskTransactionV0({
-  //     task,
-  //     taskQueuedAt: new BN(taskQueuedAt.toString()),
-  //     numAccounts: value[72],
-  //     remainingAccountsHash,
-  //     transaction,
-  //   });
-  // }
+function sighash(nameSpace: string, name: string): Buffer {
+  let preimage = `${nameSpace}:${name}`;
+  return Buffer.from(sha256(preimage)).subarray(0, 8);
 }
 
 export type CompiledTransactionV0 = IdlTypes<Tuktuk>["compiledTransactionV0"];

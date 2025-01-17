@@ -327,23 +327,18 @@
     },
     {
       "code": 6012,
-      "name": "InvalidTask",
+      "name": "InvalidRemainingAccountsHash",
       "msg": "Invalid task"
     },
     {
       "code": 6013,
-      "name": "InvalidTaskQueuedAt",
-      "msg": "Invalid task queued at"
+      "name": "InvalidRentRefund",
+      "msg": "Invalid rent refund"
     },
     {
       "code": 6014,
-      "name": "InvalidRemainingAccountsHash",
-      "msg": "Invalid remaining accounts hash"
-    },
-    {
-      "code": 6015,
-      "name": "InvalidRentRefund",
-      "msg": "Invalid rent refund"
+      "name": "InvalidTaskId",
+      "msg": "Invalid task id"
     }
   ],
   "types": [
@@ -441,6 +436,12 @@
           {
             "name": "capacity",
             "type": "u16"
+          },
+          {
+            "name": "lookup_tables",
+            "type": {
+              "vec": "pubkey"
+            }
           }
         ]
       }
@@ -581,6 +582,12 @@
           {
             "name": "name",
             "type": "string"
+          },
+          {
+            "name": "lookup_tables",
+            "type": {
+              "vec": "pubkey"
+            }
           }
         ]
       }

@@ -6,6 +6,7 @@ use bytemuck::{bytes_of, Pod, Zeroable};
 use serde::Deserialize;
 use solana_client::client_error::reqwest;
 use solana_sdk::{
+    address_lookup_table::{state::AddressLookupTable, AddressLookupTableAccount},
     ed25519_instruction::{DATA_START, PUBKEY_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE},
     ed25519_program,
     instruction::Instruction,
@@ -55,6 +56,7 @@ fn next_available_task_ids_excluding_in_progress(
 pub struct RunTaskResult {
     pub instructions: Vec<Instruction>,
     pub free_task_ids: Vec<u16>,
+    pub lookup_tables: Vec<AddressLookupTableAccount>,
 }
 
 pub async fn run_ix(
@@ -72,6 +74,22 @@ pub async fn run_ix(
         .anchor_account(&task.task_queue)
         .await?
         .ok_or_else(|| Error::AccountNotFound)?;
+
+    let lookup_tables = client
+        .accounts(&task_queue.lookup_tables)
+        .await?
+        .into_iter()
+        .filter_map(|(addr, raw)| {
+            raw.map(|acc| {
+                let lut = AddressLookupTable::deserialize(&acc.data).map_err(Error::from)?;
+                Ok::<AddressLookupTableAccount, Error>(AddressLookupTableAccount {
+                    key: addr,
+                    addresses: lut.addresses.to_vec(),
+                })
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(Error::from)?;
 
     // Get next available task IDs excluding in-progress ones
     let next_available = next_available_task_ids_excluding_in_progress(
@@ -147,6 +165,7 @@ pub async fn run_ix(
                     }
                     .data(),
                 }],
+                lookup_tables,
                 free_task_ids: next_available,
             }))
         }
@@ -187,6 +206,7 @@ pub async fn run_ix(
             instruction_data.extend_from_slice(&message);
 
             Ok(Some(RunTaskResult {
+                lookup_tables,
                 instructions: vec![
                     Instruction {
                         program_id: ed25519_program::ID,

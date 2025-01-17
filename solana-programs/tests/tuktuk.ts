@@ -13,7 +13,6 @@ import {
   runTask,
   customSignerKey,
   RemoteTaskTransactionV0,
-  hashRemainingAccounts,
 } from "@helium/tuktuk-sdk";
 import {
   AccountMeta,
@@ -100,6 +99,7 @@ describe("tuktuk", () => {
           name,
           minCrankReward: crankReward,
           capacity: 100,
+          lookupTables: [],
         })
         .accounts({
           tuktukConfig,
@@ -373,6 +373,7 @@ describe("tuktuk", () => {
           name,
           minCrankReward: new anchor.BN(10),
           capacity: 100,
+          lookupTables: [],
         })
         .accounts({
           tuktukConfig,

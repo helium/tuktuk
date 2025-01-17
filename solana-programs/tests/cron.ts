@@ -13,8 +13,6 @@ import {
   taskKey,
   runTask,
   customSignerKey,
-  RemoteTaskTransactionV0,
-  hashRemainingAccounts,
 } from "@helium/tuktuk-sdk";
 import { cronJobKey, cronJobNameMappingKey, cronJobTransactionKey, init as initCron, userCronJobsKey } from "@helium/cron-sdk";
 import {
@@ -93,6 +91,7 @@ describe("cron", () => {
           name,
           minCrankReward: crankReward,
           capacity: 100,
+          lookupTables: [],
         })
         .accounts({
           tuktukConfig,

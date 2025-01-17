@@ -29,7 +29,7 @@ solana-sdk = { workspace = true }
 dirs = "5.0.1"
 tuktuk-sdk = { path = "../tuktuk-sdk" }
 tuktuk-program = { path = "../tuktuk-program" }
-solana-transaction-utils = { path = "../solana-transaction-utils" }
+solana-transaction-utils = { workspace = true}
 spl-associated-token-account = { workspace = true }
 spl-token = { workspace = true }
 solana-program = { workspace = true }

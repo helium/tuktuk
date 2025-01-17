@@ -13,6 +13,7 @@ pub struct InitializeTaskQueueArgsV0 {
     pub min_crank_reward: u64,
     pub name: String,
     pub capacity: u16,
+    pub lookup_tables: Vec<Pubkey>,
 }
 
 pub fn hash_name(name: &str) -> [u8; 32] {
@@ -68,6 +69,7 @@ pub fn handler(ctx: Context<InitializeTaskQueueV0>, args: InitializeTaskQueueArg
     )?;
 
     ctx.accounts.task_queue.set_inner(TaskQueueV0 {
+        lookup_tables: args.lookup_tables,
         id: ctx.accounts.tuktuk_config.next_task_queue_id,
         tuktuk_config: ctx.accounts.tuktuk_config.key(),
         uncollected_protocol_fees: 0,

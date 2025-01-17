@@ -2,7 +2,12 @@ use std::{collections::HashSet, sync::Arc};
 
 use futures::{Stream, StreamExt, TryStreamExt};
 use solana_client::rpc_config::RpcSimulateTransactionConfig;
-use solana_sdk::{commitment_config::CommitmentConfig, signer::Signer, transaction::Transaction};
+use solana_sdk::{
+    commitment_config::CommitmentConfig,
+    message::{v0, VersionedMessage},
+    signer::Signer,
+    transaction::VersionedTransaction,
+};
 use solana_transaction_utils::queue::{TransactionQueueError, TransactionTask};
 use tokio_graceful_shutdown::SubsystemHandle;
 use tracing::info;
@@ -31,11 +36,12 @@ impl TimedTask {
         if let Err(err) = maybe_run_ix {
             info!(?self, ?err, "getting instructions failed");
             if self.total_retries < self.max_retries {
+                let now = *ctx.now_rx.borrow();
                 ctx.task_queue
                     .add_task(TimedTask {
                         total_retries: self.total_retries + 1,
-                        // Try again in 30 seconds
-                        task_time: self.task_time + 30,
+                        // Try again in 30 seconds with exponential backoff
+                        task_time: now + 30 * (1 << self.total_retries),
                         task_key: self.task_key,
                         task_queue_key: self.task_queue_key,
                         max_retries: self.max_retries,
@@ -60,9 +66,14 @@ impl TimedTask {
                 ),
             ];
             updated_instructions.extend(run_ix.instructions.clone());
-            let mut tx = Transaction::new_with_payer(&updated_instructions, Some(&payer.pubkey()));
-            tx.message.recent_blockhash = recent_blockhash;
-            tx.sign(&[&payer], recent_blockhash);
+
+            let message = VersionedMessage::V0(v0::Message::try_compile(
+                &payer.pubkey(),
+                &updated_instructions,
+                &run_ix.lookup_tables,
+                recent_blockhash,
+            )?);
+            let tx = VersionedTransaction::try_new(message, &[payer])?;
             let simulated = rpc_client
                 .simulate_transaction_with_config(
                     &tx,
@@ -150,11 +161,13 @@ impl TimedTask {
             } else {
                 info!(?self, ?err, "task failed");
                 if self.total_retries < self.max_retries {
+                    let now = *ctx.now_rx.borrow();
+
                     ctx.task_queue
                         .add_task(TimedTask {
                             total_retries: self.total_retries + 1,
-                            // Try again in 30 seconds
-                            task_time: self.task_time + 30,
+                            // Try again in 30 seconds with exponential backoff
+                            task_time: now + 30 * (1 << self.total_retries),
                             task_key: self.task_key,
                             task_queue_key: self.task_queue_key,
                             max_retries: self.max_retries,

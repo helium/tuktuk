@@ -1,5 +1,7 @@
 use solana_client::{client_error::reqwest, pubsub_client::PubsubClientError};
-use solana_sdk::{program_error::ProgramError, pubkey::ParsePubkeyError};
+use solana_sdk::{
+    instruction::InstructionError, program_error::ProgramError, pubkey::ParsePubkeyError,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -34,6 +36,8 @@ pub enum Error {
     ParsePubkeyError(#[from] ParsePubkeyError),
     #[error("Not enough free tasks to construct transaction")]
     NotEnoughFreeTasks,
+    #[error("Instruction error: {0}")]
+    InstructionError(#[from] InstructionError),
 }
 
 impl From<solana_client::client_error::ClientError> for Error {

@@ -41,6 +41,8 @@ pub enum Cmd {
         funding_amount: u64,
         #[arg(long, help = "Default crank reward in lamports")]
         min_crank_reward: u64,
+        #[arg(long, help = "Lookup tables to create")]
+        lookup_tables: Option<Vec<Pubkey>>,
     },
     Get {
         #[command(flatten)]
@@ -110,6 +112,7 @@ impl TaskQueueCmd {
                 name,
                 min_crank_reward,
                 funding_amount,
+                lookup_tables,
             } => {
                 let client = opts.client().await?;
 
@@ -120,6 +123,7 @@ impl TaskQueueCmd {
                         capacity: *capacity,
                         min_crank_reward: *min_crank_reward,
                         name: name.clone(),
+                        lookup_tables: lookup_tables.clone().unwrap_or_default(),
                     },
                     *queue_authority,
                     *update_authority,

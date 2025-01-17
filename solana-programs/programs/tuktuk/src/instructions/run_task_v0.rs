@@ -77,10 +77,8 @@ impl<'a> Iterator for TasksIterator<'a> {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
 pub struct RemoteTaskTransactionV0 {
-    pub task: Pubkey,
-    pub task_queued_at: i64,
-    pub remaining_accounts_hash: [u8; 32],
-    pub num_accounts: u8,
+    // A hash of [task, task_queued_at, ...remaining_accounts]
+    pub verification_hash: [u8; 32],
     // NOTE: The `.accounts` should be empty here, it's instead done via
     // remaining_accounts_hash
     pub transaction: CompiledTransactionV0,
@@ -342,7 +340,7 @@ pub fn handler<'info>(
     ctx: Context<'_, '_, '_, 'info, RunTaskV0<'info>>,
     args: RunTaskArgsV0,
 ) -> Result<()> {
-    for id in args.free_task_ids {
+    for id in args.free_task_ids.clone() {
         require_gt!(
             ctx.accounts.task_queue.capacity,
             id,
@@ -361,36 +359,53 @@ pub fn handler<'info>(
                 ix_index.checked_sub(1).unwrap() as usize,
                 &ctx.accounts.sysvar_instructions,
             )?;
+            let expected_sighash = sighash("tuktuk", "RemoteTaskTransactionV0");
             let data = utils::ed25519::verify_ed25519_ix(&ix, signer.to_bytes().as_slice())?;
-            let mut remote_tx = RemoteTaskTransactionV0::deserialize(&mut data.as_slice())?;
-            require_eq!(
-                remote_tx.task,
-                ctx.accounts.task.key(),
-                ErrorCode::InvalidTask
-            );
-            require_eq!(
-                remote_tx.task_queued_at,
-                ctx.accounts.task.queued_at,
-                ErrorCode::InvalidTaskQueuedAt
+            let mut remote_tx = RemoteTaskTransactionV0::deserialize(&mut &data[8..])?;
+
+            require!(
+                data[..8] == expected_sighash,
+                ErrorCode::InvalidDiscriminator
             );
 
-            let remaining_accounts_hash = hash(
-                &remaining_accounts[..remote_tx.num_accounts as usize]
-                    .iter()
-                    .map(|acc| {
-                        let mut data = Vec::with_capacity(34);
-                        data.extend_from_slice(&acc.key.to_bytes());
-                        data.push(if acc.is_writable { 1 } else { 0 });
-                        data.push(if acc.is_signer { 1 } else { 0 });
-                        remote_tx.transaction.accounts.push(*acc.key);
-                        data
-                    })
-                    .collect::<Vec<_>>()
-                    .concat(),
+            let num_accounts = remote_tx
+                .transaction
+                .instructions
+                .iter()
+                .flat_map(|ix| ix.accounts.iter())
+                .chain(
+                    remote_tx
+                        .transaction
+                        .instructions
+                        .iter()
+                        .map(|ix| &ix.program_id_index),
+                )
+                .max()
+                .unwrap()
+                + 1;
+
+            let verification_hash = hash(
+                &[
+                    ctx.accounts.task.key().as_ref(),
+                    &ctx.accounts.task.queued_at.to_le_bytes()[..],
+                    &remaining_accounts[..num_accounts as usize]
+                        .iter()
+                        .map(|acc| {
+                            let mut data = Vec::with_capacity(34);
+                            data.extend_from_slice(&acc.key.to_bytes());
+                            data.push(if acc.is_writable { 1 } else { 0 });
+                            data.push(if acc.is_signer { 1 } else { 0 });
+                            remote_tx.transaction.accounts.push(*acc.key);
+                            data
+                        })
+                        .collect::<Vec<_>>()
+                        .concat(),
+                ]
+                .concat(),
             );
             require!(
-                remaining_accounts_hash.to_bytes() == remote_tx.remaining_accounts_hash,
-                ErrorCode::InvalidRemainingAccountsHash
+                verification_hash.to_bytes() == remote_tx.verification_hash,
+                ErrorCode::InvalidVerificationAccountsHash
             );
             remote_tx.transaction
         }
@@ -445,4 +460,14 @@ pub fn handler<'info>(
     }
 
     Ok(())
+}
+
+pub fn sighash(namespace: &str, name: &str) -> [u8; 8] {
+    let preimage = format!("{}:{}", namespace, name);
+
+    let mut sighash = [0u8; 8];
+    sighash.copy_from_slice(
+        &anchor_lang::solana_program::hash::hash(preimage.as_bytes()).to_bytes()[..8],
+    );
+    sighash
 }

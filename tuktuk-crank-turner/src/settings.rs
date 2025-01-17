@@ -15,11 +15,17 @@ pub struct Settings {
     pub rpc_ws_url: String,
     pub test_bidder: Option<u32>,
     pub key_path: String,
+    #[serde(default = "default_batch_duration")]
+    pub batch_duration: Duration,
     #[serde(default = "default_max_sol_fee")]
     pub max_sol_fee: u64,
     pub min_crank_fee: u64,
     #[serde(default = "default_pubsub_repoll")]
     pub pubsub_repoll: Duration,
+}
+
+fn default_batch_duration() -> Duration {
+    Duration::from_secs(2)
 }
 
 fn default_pubsub_repoll() -> Duration {

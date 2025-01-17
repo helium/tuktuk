@@ -22,7 +22,7 @@ clap = { workspace = true }
 spl-associated-token-account = { workspace = true }
 spl-token = "5.0.2"
 solana-transaction-status = "1.18.22"
-solana-transaction-utils = { path = "../solana-transaction-utils" }
+solana-transaction-utils = { workspace = true }
 tuktuk-sdk = { path = "../tuktuk-sdk" }
 tuktuk-program = { path = "../tuktuk-program" }
 tracing = { workspace = true }

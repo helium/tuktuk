@@ -29,6 +29,7 @@ pub struct TaskQueueV0 {
     // A 1 in this bitmap indicates there's a job at that ID, a 0 indicates there's not. Each idx corresponds to an ID.
     pub task_bitmap: Vec<u8>,
     pub name: String,
+    pub lookup_tables: Vec<Pubkey>,
 }
 
 #[macro_export]

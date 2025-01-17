@@ -29,8 +29,10 @@ pub fn pack_instructions_into_transactions(
         curr_instructions.push(ix);
         curr_indices.push(index);
         let tx = Transaction::new_with_payer(&curr_instructions, Some(&payer.pubkey()));
+        println!("num instructions: {:?}", tx.message.instructions.len() - 2);
         let len = bincode::serialize(&tx).unwrap().len();
         if len > MAX_TRANSACTION_SIZE {
+            println!("len: {:?}", len);
             ix_queue.push((
                 curr_instructions.pop().unwrap(),
                 curr_indices.pop().unwrap(),
