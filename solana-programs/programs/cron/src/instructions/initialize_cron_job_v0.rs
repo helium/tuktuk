@@ -127,6 +127,7 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
         current_transaction_id: 0,
         next_transaction_id: 0,
         bump_seed: ctx.bumps.cron_job,
+        removed_from_queue: false,
         num_transactions: 0,
     });
     ctx.accounts.user_cron_jobs.next_cron_job_id += 1;

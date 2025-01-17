@@ -56,16 +56,15 @@ server.post<{
           accounts: remainingAccounts.map((acc) => acc.pubkey),
         },
       });
+      const serialized = await RemoteTaskTransactionV0.serialize(
+        program.coder.accounts,
+        remoteTx
+      );
       const resp = {
-        transaction: RemoteTaskTransactionV0.serialize(
-          program.coder.types,
-          remoteTx
-        ).toString("base64"),
+        transaction: serialized.toString("base64"),
         signature: Buffer.from(
           sign.detached(
-            Uint8Array.from(
-              RemoteTaskTransactionV0.serialize(program.coder.types, remoteTx)
-            ),
+            Uint8Array.from(serialized),
             serverWallet.secretKey
           )
         ).toString("base64"),

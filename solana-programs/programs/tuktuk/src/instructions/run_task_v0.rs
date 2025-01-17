@@ -75,7 +75,9 @@ impl<'a> Iterator for TasksIterator<'a> {
     }
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
+// This isn't actually an account, but we want anchor to put it in the IDL and serialize it with a discriminator
+#[account]
+#[derive(Default)]
 pub struct RemoteTaskTransactionV0 {
     // A hash of [task, task_queued_at, ...remaining_accounts]
     pub verification_hash: [u8; 32],
@@ -359,14 +361,8 @@ pub fn handler<'info>(
                 ix_index.checked_sub(1).unwrap() as usize,
                 &ctx.accounts.sysvar_instructions,
             )?;
-            let expected_sighash = sighash("tuktuk", "RemoteTaskTransactionV0");
             let data = utils::ed25519::verify_ed25519_ix(&ix, signer.to_bytes().as_slice())?;
-            let mut remote_tx = RemoteTaskTransactionV0::deserialize(&mut &data[8..])?;
-
-            require!(
-                data[..8] == expected_sighash,
-                ErrorCode::InvalidDiscriminator
-            );
+            let mut remote_tx = RemoteTaskTransactionV0::try_deserialize(&mut &data[..])?;
 
             let num_accounts = remote_tx
                 .transaction
@@ -460,14 +456,4 @@ pub fn handler<'info>(
     }
 
     Ok(())
-}
-
-pub fn sighash(namespace: &str, name: &str) -> [u8; 8] {
-    let preimage = format!("{}:{}", namespace, name);
-
-    let mut sighash = [0u8; 8];
-    sighash.copy_from_slice(
-        &anchor_lang::solana_program::hash::hash(preimage.as_bytes()).to_bytes()[..8],
-    );
-    sighash
 }

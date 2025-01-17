@@ -45,4 +45,14 @@ pub mod tuktuk {
     pub fn close_task_queue_v0(ctx: Context<CloseTaskQueueV0>) -> Result<()> {
         close_task_queue_v0::handler(ctx)
     }
+
+    pub fn dummy_ix(ctx: Context<DummyIx>) -> Result<()> {
+        Err(error!(crate::error::ErrorCode::DummyInstruction))
+    }
+}
+
+#[derive(Accounts)]
+pub struct DummyIx<'info> {
+    #[account(mut)]
+    pub dummy: Account<'info, RemoteTaskTransactionV0>,
 }

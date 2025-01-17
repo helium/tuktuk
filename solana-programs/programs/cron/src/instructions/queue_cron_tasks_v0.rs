@@ -12,10 +12,7 @@ use tuktuk_program::{
     RunTaskReturnV0, TaskQueueV0, TaskReturnV0, TransactionSourceV0, TriggerV0,
 };
 
-use crate::{
-    error::ErrorCode,
-    state::{CronJobTransactionV0, CronJobV0},
-};
+use crate::state::{CronJobTransactionV0, CronJobV0};
 
 pub const QUEUED_TASKS_PER_QUEUE: u8 = 3;
 // Queue tasks 5 minutes before the cron job is scheduled to run
@@ -166,25 +163,33 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
         system_program: ctx.accounts.system_program.to_account_info(),
         tasks,
     })?;
+
     msg!("Queued {} tasks", total_tasks);
+
     // Transfer needed lamports from the cron job to the task queue
     let cron_job_info = ctx.accounts.cron_job.to_account_info();
     let cron_job_min_lamports = Rent::get()?.minimum_balance(cron_job_info.data_len());
     let lamports = ctx.accounts.task_queue.min_crank_reward * total_tasks as u64;
-    require_gt!(
-        cron_job_info.lamports(),
-        cron_job_min_lamports + lamports,
-        ErrorCode::InsufficientFunds
-    );
+    if cron_job_info.lamports() < cron_job_min_lamports + lamports {
+        msg!(
+            "Not enough lamports to fund tasks. Please requeue cron job when you have enough lamports. {}",
+            cron_job_info.lamports()
+        );
+        ctx.accounts.cron_job.removed_from_queue = true;
+        Ok(RunTaskReturnV0 {
+            tasks: vec![],
+            accounts: vec![],
+        })
+    } else {
+        cron_job_info.sub_lamports(lamports)?;
+        ctx.accounts
+            .task_queue
+            .to_account_info()
+            .add_lamports(lamports)?;
 
-    cron_job_info.sub_lamports(lamports)?;
-    ctx.accounts
-        .task_queue
-        .to_account_info()
-        .add_lamports(lamports)?;
-
-    Ok(RunTaskReturnV0 {
-        tasks: vec![],
-        accounts: used_accounts,
-    })
+        Ok(RunTaskReturnV0 {
+            tasks: vec![],
+            accounts: used_accounts,
+        })
+    }
 }

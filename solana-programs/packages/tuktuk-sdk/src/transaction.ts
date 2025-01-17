@@ -1,4 +1,5 @@
 import {
+  AccountsCoder,
   BN,
   CustomAccountResolver,
   Idl,
@@ -75,12 +76,8 @@ export class RemoteTaskTransactionV0 {
     this.transaction = { ...fields.transaction, accounts: [] };
   }
 
-  static serialize(coder: TypesCoder, value: RemoteTaskTransactionV0): Buffer {
-    return Buffer.concat([
-      sighash("tuktuk", "RemoteTaskTransactionV0"),
-      value.verificationHash,
-      coder.encode("compiledTransactionV0", value.transaction),
-    ]);
+  static async serialize(coder: AccountsCoder, value: RemoteTaskTransactionV0): Promise<Buffer> {
+    return coder.encode("remoteTaskTransactionV0", value);
   }
 }
 

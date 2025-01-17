@@ -25,6 +25,9 @@ pub struct CronJobV0 {
     pub current_transaction_id: u32,
     pub num_transactions: u32,
     pub next_transaction_id: u32,
+    // A cron job is removed from the queue when it no longer has enough lamports to fund tasks
+    // Once this is set, you need to requeue the cron job.
+    pub removed_from_queue: bool,
     pub bump_seed: u8,
 }
 

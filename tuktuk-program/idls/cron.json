@@ -539,6 +539,10 @@
             "type": "u32"
           },
           {
+            "name": "removed_from_queue",
+            "type": "bool"
+          },
+          {
             "name": "bump_seed",
             "type": "u8"
           }

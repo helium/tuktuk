@@ -214,6 +214,7 @@ describe("tuktuk", () => {
 
       it("allows running a task", async () => {
         const taskAcc = await program.account.taskV0.fetch(task);
+        
         const ixs = await runTask({
           program,
           task,
@@ -227,20 +228,16 @@ describe("tuktuk", () => {
                 accounts: remainingAccounts.map((acc) => acc.pubkey),
               },
             });
+            const serialized = await RemoteTaskTransactionV0.serialize(
+              program.coder.accounts,
+              remoteTx
+            );
             return {
-              remoteTaskTransaction: RemoteTaskTransactionV0.serialize(
-                program.coder.types,
-                remoteTx
-              ),
+              remoteTaskTransaction: serialized,
               remainingAccounts: remainingAccounts,
               signature: Buffer.from(
                 sign.detached(
-                  Uint8Array.from(
-                    RemoteTaskTransactionV0.serialize(
-                      program.coder.types,
-                      remoteTx
-                    )
-                  ),
+                  Uint8Array.from(serialized),
                   signer.secretKey
                 )
               ),

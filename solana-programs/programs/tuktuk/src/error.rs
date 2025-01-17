@@ -32,6 +32,6 @@ pub enum ErrorCode {
     InvalidRentRefund,
     #[msg("Invalid task id")]
     InvalidTaskId,
-    #[msg("Invalid discriminator")]
-    InvalidDiscriminator,
+    #[msg("Don't use the dummy instruction")]
+    DummyInstruction,
 }
