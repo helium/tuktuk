@@ -187,12 +187,18 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
 
         for i in &ix.accounts {
             let acct = remaining_accounts[*i as usize].clone();
-            accounts.push(acct.clone());
+            let mut acct = acct.clone();
+            let is_signer = acct.is_signer || self.signer_addresses.contains(&acct.key());
+            if is_signer {
+                acct.is_signer = true;
+            }
+
             account_infos.push(AccountMeta {
                 pubkey: acct.key(),
-                is_signer: acct.is_signer || self.signer_addresses.contains(&acct.key()),
+                is_signer,
                 is_writable: acct.is_writable,
-            })
+            });
+            accounts.push(acct);
         }
 
         let signer_seeds: Vec<Vec<&[u8]>> = self
