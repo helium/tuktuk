@@ -25,6 +25,7 @@ pub enum PayerInfo<'info> {
         account_info: AccountInfo<'info>,
         seeds: Vec<Vec<u8>>,
     },
+    Signer(AccountInfo<'info>),
 }
 
 pub struct AccountWithSeeds<'info> {
@@ -152,6 +153,16 @@ where
                             rent_to_pay,
                         )?;
                     }
+                    PayerInfo::Signer(account_info) => transfer(
+                        CpiContext::new(
+                            system_program.clone(),
+                            Transfer {
+                                from: account_info.clone(),
+                                to: account.clone(),
+                            },
+                        ),
+                        rent_to_pay,
+                    )?,
                 }
             }
 
