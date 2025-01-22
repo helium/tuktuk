@@ -43,8 +43,8 @@ impl Cli {
             .with(tracing_subscriber::fmt::layer().with_span_events(FmtSpan::CLOSE))
             .init();
 
-        let solana_url = settings.rpc_url;
-        let solana_ws_url = settings.rpc_ws_url;
+        let solana_url = settings.rpc_url.clone();
+        let solana_ws_url = solana_url.replace("http", "ws").replace("https", "wss");
 
         // Create a non-blocking RPC client
         // We can work off of processed accounts because we simulate the next tx before actually

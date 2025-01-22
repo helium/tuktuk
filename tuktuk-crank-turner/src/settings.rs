@@ -12,7 +12,6 @@ pub struct Settings {
 
     pub max_retries: u8,
     pub rpc_url: String,
-    pub rpc_ws_url: String,
     pub test_bidder: Option<u32>,
     pub key_path: String,
     #[serde(default = "default_batch_duration")]
@@ -57,9 +56,9 @@ impl Settings {
                 .add_source(File::with_name(&file.as_ref().to_string_lossy()).required(false));
         }
         // Add in settings from the environment (with a prefix of APP)
-        // Eg.. `MI_DEBUG=1 ./target/app` would set the `debug` key
+        // Eg.. `TUKTUK_DEBUG=1 ./target/app` would set the `debug` key
         builder
-            .add_source(Environment::with_prefix("QN").separator("__"))
+            .add_source(Environment::with_prefix("TUKTUK").separator("__"))
             .build()
             .and_then(|config| config.try_deserialize())
     }
