@@ -12,7 +12,6 @@ pub struct Settings {
 
     pub max_retries: u8,
     pub rpc_url: String,
-    pub test_bidder: Option<u32>,
     pub key_path: String,
     #[serde(default = "default_batch_duration")]
     pub batch_duration: Duration,
