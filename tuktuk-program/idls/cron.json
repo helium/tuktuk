@@ -50,7 +50,7 @@
       "discriminator": [114, 152, 214, 24, 97, 36, 231, 102],
       "accounts": [
         {
-          "name": "refund",
+          "name": "rent_refund",
           "writable": true
         },
         {
@@ -661,6 +661,12 @@
           {
             "name": "name",
             "type": "string"
+          },
+          {
+            "name": "lookup_tables",
+            "type": {
+              "vec": "pubkey"
+            }
           }
         ]
       }

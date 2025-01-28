@@ -190,14 +190,14 @@ pub mod cron {
         cron_job_key: Pubkey,
         payer: Pubkey,
         authority: Pubkey,
-        refund: Pubkey,
+        rent_refund: Pubkey,
         user_crons_key: Pubkey,
         name: String,
     ) -> Result<Instruction, Error> {
         Ok(Instruction {
             program_id: cron::ID,
             accounts: cron::cron::client::accounts::CloseCronJobV0 {
-                refund,
+                rent_refund,
                 payer,
                 authority: payer,
                 user_cron_jobs: user_crons_key,
@@ -215,10 +215,10 @@ pub mod cron {
         cron_job_key: Pubkey,
         payer: Pubkey,
         authority: Option<Pubkey>,
-        refund: Option<Pubkey>,
+        rent_refund: Option<Pubkey>,
     ) -> Result<Instruction, Error> {
         let authority = authority.unwrap_or(payer);
-        let refund = refund.unwrap_or(payer);
+        let rent_refund = rent_refund.unwrap_or(payer);
         let user_crons_key = self::user_cron_jobs_key(&authority);
         let cron_job: CronJobV0 = client
             .anchor_account(&cron_job_key)
@@ -229,7 +229,7 @@ pub mod cron {
             cron_job_key,
             payer,
             authority,
-            refund,
+            rent_refund,
             user_crons_key,
             cron_job.name,
         )
@@ -379,7 +379,7 @@ pub mod task_queue {
         client: &C,
         task_queue_key: Pubkey,
         payer: Pubkey,
-        refund: Pubkey,
+        rent_refund: Pubkey,
     ) -> Result<Instruction, Error> {
         let config_key = config_key();
         let queue: TaskQueueV0 = client
@@ -391,7 +391,7 @@ pub mod task_queue {
             program_id: ID,
             accounts: tuktuk::client::accounts::CloseTaskQueueV0 {
                 task_queue: task_queue_key,
-                refund,
+                rent_refund,
                 task_queue_name_mapping: task_queue_name_mapping_key(&config_key, &queue.name),
                 payer,
                 system_program: solana_sdk::system_program::ID,

@@ -12,7 +12,7 @@
       "discriminator": [196, 228, 35, 71, 131, 69, 175, 176],
       "accounts": [
         {
-          "name": "refund",
+          "name": "rent_refund",
           "writable": true
         },
         {
@@ -65,6 +65,17 @@
         },
         {
           "name": "task",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "dummy_ix",
+      "discriminator": [234, 95, 176, 185, 7, 42, 35, 159],
+      "accounts": [
+        {
+          "name": "dummy",
           "writable": true
         }
       ],
@@ -248,6 +259,10 @@
   ],
   "accounts": [
     {
+      "name": "RemoteTaskTransactionV0",
+      "discriminator": [244, 225, 238, 116, 199, 12, 9, 191]
+    },
+    {
       "name": "TaskQueueNameMappingV0",
       "discriminator": [112, 41, 174, 94, 48, 84, 56, 217]
     },
@@ -327,8 +342,8 @@
     },
     {
       "code": 6012,
-      "name": "InvalidRemainingAccountsHash",
-      "msg": "Invalid task"
+      "name": "InvalidVerificationAccountsHash",
+      "msg": "Invalid task verification hash"
     },
     {
       "code": 6013,
@@ -339,6 +354,11 @@
       "code": 6014,
       "name": "InvalidTaskId",
       "msg": "Invalid task id"
+    },
+    {
+      "code": 6015,
+      "name": "DummyInstruction",
+      "msg": "Don't use the dummy instruction"
     }
   ],
   "types": [
@@ -492,6 +512,28 @@
           {
             "name": "free_tasks",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RemoteTaskTransactionV0",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "verification_hash",
+            "type": {
+              "array": ["u8", 32]
+            }
+          },
+          {
+            "name": "transaction",
+            "type": {
+              "defined": {
+                "name": "CompiledTransactionV0"
+              }
+            }
           }
         ]
       }

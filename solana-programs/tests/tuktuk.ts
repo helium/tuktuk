@@ -166,7 +166,7 @@ describe("tuktuk", () => {
         .closeTaskQueueV0()
         .accounts({
           taskQueue,
-          refund: me,
+          rentRefund: me,
           taskQueueNameMapping: taskQueueNameMappingKey(tuktukConfig, name)[0],
         })
         .rpc({ skipPreflight: true });

@@ -10,7 +10,7 @@ use crate::{
 pub struct CloseCronJobV0<'info> {
     /// CHECK: Just getting sol
     #[account(mut)]
-    pub refund: AccountInfo<'info>,
+    pub rent_refund: AccountInfo<'info>,
     #[account(mut)]
     pub payer: Signer<'info>,
     pub authority: Signer<'info>,
@@ -18,7 +18,7 @@ pub struct CloseCronJobV0<'info> {
     pub user_cron_jobs: Box<Account<'info, UserCronJobsV0>>,
     #[account(
         mut,
-        close = refund,
+        close = rent_refund,
         has_one = authority,
         has_one = user_cron_jobs,
         constraint = cron_job.num_transactions == 0 @ ErrorCode::CronJobHasTransactions
@@ -26,7 +26,7 @@ pub struct CloseCronJobV0<'info> {
     pub cron_job: Box<Account<'info, CronJobV0>>,
     #[account(
         mut,
-        close = refund,
+        close = rent_refund,
         seeds = [
             "cron_job_name_mapping".as_bytes(),
             authority.key().as_ref(),
