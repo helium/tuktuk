@@ -325,7 +325,8 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         free_task_account.realloc(task_size, false)?;
 
         let task_info = self.ctx.accounts.task.to_account_info();
-        let task_remaining_lamports = self.ctx.accounts.task.to_account_info().lamports();
+        let task_remaining_lamports = self.ctx.accounts.task.to_account_info().lamports()
+            - self.ctx.accounts.task.crank_reward;
         let lamports_from_task = task_remaining_lamports.min(lamports);
         let lamports_needed_from_queue = lamports.saturating_sub(lamports_from_task);
 
@@ -422,19 +423,6 @@ pub fn handler<'info>(
     let crank_turner_info = ctx.accounts.crank_turner.to_account_info();
     let task_queue_info = ctx.accounts.task_queue.to_account_info();
 
-    task_info
-        .try_borrow_mut_lamports()?
-        .checked_sub(reward)
-        .unwrap();
-    crank_turner_info
-        .try_borrow_mut_lamports()?
-        .checked_add(task_fee)
-        .unwrap();
-    task_queue_info
-        .try_borrow_mut_lamports()?
-        .checked_add(protocol_fee)
-        .unwrap();
-
     ctx.accounts.task_queue.uncollected_protocol_fees += protocol_fee;
 
     ctx.accounts
@@ -460,6 +448,17 @@ pub fn handler<'info>(
     for ix in &transaction.instructions {
         processor.process_instruction(ix, remaining_accounts)?;
     }
+
+    msg!(
+        "Paying out reward {:?}, crank turner gets {:?}, protocol fee {:?}",
+        reward,
+        task_fee,
+        protocol_fee
+    );
+
+    task_info.sub_lamports(reward)?;
+    crank_turner_info.add_lamports(task_fee)?;
+    task_queue_info.add_lamports(protocol_fee)?;
 
     Ok(())
 }

@@ -289,13 +289,20 @@ describe("tuktuk", () => {
 
       it("allows running a task", async () => {
         const crankTurner = Keypair.generate();
+        // Send initial balance and track it
+        const initialBalance = 1000000000;
         await sendInstructions(provider, [
           SystemProgram.transfer({
             fromPubkey: me,
             toPubkey: crankTurner.publicKey,
-            lamports: 1000000000,
+            lamports: initialBalance,
           }),
         ]);
+
+        const crankTurnerBalanceBefore = await provider.connection.getBalance(
+          crankTurner.publicKey
+        );
+
         const ixs = await runTask({
           program,
           task,
@@ -308,7 +315,8 @@ describe("tuktuk", () => {
           })
         );
         await tx.sign([crankTurner]);
-        await sendAndConfirmWithRetry(
+        const taskAcc = await program.account.taskV0.fetch(task);
+        const { txid } = await sendAndConfirmWithRetry(
           provider.connection,
           Buffer.from(tx.serialize()),
           {
@@ -316,6 +324,32 @@ describe("tuktuk", () => {
             maxRetries: 0,
           },
           "confirmed"
+        );
+
+        const crankTurnerBalanceAfter = await provider.connection.getBalance(
+          crankTurner.publicKey
+        );
+
+        // Get the transaction fee
+        const txDetails = await provider.connection.getTransaction(txid, {
+          commitment: "confirmed",
+          maxSupportedTransactionVersion: 0,
+        });
+        const txFee = txDetails?.meta?.fee || 0;
+
+        // Get task account to check reward
+        const protocolFee = Math.floor(taskAcc.crankReward.toNumber() * 0.05); // 5% protocol fee
+        const expectedReward = taskAcc.crankReward.toNumber() - protocolFee;
+
+        // Calculate expected balance change
+        const expectedBalanceChange = expectedReward - txFee;
+        const actualBalanceChange = crankTurnerBalanceAfter - crankTurnerBalanceBefore;
+
+        expect(actualBalanceChange).to.equal(expectedBalanceChange, 
+          `Crank turner balance change incorrect. Expected change: ${expectedBalanceChange}, ` +
+          `Actual change: ${actualBalanceChange}, ` +
+          `Reward: ${expectedReward}, ` +
+          `TX fee: ${txFee}`
         );
       });
 
