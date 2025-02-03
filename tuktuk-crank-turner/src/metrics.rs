@@ -4,12 +4,13 @@ use prometheus::{opts, IntCounterVec, IntGaugeVec, Registry};
 lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
     pub static ref TASKS_IN_QUEUE: IntGaugeVec = IntGaugeVec::new(
-        opts!("tasks_in_queue", "Tasks in queue").const_label("version", env!("CARGO_PKG_VERSION")),
+        opts!("solana_tuktuk_tasks_in_queue", "Tasks in queue")
+            .const_label("version", env!("CARGO_PKG_VERSION")),
         &["task_queue"]
     )
     .expect("metric can be created");
     pub static ref DUPLICATE_TASKS: IntGaugeVec = IntGaugeVec::new(
-        opts!("duplicate_tasks", "Duplicate tasks")
+        opts!("solana_tuktuk_duplicate_tasks", "Duplicate tasks")
             .const_label("version", env!("CARGO_PKG_VERSION")),
         &["task_queue"]
     )
@@ -21,25 +22,26 @@ lazy_static! {
     )
     .expect("metric can be created");
     pub static ref TASKS_IN_PROGRESS: IntGaugeVec = IntGaugeVec::new(
-        opts!("tasks_in_progress", "Tasks in progress")
+        opts!("solana_tuktuk_tasks_in_progress", "Tasks in progress")
             .const_label("version", env!("CARGO_PKG_VERSION")),
         &["task_queue"]
     )
     .expect("metric can be created");
     pub static ref TASK_IDS_RESERVED: IntGaugeVec = IntGaugeVec::new(
-        opts!("task_ids_reserved", "Task ids reserved")
+        opts!("solana_tuktuk_task_ids_reserved", "Task ids reserved")
             .const_label("version", env!("CARGO_PKG_VERSION")),
         &["task_queue"]
     )
     .expect("metric can be created");
     pub static ref TASKS_COMPLETED: IntCounterVec = IntCounterVec::new(
-        opts!("tasks_completed", "Tasks completed")
+        opts!("solana_tuktuk_tasks_completed", "Tasks completed")
             .const_label("version", env!("CARGO_PKG_VERSION")),
         &["task_queue"]
     )
     .expect("metric can be created");
     pub static ref TASKS_FAILED: IntCounterVec = IntCounterVec::new(
-        opts!("tasks_failed", "Tasks failed").const_label("version", env!("CARGO_PKG_VERSION")),
+        opts!("solana_tuktuk_tasks_failed", "Tasks failed")
+            .const_label("version", env!("CARGO_PKG_VERSION")),
         &["task_queue", "error_type"]
     )
     .expect("metric can be created");

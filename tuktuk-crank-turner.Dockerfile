@@ -39,4 +39,6 @@ COPY --from=builder /app/target/release/tuktuk-crank-turner /usr/local/bin/
 # Create directory for key file
 RUN mkdir -p /app/keys
 
+EXPOSE 8080
+
 ENTRYPOINT ["tuktuk-crank-turner"]
