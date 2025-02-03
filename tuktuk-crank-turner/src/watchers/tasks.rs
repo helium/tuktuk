@@ -41,6 +41,7 @@ pub async fn get_and_watch_tasks(
         let task = match account {
             Some(t) if t.crank_reward >= args.min_crank_fee => match t.trigger {
                 TriggerV0::Now => TimedTask {
+                    task_queue_name: task_queue_account.name.clone(),
                     task_time: *now.borrow(),
                     task_key,
                     total_retries: 0,
@@ -49,6 +50,7 @@ pub async fn get_and_watch_tasks(
                     in_flight_task_ids: vec![],
                 },
                 TriggerV0::Timestamp(ts) => TimedTask {
+                    task_queue_name: task_queue_account.name.clone(),
                     task_time: ts as u64,
                     task_key,
                     total_retries: 0,
@@ -70,6 +72,7 @@ pub async fn get_and_watch_tasks(
         .try_for_each(|update| {
             let task_queue = task_queue.clone();
             let now = now.clone();
+            let name = task_queue_account.name.clone();
             async move {
                 let now = *now.borrow();
                 for (task_key, account) in update.tasks {
@@ -77,6 +80,7 @@ pub async fn get_and_watch_tasks(
                         Some(t) if t.crank_reward >= args.min_crank_fee => {
                             let task = match t.trigger {
                                 TriggerV0::Now => TimedTask {
+                                    task_queue_name: name.clone(),
                                     task_time: now,
                                     task_key,
                                     total_retries: 0,
@@ -86,6 +90,7 @@ pub async fn get_and_watch_tasks(
                                 },
                                 TriggerV0::Timestamp(ts) => TimedTask {
                                     task_time: ts as u64,
+                                    task_queue_name: name.clone(),
                                     task_key,
                                     total_retries: 0,
                                     max_retries: args.max_retries,

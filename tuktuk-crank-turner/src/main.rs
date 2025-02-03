@@ -2,6 +2,7 @@ use std::{collections::HashMap, path, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use clap::Parser;
+use metrics::{register_custom_metrics, REGISTRY};
 use settings::Settings;
 use solana_client::nonblocking::{pubsub_client::PubsubClient, rpc_client::RpcClient};
 use solana_sdk::{commitment_config::CommitmentConfig, signature::Keypair, signer::EncodableKey};
@@ -15,8 +16,10 @@ use tokio_graceful_shutdown::{SubsystemBuilder, Toplevel};
 use tracing_subscriber::{fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt};
 use transaction::TransactionSenderSubsystem;
 use tuktuk_sdk::{prelude::*, watcher::PubsubTracker};
+use warp::{reject::Rejection, reply::Reply, Filter};
 use watchers::{args::WatcherArgs, task_queues::get_and_watch_task_queues};
 
+mod metrics;
 pub mod settings;
 pub mod task_completion_processor;
 pub mod task_context;
@@ -35,13 +38,51 @@ pub struct Cli {
     pub config: Option<path::PathBuf>,
 }
 
+async fn metrics_handler() -> Result<impl Reply, Rejection> {
+    use prometheus::Encoder;
+    let encoder = prometheus::TextEncoder::new();
+
+    let mut buffer = Vec::new();
+    if let Err(e) = encoder.encode(&REGISTRY.gather(), &mut buffer) {
+        eprintln!("could not encode custom metrics: {}", e);
+    };
+    let mut res = match String::from_utf8(buffer.clone()) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("custom metrics could not be from_utf8'd: {}", e);
+            String::default()
+        }
+    };
+    buffer.clear();
+
+    let mut buffer = Vec::new();
+    if let Err(e) = encoder.encode(&prometheus::gather(), &mut buffer) {
+        eprintln!("could not encode prometheus metrics: {}", e);
+    };
+    let res_custom = match String::from_utf8(buffer.clone()) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("prometheus metrics could not be from_utf8'd: {}", e);
+            String::default()
+        }
+    };
+    buffer.clear();
+
+    res.push_str(&res_custom);
+    Ok(res)
+}
+
 impl Cli {
     pub async fn run(&self) -> Result<()> {
+        register_custom_metrics();
         let settings = Settings::new(self.config.as_ref())?;
         tracing_subscriber::registry()
             .with(tracing_subscriber::EnvFilter::new(&settings.log))
             .with(tracing_subscriber::fmt::layer().with_span_events(FmtSpan::CLOSE))
             .init();
+
+        let metrics_route = warp::path!("metrics").and_then(metrics_handler);
+        tokio::spawn(warp::serve(metrics_route).run(([0, 0, 0, 0], settings.metrics_port)));
 
         let solana_url = settings.rpc_url.clone();
         let solana_ws_url = solana_url.replace("http", "ws").replace("https", "wss");

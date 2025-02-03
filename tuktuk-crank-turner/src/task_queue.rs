@@ -17,11 +17,14 @@ use tokio::{
     task::JoinHandle,
 };
 
+use crate::metrics::{DUPLICATE_TASKS, TASKS_IN_QUEUE, TASKS_NEXT_WAKEUP};
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct TimedTask {
     pub task_time: u64,
     pub task_key: Pubkey,
     pub task_queue_key: Pubkey,
+    pub task_queue_name: String,
     pub total_retries: u8,
     pub max_retries: u8,
     pub in_flight_task_ids: Vec<u16>,
@@ -47,6 +50,9 @@ pub struct TaskQueue {
 
 impl TaskQueue {
     pub async fn add_task(&self, task: TimedTask) -> Result<(), SendError<TimedTask>> {
+        TASKS_IN_QUEUE
+            .with_label_values(&[task.task_queue_name.as_str()])
+            .inc();
         self.tx.send(task).await
     }
     pub async fn abort(&self) {
@@ -77,15 +83,25 @@ impl Stream for TaskStream {
             if let Some(task) = queue.peek() {
                 if task.task_time <= now {
                     let task = queue.pop().unwrap();
+                    TASKS_IN_QUEUE
+                        .with_label_values(&[task.task_queue_name.as_str()])
+                        .inc();
                     let mut hasher = DefaultHasher::new();
                     task.hash(&mut hasher);
                     let hash = hasher.finish();
                     if this.seen_tasks.insert(hash) {
                         return Poll::Ready(Some(task));
+                    } else {
+                        DUPLICATE_TASKS
+                            .with_label_values(&[task.task_queue_name.as_str()])
+                            .inc();
                     }
                 } else {
                     // Schedule a wake-up when the next task is ready
                     let wake_time = task.task_time.saturating_sub(now);
+                    TASKS_NEXT_WAKEUP
+                        .with_label_values(&[task.task_queue_name.as_str()])
+                        .set(task.task_time as i64);
                     let waker = cx.waker().clone();
                     let notify = this.notify.clone();
                     tokio::spawn(async move {
@@ -97,7 +113,16 @@ impl Stream for TaskStream {
                     });
                 }
             } else {
-                cx.waker().wake_by_ref();
+                // Schedule a wake-up after a reasonable delay when queue is empty
+                let waker = cx.waker().clone();
+                let notify = this.notify.clone();
+                tokio::spawn(async move {
+                    tokio::select! {
+                        _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {},
+                        _ = notify.notified() => {},
+                    }
+                    waker.wake();
+                });
             }
         } else {
             cx.waker().wake_by_ref();

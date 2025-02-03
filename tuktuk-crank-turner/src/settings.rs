@@ -20,6 +20,12 @@ pub struct Settings {
     pub min_crank_fee: u64,
     #[serde(default = "default_pubsub_repoll")]
     pub pubsub_repoll: Duration,
+    #[serde(default = "default_metrics_port")]
+    pub metrics_port: u16,
+}
+
+fn default_metrics_port() -> u16 {
+    8080
 }
 
 fn default_batch_duration() -> Duration {

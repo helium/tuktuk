@@ -37,6 +37,8 @@ pub enum TransactionQueueError {
     TransactionError(#[from] TransactionError),
     #[error("Raw transaction error: {0}")]
     RawTransactionError(String),
+    #[error("Simulated transaction error: {0}")]
+    SimulatedTransactionError(String),
     #[error("Fee too high")]
     FeeTooHigh,
 }
