@@ -185,6 +185,8 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         let mut accounts = Vec::new();
         let mut account_infos = Vec::new();
 
+        msg!("Signer addresses: {:?}", self.signer_addresses);
+
         for i in &ix.accounts {
             let acct = remaining_accounts[*i as usize].clone();
             let mut acct = acct.clone();

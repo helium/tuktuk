@@ -49,6 +49,13 @@ pub mod tuktuk {
     pub fn dummy_ix(_ctx: Context<DummyIx>) -> Result<()> {
         Err(error!(crate::error::ErrorCode::DummyInstruction))
     }
+
+    pub fn update_task_queue_v0(
+        ctx: Context<UpdateTaskQueueV0>,
+        args: UpdateTaskQueueArgsV0,
+    ) -> Result<()> {
+        update_task_queue_v0::handler(ctx, args)
+    }
 }
 
 #[derive(Accounts)]

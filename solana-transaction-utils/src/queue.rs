@@ -2,15 +2,13 @@ use std::{sync::Arc, time::Duration};
 
 use solana_client::{
     nonblocking::{rpc_client::RpcClient, tpu_client::TpuClient},
-    send_and_confirm_transactions_in_parallel::{
-        send_and_confirm_transactions_in_parallel, SendAndConfirmConfig,
-    },
     tpu_client::TpuClientConfig,
 };
 use solana_sdk::{
+    address_lookup_table::AddressLookupTableAccount,
     commitment_config::{CommitmentConfig, CommitmentLevel},
     instruction::Instruction,
-    message::Message,
+    message::v0,
     signature::Keypair,
     signer::Signer,
     transaction::TransactionError,
@@ -22,13 +20,18 @@ use tokio::{
 };
 
 use crate::{
-    pack::pack_instructions_into_transactions, priority_fee::auto_compute_limit_and_price,
+    pack::pack_instructions_into_transactions,
+    priority_fee::auto_compute_limit_and_price,
+    send_and_confirm_transactions_in_parallel::{
+        send_and_confirm_transactions_in_parallel, SendAndConfirmConfig,
+    },
 };
 
 #[derive(Debug, Clone)]
 pub struct TransactionTask<T: Send + Clone> {
     pub task: T,
     pub instructions: Vec<Instruction>,
+    pub lookup_tables: Option<Vec<AddressLookupTableAccount>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -41,6 +44,8 @@ pub enum TransactionQueueError {
     SimulatedTransactionError(String),
     #[error("Fee too high")]
     FeeTooHigh,
+    #[error("Ix group too large")]
+    IxGroupTooLarge,
 }
 
 #[derive(Debug)]
@@ -80,7 +85,7 @@ pub fn create_transaction_queue_handles<T: Send + Clone>(
     }
 }
 
-pub fn create_transaction_queue<T: Send + Clone + 'static>(
+pub fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
     args: TransactionQueueArgs<T>,
 ) -> JoinHandle<()> {
     let TransactionQueueArgs {
@@ -93,6 +98,7 @@ pub fn create_transaction_queue<T: Send + Clone + 'static>(
         max_sol_fee,
         send_in_parallel,
     } = args;
+    let payer_pubkey = payer.pubkey();
     let thread: JoinHandle<()> = tokio::spawn(async move {
         let mut tasks: Vec<TransactionTask<T>> = Vec::new();
         let mut interval = interval(batch_duration);
@@ -107,88 +113,116 @@ pub fn create_transaction_queue<T: Send + Clone + 'static>(
                     let tpu_client = TpuClient::new("helium-transaction-queue", rpc_client.clone(), ws_url.as_str(), TpuClientConfig::default()).await.expect("Failed to create TPU client");
                     // Process the collected tasks here
                     let ix_groups: Vec<Vec<Instruction>> = tasks.clone().into_iter().map(|t| t.instructions).collect();
-                    let txs = pack_instructions_into_transactions(ix_groups, &payer);
-                    let mut with_auto_compute: Vec<(Message, Vec<usize>)> = Vec::new();
-                    for (tx, task_ids) in &txs {
-                        // This is just a tx with compute ixs. Skip it
-                        if tx.len() == 2 {
-                            continue;
+                    let lookup_tables: Vec<AddressLookupTableAccount> = {
+                        let mut seen = std::collections::HashSet::new();
+                        tasks.clone()
+                            .into_iter()
+                            .flat_map(|t| t.lookup_tables.unwrap_or_default())
+                            .filter(|table| seen.insert(table.key))  // Only keep tables whose addresses we haven't seen
+                            .collect()
+                    };
+
+                    let txs = pack_instructions_into_transactions(ix_groups, &payer, Some(lookup_tables.clone()));
+                    match txs {
+                        Ok(txs) => {
+                            let mut with_auto_compute: Vec<(v0::Message, Vec<usize>)> = Vec::new();
+                            for (tx, task_ids) in &txs {
+                                // This is just a tx with compute ixs. Skip it
+                                if tx.len() == 2 {
+                                    continue;
+                                }
+                                let (computed, fee) = auto_compute_limit_and_price(&rpc_client, tx.clone(), 1.2, &payer_pubkey, Some(blockhash.0), Some(lookup_tables.clone())).await.unwrap();
+                                if fee > max_sol_fee {
+                                    for task_id in task_ids {
+                                        result_tx.send(CompletedTransactionTask {
+                                            err: Some(TransactionQueueError::FeeTooHigh),
+                                            task: tasks[*task_id].clone(),
+                                        }).await.unwrap();
+                                    }
+                                    continue;
+                                }
+                                with_auto_compute.push((v0::Message::try_compile(
+                                    &payer_pubkey,
+                                    &computed,
+                                    &lookup_tables.clone(),
+                                    blockhash.0,
+                                ).unwrap(), task_ids.clone()));
+                            }
+                            if with_auto_compute.is_empty() {
+                                continue;
+                            }
+                            let messages: Vec<v0::Message> = with_auto_compute.iter().map(|(msg, _)| msg.clone()).collect();
+                            let mut task_results: std::collections::HashMap<usize, Option<TransactionQueueError>> = std::collections::HashMap::new();
+                            if !send_in_parallel {
+                                // Send transactions without confirmation
+                                for (i, message) in messages.iter().enumerate() {
+                                    let mut tx = solana_sdk::transaction::VersionedTransaction::try_new(
+                                            solana_sdk::message::VersionedMessage::V0(message.clone()),
+                                            &[&payer],
+                                        ).unwrap();
+                                    tx.message.set_recent_blockhash(blockhash.0);
+                                    match rpc_client.send_transaction_with_config(
+                                        &tx,
+                                        solana_client::rpc_config::RpcSendTransactionConfig {
+                                            skip_preflight: false,
+                                            preflight_commitment: Some(CommitmentLevel::Confirmed),
+                                            ..Default::default()
+                                        },
+                                    ).await {
+                                        Ok(_) => {
+                                            for task_id in &with_auto_compute[i].1 {
+                                                task_results.insert(*task_id, None);
+                                            }
+                                        }
+                                        Err(err) => {
+                                            for task_id in &with_auto_compute[i].1 {
+                                                task_results.insert(*task_id, Some(TransactionQueueError::RawTransactionError(
+                                                    err.to_string()
+                                                )));
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                let results = send_and_confirm_transactions_in_parallel(
+                                    rpc_client.clone(),
+                                    Some(tpu_client),
+                                    &messages,
+                                    &[&payer],
+                                    SendAndConfirmConfig {
+                                        with_spinner: true,
+                                        resign_txs_count: Some(5),
+                                    },
+                                ).await.expect("Failed to send txs");
+                                for (i, result) in results.iter().enumerate() {
+                                    for task_id in &txs[i].1 {
+                                            if let Some(err) = result {
+                                                task_results.insert(*task_id, Some(TransactionQueueError::TransactionError(err.clone())));
+                                            } else if !task_results.contains_key(task_id) {
+                                                task_results.insert(*task_id, None);
+                                            }
+                                    }
+                                }
+                            }
+                            for (task_id, err) in task_results {
+                                    result_tx.send(CompletedTransactionTask {
+                                        err,
+                                        task: tasks[task_id].clone(),
+                                    }).await.unwrap();
+                                }
+                            tasks.clear();
                         }
-                        let (computed, fee) = auto_compute_limit_and_price(&rpc_client, tx.clone(), &[&payer], 1.2, Some(&payer.pubkey()), Some(blockhash.0)).await.unwrap();
-                        if fee > max_sol_fee {
-                            for task_id in task_ids {
+                        Err(_) => {
+                            // Send error result for all tasks in the batch
+                            for task in tasks.iter() {
                                 result_tx.send(CompletedTransactionTask {
-                                    err: Some(TransactionQueueError::FeeTooHigh),
-                                    task: tasks[*task_id].clone(),
+                                    err: Some(TransactionQueueError::IxGroupTooLarge),
+                                    task: task.clone(),
                                 }).await.unwrap();
                             }
-                            continue;
-                        }
-                        with_auto_compute.push((Message::new(&computed, Some(&payer.pubkey())), task_ids.clone()));
-                    }
-                    if with_auto_compute.is_empty() {
-                        continue;
-                    }
-                    let messages: Vec<Message> = with_auto_compute.iter().map(|(msg, _)| msg.clone()).collect();
-                    let mut task_results: std::collections::HashMap<usize, Option<TransactionQueueError>> = std::collections::HashMap::new();
-                    if !send_in_parallel {
-                        // Send transactions without confirmation
-                        for (i, message) in messages.iter().enumerate() {
-                            let mut tx = solana_sdk::transaction::VersionedTransaction::try_new(
-                                    solana_sdk::message::VersionedMessage::Legacy(message.clone()),
-                                    &[&payer],
-                                ).unwrap();
-                            tx.message.set_recent_blockhash(blockhash.0);
-                            match rpc_client.send_transaction_with_config(
-                                &tx,
-                                solana_client::rpc_config::RpcSendTransactionConfig {
-                                    skip_preflight: false,
-                                    preflight_commitment: Some(CommitmentLevel::Confirmed),
-                                    ..Default::default()
-                                },
-                            ).await {
-                                Ok(_) => {
-                                    for task_id in &with_auto_compute[i].1 {
-                                        task_results.insert(*task_id, None);
-                                    }
-                                }
-                                Err(err) => {
-                                    for task_id in &with_auto_compute[i].1 {
-                                        task_results.insert(*task_id, Some(TransactionQueueError::RawTransactionError(
-                                            err.to_string()
-                                        )));
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        let results = send_and_confirm_transactions_in_parallel(
-                            rpc_client.clone(),
-                            Some(tpu_client),
-                            &messages,
-                            &[&payer],
-                            SendAndConfirmConfig {
-                                with_spinner: true,
-                                resign_txs_count: Some(5),
-                            },
-                        ).await.expect("Failed to send txs");
-                        for (i, result) in results.iter().enumerate() {
-                            for task_id in &txs[i].1 {
-                                    if let Some(err) = result {
-                                        task_results.insert(*task_id, Some(TransactionQueueError::TransactionError(err.clone())));
-                                    } else if !task_results.contains_key(task_id) {
-                                        task_results.insert(*task_id, None);
-                                    }
-                            }
                         }
                     }
-                    for (task_id, err) in task_results {
-                            result_tx.send(CompletedTransactionTask {
-                                err,
-                                task: tasks[task_id].clone(),
-                            }).await.unwrap();
-                        }
-                    tasks.clear();
+
                 }
 
                 Some(task) = rx.recv() => {

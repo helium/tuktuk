@@ -1,7 +1,15 @@
 use solana_sdk::{
-    compute_budget::ComputeBudgetInstruction, instruction::Instruction, signature::Keypair,
-    signer::Signer, transaction::Transaction,
+    address_lookup_table::AddressLookupTableAccount,
+    compute_budget::ComputeBudgetInstruction,
+    hash::Hash,
+    instruction::Instruction,
+    message::{v0, VersionedMessage},
+    signature::{Keypair, NullSigner},
+    signer::Signer,
+    transaction::VersionedTransaction,
 };
+
+use crate::error::Error;
 
 const MAX_TRANSACTION_SIZE: usize = 1232; // Maximum transaction size in bytes
 
@@ -9,7 +17,8 @@ const MAX_TRANSACTION_SIZE: usize = 1232; // Maximum transaction size in bytes
 pub fn pack_instructions_into_transactions(
     instructions: Vec<Vec<Instruction>>,
     payer: &Keypair,
-) -> Vec<(Vec<Instruction>, Vec<usize>)> {
+    lookup_tables: Option<Vec<AddressLookupTableAccount>>,
+) -> Result<Vec<(Vec<Instruction>, Vec<usize>)>, Error> {
     let mut transactions = Vec::new();
     let compute_ixs = vec![
         ComputeBudgetInstruction::set_compute_unit_limit(200000),
@@ -23,7 +32,13 @@ pub fn pack_instructions_into_transactions(
         // Create a test transaction with current instructions + entire new group
         let mut test_instructions = curr_instructions.clone();
         test_instructions.extend(group.iter().cloned());
-        let test_tx = Transaction::new_with_payer(&test_instructions, Some(&payer.pubkey()));
+        let message = VersionedMessage::V0(v0::Message::try_compile(
+            &payer.pubkey(),
+            &test_instructions,
+            &lookup_tables.clone().unwrap_or_default(),
+            Hash::default(),
+        )?);
+        let test_tx = VersionedTransaction::try_new(message, &[&NullSigner::new(&payer.pubkey())])?;
         let test_len = bincode::serialize(&test_tx).unwrap().len();
 
         // If adding the entire group would exceed size limit, start a new transaction
@@ -39,14 +54,16 @@ pub fn pack_instructions_into_transactions(
         curr_indices.extend(vec![group_idx; group.len()]);
 
         // If this single group alone exceeds transaction size, we have a problem
-        let tx = Transaction::new_with_payer(&curr_instructions, Some(&payer.pubkey()));
+        let message = VersionedMessage::V0(v0::Message::try_compile(
+            &payer.pubkey(),
+            &curr_instructions,
+            &lookup_tables.clone().unwrap_or_default(),
+            Hash::default(),
+        )?);
+        let tx = VersionedTransaction::try_new(message, &[&NullSigner::new(&payer.pubkey())])?;
         let len = bincode::serialize(&tx).unwrap().len();
         if len > MAX_TRANSACTION_SIZE {
-            // TODO: How do we want to handle this case?
-            panic!(
-                "Instruction group {} is too large to fit in a single transaction",
-                group_idx
-            );
+            return Err(Error::IxGroupTooLarge);
         }
     }
 
@@ -55,5 +72,5 @@ pub fn pack_instructions_into_transactions(
         transactions.push((curr_instructions.clone(), curr_indices.clone()));
     }
 
-    transactions
+    Ok(transactions)
 }

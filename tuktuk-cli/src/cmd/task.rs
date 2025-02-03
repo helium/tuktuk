@@ -6,11 +6,13 @@ use clock::SYSVAR_CLOCK;
 use serde::Serialize;
 use solana_client::rpc_config::RpcSimulateTransactionConfig;
 use solana_sdk::{
+    commitment_config::CommitmentLevel,
     message::{v0, VersionedMessage},
     pubkey::Pubkey,
     signer::Signer,
     transaction::VersionedTransaction,
 };
+use solana_transaction_utils::priority_fee::auto_compute_limit_and_price;
 use tuktuk_program::{types::TriggerV0, TaskQueueV0, TaskV0};
 use tuktuk_sdk::prelude::*;
 
@@ -35,6 +37,14 @@ pub enum Cmd {
     List {
         #[command(flatten)]
         task_queue: TaskQueueArg,
+    },
+    Run {
+        #[command(flatten)]
+        task_queue: TaskQueueArg,
+        #[arg(short, long)]
+        id: u16,
+        #[arg(short, long, default_value = "false")]
+        skip_preflight: bool,
     },
     Close {
         #[command(flatten)]
@@ -159,6 +169,56 @@ impl TaskCmd {
                     &[],
                 )
                 .await?;
+            }
+            Cmd::Run {
+                task_queue,
+                id,
+                skip_preflight,
+            } => {
+                let client = opts.client().await?;
+                let task_queue_pubkey = task_queue.get_pubkey(&client).await?.unwrap();
+                if let Ok(Some(run_ix)) = tuktuk_sdk::compiled_transaction::run_ix(
+                    client.as_ref(),
+                    tuktuk::task::key(&task_queue_pubkey, *id),
+                    client.payer.pubkey(),
+                    &HashSet::new(),
+                )
+                .await
+                {
+                    let blockhash = client.rpc_client.get_latest_blockhash().await?;
+                    let (computed, _) = auto_compute_limit_and_price(
+                        &client.rpc_client,
+                        run_ix.instructions,
+                        1.2,
+                        &client.payer.pubkey(),
+                        Some(blockhash),
+                        Some(run_ix.lookup_tables.clone()),
+                    )
+                    .await
+                    .unwrap();
+
+                    let recent_blockhash = client.rpc_client.get_latest_blockhash().await?;
+                    let message = VersionedMessage::V0(v0::Message::try_compile(
+                        &client.payer.pubkey(),
+                        &computed,
+                        &run_ix.lookup_tables,
+                        recent_blockhash,
+                    )?);
+                    let tx = VersionedTransaction::try_new(message, &[&client.payer])?;
+                    let txid = client
+                        .rpc_client
+                        .send_transaction_with_config(
+                            &tx,
+                            solana_client::rpc_config::RpcSendTransactionConfig {
+                                skip_preflight: *skip_preflight,
+                                preflight_commitment: Some(CommitmentLevel::Confirmed),
+                                ..Default::default()
+                            },
+                        )
+                        .await?;
+
+                    println!("Tx sent: {}", txid);
+                }
             }
         }
         Ok(())

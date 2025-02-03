@@ -141,6 +141,7 @@ impl TimedTask {
                         ..self.clone()
                     },
                     instructions: run_ix.instructions,
+                    lookup_tables: Some(run_ix.lookup_tables),
                 })
                 .await?;
         }
@@ -187,6 +188,11 @@ impl TimedTask {
                 TransactionQueueError::FeeTooHigh => {
                     TASKS_FAILED
                         .with_label_values(&[self.task_queue_name.as_str(), "FeeTooHigh"])
+                        .inc();
+                }
+                TransactionQueueError::IxGroupTooLarge => {
+                    TASKS_FAILED
+                        .with_label_values(&[self.task_queue_name.as_str(), "IxGroupTooLarge"])
                         .inc();
                 }
             }

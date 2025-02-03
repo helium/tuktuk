@@ -1,8 +1,12 @@
 use itertools::Itertools;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
-    instruction::Instruction, message::Message, pubkey::Pubkey, signers::Signers,
-    transaction::Transaction,
+    address_lookup_table::AddressLookupTableAccount,
+    instruction::Instruction,
+    message::{v0, VersionedMessage},
+    pubkey::Pubkey,
+    signature::NullSigner,
+    transaction::VersionedTransaction,
 };
 
 use crate::error::Error;
@@ -78,13 +82,13 @@ pub async fn compute_price_instruction_for_accounts<C: AsRef<RpcClient>>(
     Ok((compute_price_instruction(priority_fee), priority_fee))
 }
 
-pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>, T: Signers + ?Sized>(
+pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>>(
     client: &C,
     instructions: Vec<Instruction>,
-    signers: &T,
     compute_multiplier: f32,
-    payer: Option<&Pubkey>,
+    payer: &Pubkey,
     blockhash: Option<solana_program::hash::Hash>,
+    lookup_tables: Option<Vec<AddressLookupTableAccount>>,
 ) -> Result<(solana_sdk::instruction::Instruction, u32), crate::error::Error> {
     // Check for existing compute unit limit instruction and replace it if found
     let mut updated_instructions = instructions.clone();
@@ -105,11 +109,25 @@ pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>, T: Signers + ?
         Some(hash) => hash,
         None => client.as_ref().get_latest_blockhash().await?,
     };
-    let snub_tx = Transaction::new(
-        signers,
-        Message::new(&updated_instructions, payer),
+    let message = VersionedMessage::V0(v0::Message::try_compile(
+        payer,
+        &updated_instructions,
+        lookup_tables.unwrap_or_default().as_slice(),
         blockhash_actual,
-    );
+    )?);
+    let num_signers = updated_instructions
+        .iter()
+        .flat_map(|ix| ix.accounts.iter())
+        .filter(|a| a.is_signer)
+        .map(|a| a.pubkey)
+        .chain(std::iter::once(*payer)) // Include payer
+        .unique()
+        .count();
+    let signers = (0..num_signers)
+        .map(|_| NullSigner::new(payer))
+        .collect::<Vec<_>>();
+    let null_signers: Vec<&NullSigner> = signers.iter().collect();
+    let snub_tx = VersionedTransaction::try_new(message, null_signers.as_slice())?;
 
     // Simulate the transaction to get the actual compute used
     let simulation_result = client.as_ref().simulate_transaction(&snub_tx).await?;
@@ -131,13 +149,13 @@ pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>, T: Signers + ?
 }
 
 // Returns the instructions and the total fee in lamports
-pub async fn auto_compute_limit_and_price<C: AsRef<RpcClient>, T: Signers + ?Sized>(
+pub async fn auto_compute_limit_and_price<C: AsRef<RpcClient>>(
     client: &C,
     instructions: Vec<Instruction>,
-    signers: &T,
     compute_multiplier: f32,
-    payer: Option<&Pubkey>,
+    payer: &Pubkey,
     blockhash: Option<solana_program::hash::Hash>,
+    lookup_tables: Option<Vec<AddressLookupTableAccount>>,
 ) -> Result<(Vec<Instruction>, u64), Error> {
     let mut updated_instructions = instructions.clone();
 
@@ -145,10 +163,10 @@ pub async fn auto_compute_limit_and_price<C: AsRef<RpcClient>, T: Signers + ?Siz
     let (compute_budget_ix, compute_limit) = compute_budget_for_instructions(
         client,
         instructions.clone(),
-        signers,
         compute_multiplier,
         payer,
         blockhash,
+        lookup_tables,
     )
     .await?;
 
@@ -172,7 +190,7 @@ pub async fn auto_compute_limit_and_price<C: AsRef<RpcClient>, T: Signers + ?Siz
     }
 
     // Replace or insert compute price instruction
-    if let Some(pos) = updated_instructions
+    if let Some(pos) = instructions
         .iter()
         .position(|ix| ix.program_id == solana_sdk::compute_budget::id())
     {

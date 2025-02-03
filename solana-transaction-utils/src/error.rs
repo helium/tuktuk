@@ -1,4 +1,4 @@
-use solana_sdk::message::CompileError;
+use solana_sdk::{message::CompileError, signer::SignerError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -8,4 +8,8 @@ pub enum Error {
     InstructionError(#[from] solana_sdk::instruction::InstructionError),
     #[error("Compile error: {0}")]
     CompileError(#[from] CompileError),
+    #[error("Signer error: {0}")]
+    SignerError(#[from] SignerError),
+    #[error("Ix group too large")]
+    IxGroupTooLarge,
 }

@@ -318,6 +318,7 @@ pub mod cron_job_transaction {
 
 pub mod task_queue {
     use tuktuk::accounts::TuktukConfigV0;
+    use tuktuk_program::types::UpdateTaskQueueArgsV0;
 
     use self::tuktuk::types::InitializeTaskQueueArgsV0;
     use super::*;
@@ -400,6 +401,44 @@ pub mod task_queue {
             }
             .to_account_metas(None),
             data: tuktuk::client::args::CloseTaskQueueV0 {}.data(),
+        })
+    }
+
+    pub async fn update<C: GetAnchorAccount>(
+        client: &C,
+        payer: Pubkey,
+        task_queue_key: Pubkey,
+        args: UpdateTaskQueueArgsV0,
+    ) -> Result<Instruction, Error> {
+        let task_queue: TaskQueueV0 = client
+            .anchor_account(&task_queue_key)
+            .await?
+            .ok_or_else(|| Error::AccountNotFound)?;
+
+        update_ix(
+            payer,
+            task_queue_key,
+            Some(task_queue.update_authority),
+            args,
+        )
+    }
+
+    pub fn update_ix(
+        payer: Pubkey,
+        task_queue_key: Pubkey,
+        update_authority: Option<Pubkey>,
+        args: UpdateTaskQueueArgsV0,
+    ) -> Result<Instruction, Error> {
+        Ok(Instruction {
+            program_id: ID,
+            accounts: tuktuk::client::accounts::UpdateTaskQueueV0 {
+                task_queue: task_queue_key,
+                payer,
+                system_program: solana_sdk::system_program::ID,
+                update_authority: update_authority.unwrap_or(payer),
+            }
+            .to_account_metas(None),
+            data: tuktuk::client::args::UpdateTaskQueueV0 { args }.data(),
         })
     }
 

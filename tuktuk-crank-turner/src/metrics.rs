@@ -16,7 +16,7 @@ lazy_static! {
     )
     .expect("metric can be created");
     pub static ref TASKS_NEXT_WAKEUP: IntGaugeVec = IntGaugeVec::new(
-        opts!("tasks_next_wakeup", "Tasks next wakeup")
+        opts!("solana_tuktuk_tasks_next_wakeup", "Tasks next wakeup")
             .const_label("version", env!("CARGO_PKG_VERSION")),
         &["task_queue"]
     )

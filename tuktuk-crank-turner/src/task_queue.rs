@@ -85,7 +85,7 @@ impl Stream for TaskStream {
                     let task = queue.pop().unwrap();
                     TASKS_IN_QUEUE
                         .with_label_values(&[task.task_queue_name.as_str()])
-                        .inc();
+                        .dec();
                     let mut hasher = DefaultHasher::new();
                     task.hash(&mut hasher);
                     let hash = hasher.finish();

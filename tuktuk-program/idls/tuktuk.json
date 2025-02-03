@@ -255,6 +255,40 @@
           }
         }
       ]
+    },
+    {
+      "name": "update_task_queue_v0",
+      "discriminator": [107, 147, 81, 119, 75, 1, 18, 41],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "update_authority",
+          "signer": true,
+          "relations": ["task_queue"]
+        },
+        {
+          "name": "task_queue",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "UpdateTaskQueueArgsV0"
+            }
+          }
+        }
+      ]
     }
   ],
   "accounts": [
@@ -760,6 +794,46 @@
           {
             "name": "bump_seed",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdateTaskQueueArgsV0",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "min_crank_reward",
+            "type": {
+              "option": "u64"
+            }
+          },
+          {
+            "name": "capacity",
+            "type": {
+              "option": "u16"
+            }
+          },
+          {
+            "name": "lookup_tables",
+            "type": {
+              "option": {
+                "vec": "pubkey"
+              }
+            }
+          },
+          {
+            "name": "update_authority",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "queue_authority",
+            "type": {
+              "option": "pubkey"
+            }
           }
         ]
       }

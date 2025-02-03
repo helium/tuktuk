@@ -44,6 +44,20 @@ pub enum Cmd {
         #[arg(long, help = "Lookup tables to create")]
         lookup_tables: Option<Vec<Pubkey>>,
     },
+    Update {
+        #[command(flatten)]
+        task_queue: TaskQueueArg,
+        #[arg(long, help = "Default crank reward in lamports")]
+        min_crank_reward: Option<u64>,
+        #[arg(long, help = "Lookup tables to create")]
+        lookup_tables: Option<Vec<Pubkey>>,
+        #[arg(long)]
+        queue_authority: Option<Pubkey>,
+        #[arg(long)]
+        update_authority: Option<Pubkey>,
+        #[arg(long)]
+        capacity: Option<u16>,
+    },
     Get {
         #[command(flatten)]
         task_queue: TaskQueueArg,
@@ -170,6 +184,43 @@ impl TaskQueueCmd {
                     min_crank_reward: task_queue.min_crank_reward,
                     balance: task_queue_balance,
                 })?;
+            }
+            Cmd::Update {
+                task_queue,
+                min_crank_reward,
+                lookup_tables,
+                queue_authority,
+                update_authority,
+                capacity,
+            } => {
+                let client = opts.client().await?;
+                let task_queue_key = task_queue.get_pubkey(&client).await?.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Must provide task-queue-name, task-queue-id, or task-queue-pubkey"
+                    )
+                })?;
+                let ix = tuktuk::task_queue::update(
+                    client.rpc_client.as_ref(),
+                    client.payer.pubkey(),
+                    task_queue_key,
+                    tuktuk_program::types::UpdateTaskQueueArgsV0 {
+                        capacity: *capacity,
+                        min_crank_reward: *min_crank_reward,
+                        lookup_tables: lookup_tables.clone(),
+                        update_authority: update_authority.clone(),
+                        queue_authority: queue_authority.clone(),
+                    },
+                )
+                .await?;
+
+                send_instructions(
+                    client.rpc_client.clone(),
+                    &client.payer,
+                    client.opts.ws_url().as_str(),
+                    vec![ix],
+                    &[],
+                )
+                .await?;
             }
             Cmd::Get { task_queue } => {
                 let client = opts.client().await?;
