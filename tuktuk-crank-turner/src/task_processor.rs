@@ -144,9 +144,9 @@ impl TimedTask {
                     lookup_tables: Some(run_ix.lookup_tables),
                 })
                 .await?;
-        } else {
-            self.handle_completion(ctx, None).await?;
         }
+
+        self.handle_completion(ctx, None).await?;
 
         Ok(())
     }
