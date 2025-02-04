@@ -66,4 +66,7 @@ pub fn register_custom_metrics() {
     REGISTRY
         .register(Box::new(DUPLICATE_TASKS.clone()))
         .expect("collector can be registered");
+    REGISTRY
+        .register(Box::new(TASK_IDS_RESERVED.clone()))
+        .expect("collector can be registered");
 }
