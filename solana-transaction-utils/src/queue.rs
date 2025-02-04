@@ -46,6 +46,8 @@ pub enum TransactionQueueError {
     FeeTooHigh,
     #[error("Ix group too large")]
     IxGroupTooLarge,
+    #[error("Retries exceeded")]
+    RetriesExceeded,
 }
 
 #[derive(Debug)]

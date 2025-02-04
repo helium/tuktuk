@@ -60,8 +60,13 @@ impl TimedTask {
                         in_flight_task_ids: self.in_flight_task_ids.clone(),
                     })
                     .await?;
+                return Ok(());
+            } else {
+                let ctx = ctx.clone();
+                return self
+                    .handle_completion(ctx, Some(TransactionQueueError::RetriesExceeded))
+                    .await;
             }
-            return Ok(());
         }
 
         let run_ix = maybe_run_ix.unwrap();
@@ -195,6 +200,11 @@ impl TimedTask {
                 TransactionQueueError::IxGroupTooLarge => {
                     TASKS_FAILED
                         .with_label_values(&[self.task_queue_name.as_str(), "IxGroupTooLarge"])
+                        .inc();
+                }
+                TransactionQueueError::RetriesExceeded => {
+                    TASKS_FAILED
+                        .with_label_values(&[self.task_queue_name.as_str(), "RetriesExceeded"])
                         .inc();
                 }
             }
