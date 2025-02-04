@@ -13,6 +13,7 @@ use tuktuk_program::{
     TaskQueueV0, TransactionSourceV0, TriggerV0,
 };
 
+use super::QUEUE_TASK_DELAY;
 use crate::{
     error::ErrorCode,
     hash_name,
@@ -189,7 +190,7 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
             },
         ),
         QueueTaskArgsV0 {
-            trigger: TriggerV0::Now,
+            trigger: TriggerV0::Timestamp(ctx.accounts.cron_job.current_exec_ts - QUEUE_TASK_DELAY),
             transaction: TransactionSourceV0::CompiledV0(queue_tx),
             crank_reward: None,
             free_tasks: ctx.accounts.cron_job.num_tasks_per_queue_call + 1,
