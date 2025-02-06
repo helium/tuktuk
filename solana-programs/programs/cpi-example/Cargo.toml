@@ -10,6 +10,7 @@ name = "cpi_example"
 
 [features]
 default = []
+devnet = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []
