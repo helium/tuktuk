@@ -1,9 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::{
-    resize_to_fit::resize_to_fit,
-    state::{TaskQueueV0, TuktukConfigV0},
-};
+use crate::{resize_to_fit::resize_to_fit, state::TaskQueueV0};
 
 pub const TESTING: bool = std::option_env!("TESTING").is_some();
 
@@ -13,7 +10,6 @@ pub struct UpdateTaskQueueArgsV0 {
     pub capacity: Option<u16>,
     pub lookup_tables: Option<Vec<Pubkey>>,
     pub update_authority: Option<Pubkey>,
-    pub queue_authority: Option<Pubkey>,
 }
 
 #[derive(Accounts)]
@@ -55,9 +51,6 @@ pub fn handler(ctx: Context<UpdateTaskQueueV0>, args: UpdateTaskQueueArgsV0) -> 
     }
     if let Some(update_authority) = args.update_authority {
         ctx.accounts.task_queue.update_authority = update_authority;
-    }
-    if let Some(queue_authority) = args.queue_authority {
-        ctx.accounts.task_queue.queue_authority = queue_authority;
     }
 
     resize_to_fit(

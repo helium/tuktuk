@@ -8,6 +8,57 @@
   },
   "instructions": [
     {
+      "name": "add_queue_authority_v0",
+      "discriminator": [122, 25, 219, 246, 39, 195, 74, 93],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "update_authority",
+          "signer": true,
+          "relations": ["task_queue"]
+        },
+        {
+          "name": "queue_authority"
+        },
+        {
+          "name": "task_queue_authority",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116, 97, 115, 107, 95, 113, 117, 101, 117, 101, 95, 97, 117,
+                  116, 104, 111, 114, 105, 116, 121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task_queue"
+              },
+              {
+                "kind": "account",
+                "path": "queue_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "task_queue",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "close_task_queue_v0",
       "discriminator": [196, 228, 35, 71, 131, 69, 175, 176],
       "accounts": [
@@ -51,8 +102,7 @@
       "accounts": [
         {
           "name": "queue_authority",
-          "signer": true,
-          "relations": ["task_queue"]
+          "signer": true
         },
         {
           "name": "rent_refund",
@@ -60,8 +110,30 @@
           "relations": ["task"]
         },
         {
+          "name": "task_queue_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116, 97, 115, 107, 95, 113, 117, 101, 117, 101, 95, 97, 117,
+                  116, 104, 111, 114, 105, 116, 121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task_queue"
+              },
+              {
+                "kind": "account",
+                "path": "queue_authority"
+              }
+            ]
+          }
+        },
+        {
           "name": "task_queue",
-          "writable": true
+          "relations": ["task"]
         },
         {
           "name": "task",
@@ -96,9 +168,6 @@
         },
         {
           "name": "update_authority"
-        },
-        {
-          "name": "queue_authority"
         },
         {
           "name": "task_queue",
@@ -181,8 +250,29 @@
         },
         {
           "name": "queue_authority",
-          "signer": true,
-          "relations": ["task_queue"]
+          "signer": true
+        },
+        {
+          "name": "task_queue_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116, 97, 115, 107, 95, 113, 117, 101, 117, 101, 95, 97, 117,
+                  116, 104, 111, 114, 105, 116, 121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task_queue"
+              },
+              {
+                "kind": "account",
+                "path": "queue_authority"
+              }
+            ]
+          }
         },
         {
           "name": "task_queue",
@@ -207,6 +297,57 @@
           }
         }
       ]
+    },
+    {
+      "name": "remove_queue_authority_v0",
+      "discriminator": [180, 26, 196, 229, 80, 40, 245, 187],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "rent_refund",
+          "writable": true
+        },
+        {
+          "name": "update_authority",
+          "signer": true,
+          "relations": ["task_queue"]
+        },
+        {
+          "name": "queue_authority"
+        },
+        {
+          "name": "task_queue_authority",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116, 97, 115, 107, 95, 113, 117, 101, 117, 101, 95, 97, 117,
+                  116, 104, 111, 114, 105, 116, 121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task_queue"
+              },
+              {
+                "kind": "account",
+                "path": "queue_authority"
+              }
+            ]
+          }
+        },
+        {
+          "name": "task_queue",
+          "writable": true
+        }
+      ],
+      "args": []
     },
     {
       "name": "run_task_v0",
@@ -295,6 +436,10 @@
     {
       "name": "RemoteTaskTransactionV0",
       "discriminator": [244, 225, 238, 116, 199, 12, 9, 191]
+    },
+    {
+      "name": "TaskQueueAuthorityV0",
+      "discriminator": [206, 37, 171, 34, 162, 191, 47, 50]
     },
     {
       "name": "TaskQueueNameMappingV0",
@@ -596,6 +741,26 @@
       }
     },
     {
+      "name": "TaskQueueAuthorityV0",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "task_queue",
+            "type": "pubkey"
+          },
+          {
+            "name": "queue_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump_seed",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "TaskQueueNameMappingV0",
       "type": {
         "kind": "struct",
@@ -633,7 +798,7 @@
             "type": "pubkey"
           },
           {
-            "name": "queue_authority",
+            "name": "reserved",
             "type": "pubkey"
           },
           {
@@ -838,12 +1003,6 @@
           },
           {
             "name": "update_authority",
-            "type": {
-              "option": "pubkey"
-            }
-          },
-          {
-            "name": "queue_authority",
             "type": {
               "option": "pubkey"
             }

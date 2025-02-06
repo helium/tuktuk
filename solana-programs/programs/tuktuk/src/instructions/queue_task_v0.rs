@@ -6,7 +6,7 @@ use anchor_lang::{
 use crate::{
     error::ErrorCode,
     resize_to_fit::resize_to_fit,
-    state::{TaskQueueV0, TaskV0, TransactionSourceV0, TriggerV0},
+    state::{TaskQueueAuthorityV0, TaskQueueV0, TaskV0, TransactionSourceV0, TriggerV0},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
@@ -31,9 +31,11 @@ pub struct QueueTaskV0<'info> {
     pub payer: Signer<'info>,
     pub queue_authority: Signer<'info>,
     #[account(
-        mut,
-        has_one = queue_authority
+        seeds = [b"task_queue_authority", task_queue.key().as_ref(), queue_authority.key().as_ref()],
+        bump = task_queue_authority.bump_seed,
     )]
+    pub task_queue_authority: Box<Account<'info, TaskQueueAuthorityV0>>,
+    #[account(mut)]
     pub task_queue: Box<Account<'info, TaskQueueV0>>,
     #[account(
         init,

@@ -10,7 +10,7 @@ use tuktuk_program::{
         program::Tuktuk,
     },
     types::QueueTaskArgsV0,
-    TaskQueueV0, TransactionSourceV0, TriggerV0,
+    TaskQueueAuthorityV0, TaskQueueV0, TransactionSourceV0, TriggerV0,
 };
 
 use super::QUEUE_TASK_DELAY;
@@ -34,6 +34,11 @@ pub struct InitializeCronJobV0<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     pub queue_authority: Signer<'info>,
+    #[account(
+        seeds = [b"task_queue_authority", task_queue.key().as_ref(), queue_authority.key().as_ref()],
+        bump = task_queue_authority.bump_seed,
+    )]
+    pub task_queue_authority: Box<Account<'info, TaskQueueAuthorityV0>>,
     /// CHECK: Just needed as a setting
     pub authority: Signer<'info>,
     #[account(
@@ -192,6 +197,7 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
             QueueTaskV0 {
                 payer: ctx.accounts.payer.to_account_info(),
                 queue_authority: ctx.accounts.queue_authority.to_account_info(),
+                task_queue_authority: ctx.accounts.task_queue_authority.to_account_info(),
                 task_queue: ctx.accounts.task_queue.to_account_info(),
                 task: ctx.accounts.task.to_account_info(),
                 system_program: ctx.accounts.system_program.to_account_info(),

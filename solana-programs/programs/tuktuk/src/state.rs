@@ -15,11 +15,19 @@ pub struct TuktukConfigV0 {
 
 #[account]
 #[derive(Default)]
+pub struct TaskQueueAuthorityV0 {
+    pub task_queue: Pubkey,
+    pub queue_authority: Pubkey,
+    pub bump_seed: u8,
+}
+
+#[account]
+#[derive(Default)]
 pub struct TaskQueueV0 {
     pub tuktuk_config: Pubkey,
     pub id: u32,
     pub update_authority: Pubkey,
-    pub queue_authority: Pubkey,
+    pub reserved: Pubkey,
     pub min_crank_reward: u64,
     pub uncollected_protocol_fees: u64,
     pub capacity: u16,

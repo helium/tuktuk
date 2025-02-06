@@ -96,10 +96,18 @@ describe("cron", () => {
         .accounts({
           tuktukConfig,
           payer: me,
-          queueAuthority: me,
           updateAuthority: me,
           taskQueue,
           taskQueueNameMapping: taskQueueNameMappingKey(tuktukConfig, name)[0],
+        })
+        .rpc();
+
+      await tuktukProgram.methods
+        .addQueueAuthorityV0()
+        .accounts({
+          payer: me,
+          queueAuthority: me,
+          taskQueue,
         })
         .rpc();
 

@@ -225,7 +225,7 @@ impl TaskCmd {
                     .map(|(_, task)| {
                         tuktuk::task::dequeue_ix(
                             task_queue_pubkey,
-                            task_queue.queue_authority,
+                            client.payer.pubkey(),
                             task.rent_refund,
                             task.id,
                         )
@@ -247,7 +247,6 @@ impl TaskCmd {
                 skip_preflight,
                 description,
             } => {
-                let client = opts.client().await?;
                 if id.is_none() && description.is_none() {
                     return Err(anyhow!("Either id or description must be provided"));
                 }
@@ -288,7 +287,7 @@ impl TaskCmd {
                 } else {
                     vec![]
                 };
-                for (task_key, task) in tasks {
+                for (task_key, _) in tasks {
                     if let Ok(Some(run_ix)) = tuktuk_sdk::compiled_transaction::run_ix(
                         client.as_ref(),
                         task_key,

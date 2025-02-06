@@ -52,7 +52,9 @@ impl Default for TriggerV0 {
 
 pub use self::{
     tuktuk::{
-        accounts::{TaskQueueNameMappingV0, TaskQueueV0, TaskV0, TuktukConfigV0},
+        accounts::{
+            TaskQueueAuthorityV0, TaskQueueNameMappingV0, TaskQueueV0, TaskV0, TuktukConfigV0,
+        },
         client, types,
     },
     types::{

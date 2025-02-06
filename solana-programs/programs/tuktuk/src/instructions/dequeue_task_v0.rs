@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::state::{TaskQueueV0, TaskV0};
+use crate::state::{TaskQueueAuthorityV0, TaskQueueV0, TaskV0};
 
 #[derive(Accounts)]
 pub struct DequeuetaskV0<'info> {
@@ -8,14 +8,17 @@ pub struct DequeuetaskV0<'info> {
     /// CHECK: Via has one
     #[account(mut)]
     pub rent_refund: AccountInfo<'info>,
-    #[account(mut, has_one = queue_authority)]
+    #[account(
+        seeds = [b"task_queue_authority", task_queue.key().as_ref(), queue_authority.key().as_ref()],
+        bump = task_queue_authority.bump_seed,
+    )]
+    pub task_queue_authority: Box<Account<'info, TaskQueueAuthorityV0>>,
     pub task_queue: Box<Account<'info, TaskQueueV0>>,
     #[account(
         mut,
         close = rent_refund,
         has_one = rent_refund,
-        seeds = [b"task".as_ref(), task_queue.key().as_ref(), &task.id.to_le_bytes()[..]],
-        bump = task.bump_seed,
+        has_one = task_queue,
     )]
     pub task: Box<Account<'info, TaskV0>>,
 }

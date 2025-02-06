@@ -21,7 +21,6 @@ use solana_rpc_client_api::{
     response::RpcSimulateTransactionResult,
 };
 use solana_sdk::{
-    hash::Hash,
     message::{v0::Message, VersionedMessage},
     signature::{Signature, SignerError},
     signers::Signers,
@@ -49,7 +48,6 @@ struct TransactionData {
 
 #[derive(Clone, Debug, Copy)]
 struct BlockHashData {
-    pub blockhash: Hash,
     pub last_valid_block_height: u64,
 }
 
@@ -84,12 +82,11 @@ fn create_blockhash_data_updating_task(
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         loop {
-            if let Ok((blockhash, last_valid_block_height)) = rpc_client
+            if let Ok((_, last_valid_block_height)) = rpc_client
                 .get_latest_blockhash_with_commitment(rpc_client.commitment())
                 .await
             {
                 *blockhash_data_rw.write().await = BlockHashData {
-                    blockhash,
                     last_valid_block_height,
                 };
             }
@@ -427,11 +424,10 @@ pub async fn send_and_confirm_transactions_in_parallel<T: Signers + ?Sized>(
     config: SendAndConfirmConfig,
 ) -> Result<Vec<Option<TransactionError>>> {
     // get current blockhash and corresponding last valid block height
-    let (blockhash, last_valid_block_height) = rpc_client
+    let (_, last_valid_block_height) = rpc_client
         .get_latest_blockhash_with_commitment(rpc_client.commitment())
         .await?;
     let blockhash_data_rw = Arc::new(RwLock::new(BlockHashData {
-        blockhash,
         last_valid_block_height,
     }));
 

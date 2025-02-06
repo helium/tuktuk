@@ -178,6 +178,7 @@ impl CronCmd {
         Ok(tuktuk::task::queue(
             client.rpc_client.as_ref(),
             client.payer.pubkey(),
+            client.payer.pubkey(),
             cron_job.task_queue,
             QueueTaskArgsV0 {
                 id,
@@ -212,6 +213,7 @@ impl CronCmd {
 
                 let (key, ix) = tuktuk::cron::create(
                     client.rpc_client.as_ref(),
+                    client.payer.pubkey(),
                     client.payer.pubkey(),
                     InitializeCronJobArgsV0 {
                         name: name.clone(),

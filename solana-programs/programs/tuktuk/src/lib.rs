@@ -56,6 +56,14 @@ pub mod tuktuk {
     ) -> Result<()> {
         update_task_queue_v0::handler(ctx, args)
     }
+
+    pub fn add_queue_authority_v0(ctx: Context<AddQueueAuthorityV0>) -> Result<()> {
+        add_queue_authority_v0::handler(ctx)
+    }
+
+    pub fn remove_queue_authority_v0(ctx: Context<RemoveQueueAuthorityV0>) -> Result<()> {
+        remove_queue_authority_v0::handler(ctx)
+    }
 }
 
 #[derive(Accounts)]

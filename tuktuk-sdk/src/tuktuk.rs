@@ -73,7 +73,7 @@ pub mod cron {
         TaskQueueV0,
     };
 
-    use super::{hash_name, task};
+    use super::{hash_name, task, task_queue::task_queue_authority_key};
     use crate::{client::GetAnchorAccount, error::Error};
 
     pub fn user_cron_jobs_key(authority: &Pubkey) -> Pubkey {
@@ -146,6 +146,7 @@ pub mod cron {
                 queue_authority,
                 task_return_account_1: self::task_return_account_1_key(&cron_job_key),
                 task_return_account_2: self::task_return_account_2_key(&cron_job_key),
+                task_queue_authority: task_queue_authority_key(&task_queue_key, &queue_authority),
             }
             .to_account_metas(None),
             data: cron::cron::client::args::InitializeCronJobV0 { args }.data(),
@@ -155,6 +156,7 @@ pub mod cron {
     pub async fn create<C: GetAnchorAccount>(
         client: &C,
         payer: Pubkey,
+        queue_authority: Pubkey,
         args: InitializeCronJobArgsV0,
         authority: Option<Pubkey>,
         task_queue_key: Pubkey,
@@ -178,7 +180,7 @@ pub mod cron {
             user_crons_key,
             cron_job_key,
             task_queue_key,
-            task_queue.queue_authority,
+            queue_authority,
             task_queue.next_available_task_id().unwrap(),
             args,
         )?;
@@ -336,6 +338,18 @@ pub mod task_queue {
         .0
     }
 
+    pub fn task_queue_authority_key(task_queue_key: &Pubkey, queue_authority: &Pubkey) -> Pubkey {
+        Pubkey::find_program_address(
+            &[
+                b"task_queue_authority",
+                task_queue_key.as_ref(),
+                queue_authority.as_ref(),
+            ],
+            &ID,
+        )
+        .0
+    }
+
     pub fn keys(config_key: &Pubkey, config: &TuktukConfigV0) -> Result<Vec<Pubkey>, Error> {
         let queue_ids = 0..config.next_task_queue_id;
         let queue_keys = queue_ids.map(|id| self::key(config_key, id)).collect_vec();
@@ -347,7 +361,6 @@ pub mod task_queue {
         payer: Pubkey,
         args: InitializeTaskQueueArgsV0,
         update_authority: Option<Pubkey>,
-        queue_authority: Option<Pubkey>,
     ) -> Result<(Pubkey, Instruction), Error> {
         let config_key = config_key();
         let config: TuktukConfigV0 = client
@@ -368,12 +381,93 @@ pub mod task_queue {
                     tuktuk_config: config_key,
                     update_authority: update_authority.unwrap_or(payer),
                     task_queue_name_mapping: task_queue_name_mapping_key(&config_key, &args.name),
-                    queue_authority: queue_authority.unwrap_or(payer),
                 }
                 .to_account_metas(None),
                 data: tuktuk::client::args::InitializeTaskQueueV0 { args }.data(),
             },
         ))
+    }
+
+    pub fn add_queue_authority_ix(
+        payer: Pubkey,
+        task_queue_key: Pubkey,
+        queue_authority: Pubkey,
+        update_authority: Pubkey,
+    ) -> Result<Instruction, Error> {
+        Ok(Instruction {
+            program_id: ID,
+            accounts: tuktuk::client::accounts::AddQueueAuthorityV0 {
+                task_queue: task_queue_key,
+                queue_authority,
+                payer,
+                update_authority,
+                task_queue_authority: task_queue_authority_key(&task_queue_key, &queue_authority),
+                system_program: solana_sdk::system_program::ID,
+            }
+            .to_account_metas(None),
+            data: tuktuk::client::args::AddQueueAuthorityV0 {}.data(),
+        })
+    }
+
+    pub async fn add_queue_authority<C: GetAnchorAccount>(
+        client: &C,
+        payer: Pubkey,
+        task_queue_key: Pubkey,
+        queue_authority: Pubkey,
+    ) -> Result<Instruction, Error> {
+        let task_queue: TaskQueueV0 = client
+            .anchor_account(&task_queue_key)
+            .await?
+            .ok_or_else(|| Error::AccountNotFound)?;
+
+        add_queue_authority_ix(
+            payer,
+            task_queue_key,
+            queue_authority,
+            task_queue.update_authority,
+        )
+    }
+
+    pub fn remove_queue_authority_ix(
+        payer: Pubkey,
+        rent_refund: Pubkey,
+        task_queue_key: Pubkey,
+        queue_authority: Pubkey,
+        update_authority: Pubkey,
+    ) -> Result<Instruction, Error> {
+        Ok(Instruction {
+            program_id: ID,
+            accounts: tuktuk::client::accounts::RemoveQueueAuthorityV0 {
+                task_queue: task_queue_key,
+                queue_authority,
+                payer,
+                update_authority,
+                task_queue_authority: task_queue_authority_key(&task_queue_key, &queue_authority),
+                rent_refund,
+            }
+            .to_account_metas(None),
+            data: tuktuk::client::args::RemoveQueueAuthorityV0 {}.data(),
+        })
+    }
+
+    pub async fn remove_queue_authority<C: GetAnchorAccount>(
+        client: &C,
+        payer: Pubkey,
+        task_queue_key: Pubkey,
+        queue_authority: Pubkey,
+    ) -> Result<Instruction, Error> {
+        let task_queue: TaskQueueV0 = client
+            .anchor_account(&task_queue_key)
+            .await?
+            .ok_or_else(|| Error::AccountNotFound)?;
+
+        remove_queue_authority_ix(
+            payer,
+            payer,
+            task_queue_key,
+            queue_authority,
+            task_queue.update_authority,
+        )
     }
 
     pub async fn close<C: GetAnchorAccount>(
@@ -506,6 +600,7 @@ pub mod task {
     use tuktuk_program::TaskV0;
 
     use super::{
+        task_queue::task_queue_authority_key,
         tuktuk::{self, accounts::TaskQueueV0},
         types::QueueTaskArgsV0,
         TaskUpdate, ID,
@@ -537,6 +632,7 @@ pub mod task {
         task_queue_key: Pubkey,
         task_queue: &TaskQueueV0,
         payer: Pubkey,
+        queue_authority: Pubkey,
         args: QueueTaskArgsV0,
     ) -> Result<(Pubkey, Instruction), Error> {
         let task_key = self::key(
@@ -555,7 +651,11 @@ pub mod task {
                     payer,
                     system_program: solana_sdk::system_program::ID,
                     task: task_key,
-                    queue_authority: task_queue.queue_authority,
+                    task_queue_authority: task_queue_authority_key(
+                        &task_queue_key,
+                        &queue_authority,
+                    ),
+                    queue_authority,
                 }
                 .to_account_metas(None),
                 data: tuktuk::client::args::QueueTaskV0 { args }.data(),
@@ -566,6 +666,7 @@ pub mod task {
     pub async fn queue<C: GetAnchorAccount>(
         client: &C,
         payer: Pubkey,
+        queue_authority: Pubkey,
         task_queue_key: Pubkey,
         args: QueueTaskArgsV0,
     ) -> Result<(Pubkey, Instruction), Error> {
@@ -574,7 +675,7 @@ pub mod task {
             .await?
             .ok_or_else(|| Error::AccountNotFound)?;
 
-        self::queue_ix(task_queue_key, &task_queue, payer, args)
+        self::queue_ix(task_queue_key, &task_queue, payer, queue_authority, args)
     }
 
     pub async fn on_new<'a, C: GetAnchorAccount>(
@@ -638,6 +739,7 @@ pub mod task {
                 task_queue: task_queue_key,
                 rent_refund,
                 task: self::key(&task_queue_key, index),
+                task_queue_authority: task_queue_authority_key(&task_queue_key, &queue_authority),
                 queue_authority,
             }
             .to_account_metas(None),
@@ -648,23 +750,14 @@ pub mod task {
     pub async fn dequeue<C: GetAnchorAccount>(
         client: &C,
         task_queue_key: Pubkey,
+        queue_authority: Pubkey,
         index: u16,
     ) -> Result<Instruction, Error> {
-        let task_queue: TaskQueueV0 = client
-            .anchor_account(&task_queue_key)
-            .await?
-            .ok_or_else(|| Error::AccountNotFound)?;
-
         let task: TaskV0 = client
             .anchor_account(&self::key(&task_queue_key, index))
             .await?
             .ok_or_else(|| Error::AccountNotFound)?;
 
-        self::dequeue_ix(
-            task_queue_key,
-            task_queue.queue_authority,
-            task.rent_refund,
-            index,
-        )
+        self::dequeue_ix(task_queue_key, queue_authority, task.rent_refund, index)
     }
 }

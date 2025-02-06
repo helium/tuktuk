@@ -52,8 +52,6 @@ pub enum Cmd {
         #[arg(long, help = "Lookup tables to create")]
         lookup_tables: Option<Vec<Pubkey>>,
         #[arg(long)]
-        queue_authority: Option<Pubkey>,
-        #[arg(long)]
         update_authority: Option<Pubkey>,
         #[arg(long)]
         capacity: Option<u16>,
@@ -71,6 +69,18 @@ pub enum Cmd {
     Close {
         #[command(flatten)]
         task_queue: TaskQueueArg,
+    },
+    AddQueueAuthority {
+        #[command(flatten)]
+        task_queue: TaskQueueArg,
+        #[arg(long, help = "Authority to add")]
+        queue_authority: Pubkey,
+    },
+    RemoveQueueAuthority {
+        #[command(flatten)]
+        task_queue: TaskQueueArg,
+        #[arg(long, help = "Authority to remove")]
+        queue_authority: Pubkey,
     },
 }
 
@@ -139,11 +149,15 @@ impl TaskQueueCmd {
                         name: name.clone(),
                         lookup_tables: lookup_tables.clone().unwrap_or_default(),
                     },
-                    *queue_authority,
                     *update_authority,
                 )
                 .await?;
-
+                let add_queue_authority_ix = tuktuk::task_queue::add_queue_authority_ix(
+                    client.payer.pubkey(),
+                    key,
+                    queue_authority.unwrap_or(client.payer.pubkey()),
+                    update_authority.unwrap_or(client.payer.pubkey()),
+                )?;
                 // Fund if amount specified
                 let config: TuktukConfigV0 = client
                     .as_ref()
@@ -162,7 +176,7 @@ impl TaskQueueCmd {
                     client.rpc_client.clone(),
                     &client.payer,
                     client.opts.ws_url().as_str(),
-                    vec![fund_ix, ix],
+                    vec![fund_ix, ix, add_queue_authority_ix],
                     &[],
                 )
                 .await?;
@@ -179,7 +193,6 @@ impl TaskQueueCmd {
                     id: task_queue.id,
                     name: name.clone(),
                     capacity: task_queue.capacity,
-                    queue_authority: task_queue.queue_authority,
                     update_authority: task_queue.update_authority,
                     min_crank_reward: task_queue.min_crank_reward,
                     balance: task_queue_balance,
@@ -189,7 +202,6 @@ impl TaskQueueCmd {
                 task_queue,
                 min_crank_reward,
                 lookup_tables,
-                queue_authority,
                 update_authority,
                 capacity,
             } => {
@@ -208,7 +220,6 @@ impl TaskQueueCmd {
                         min_crank_reward: *min_crank_reward,
                         lookup_tables: lookup_tables.clone(),
                         update_authority: update_authority.clone(),
-                        queue_authority: queue_authority.clone(),
                     },
                 )
                 .await?;
@@ -240,7 +251,6 @@ impl TaskQueueCmd {
                     pubkey: task_queue_key,
                     id: task_queue.id,
                     capacity: task_queue.capacity,
-                    queue_authority: task_queue.queue_authority,
                     update_authority: task_queue.update_authority,
                     name: task_queue.name,
                     min_crank_reward: task_queue.min_crank_reward,
@@ -262,6 +272,58 @@ impl TaskQueueCmd {
                     &client.payer,
                     client.opts.ws_url().as_str(),
                     vec![fund_ix],
+                    &[],
+                )
+                .await?;
+            }
+            Cmd::AddQueueAuthority {
+                task_queue,
+                queue_authority,
+            } => {
+                let client = opts.client().await?;
+                let task_queue_key = task_queue.get_pubkey(&client).await?.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Must provide task-queue-name, task-queue-id, or task-queue-pubkey"
+                    )
+                })?;
+                let ix = tuktuk::task_queue::add_queue_authority(
+                    client.rpc_client.as_ref(),
+                    client.payer.pubkey(),
+                    task_queue_key,
+                    *queue_authority,
+                )
+                .await?;
+                send_instructions(
+                    client.rpc_client.clone(),
+                    &client.payer,
+                    client.opts.ws_url().as_str(),
+                    vec![ix],
+                    &[],
+                )
+                .await?;
+            }
+            Cmd::RemoveQueueAuthority {
+                task_queue,
+                queue_authority,
+            } => {
+                let client = opts.client().await?;
+                let task_queue_key = task_queue.get_pubkey(&client).await?.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Must provide task-queue-name, task-queue-id, or task-queue-pubkey"
+                    )
+                })?;
+                let ix = tuktuk::task_queue::remove_queue_authority(
+                    client.rpc_client.as_ref(),
+                    client.payer.pubkey(),
+                    task_queue_key,
+                    *queue_authority,
+                )
+                .await?;
+                send_instructions(
+                    client.rpc_client.clone(),
+                    &client.payer,
+                    client.opts.ws_url().as_str(),
+                    vec![ix],
                     &[],
                 )
                 .await?;
@@ -302,8 +364,6 @@ pub struct TaskQueue {
     pub pubkey: Pubkey,
     pub id: u32,
     pub capacity: u16,
-    #[serde(with = "serde_pubkey")]
-    pub queue_authority: Pubkey,
     #[serde(with = "serde_pubkey")]
     pub update_authority: Pubkey,
     pub name: String,

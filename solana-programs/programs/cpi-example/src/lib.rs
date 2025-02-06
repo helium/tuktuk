@@ -44,6 +44,7 @@ pub mod cpi_example {
                     payer: ctx.accounts.queue_authority.to_account_info(),
                     queue_authority: ctx.accounts.queue_authority.to_account_info(),
                     task_queue: ctx.accounts.task_queue.to_account_info(),
+                    task_queue_authority: ctx.accounts.task_queue_authority.to_account_info(),
                     task: ctx.accounts.task.to_account_info(),
                     system_program: ctx.accounts.system_program.to_account_info(),
                 },
@@ -91,6 +92,7 @@ pub mod cpi_example {
                     payer: ctx.accounts.queue_authority.to_account_info(),
                     queue_authority: ctx.accounts.queue_authority.to_account_info(),
                     task_queue: ctx.accounts.task_queue.to_account_info(),
+                    task_queue_authority: ctx.accounts.task_queue_authority.to_account_info(),
                     task: ctx.accounts.task.to_account_info(),
                     system_program: ctx.accounts.system_program.to_account_info(),
                 },
@@ -219,6 +221,8 @@ pub struct Schedule<'info> {
     #[account(mut)]
     /// CHECK: Don't need to parse this account, just using it in CPI
     pub task_queue: UncheckedAccount<'info>,
+    /// CHECK: Don't need to parse this account, just using it in CPI
+    pub task_queue_authority: UncheckedAccount<'info>,
     /// CHECK: Initialized in CPI
     #[account(mut)]
     pub task: AccountInfo<'info>,
@@ -238,6 +242,8 @@ pub struct ScheduleWithAccountReturn<'info> {
     #[account(mut)]
     /// CHECK: Don't need to parse this account, just using it in CPI
     pub task_queue: UncheckedAccount<'info>,
+    /// CHECK: Don't need to parse this account, just using it in CPI
+    pub task_queue_authority: UncheckedAccount<'info>,
     /// CHECK: Initialized in CPI
     #[account(mut)]
     pub task: AccountInfo<'info>,

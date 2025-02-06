@@ -29,8 +29,6 @@ pub struct InitializeTaskQueueV0<'info> {
     pub tuktuk_config: Box<Account<'info, TuktukConfigV0>>,
     /// CHECK: Is getting set by signer
     pub update_authority: UncheckedAccount<'info>,
-    /// CHECK: Is getting set by signer
-    pub queue_authority: UncheckedAccount<'info>,
     #[account(
       init,
       payer = payer,
@@ -74,7 +72,7 @@ pub fn handler(ctx: Context<InitializeTaskQueueV0>, args: InitializeTaskQueueArg
         tuktuk_config: ctx.accounts.tuktuk_config.key(),
         uncollected_protocol_fees: 0,
         update_authority: ctx.accounts.update_authority.key(),
-        queue_authority: ctx.accounts.queue_authority.key(),
+        reserved: Pubkey::default(),
         min_crank_reward: args.min_crank_reward,
         capacity: args.capacity,
         task_bitmap: vec![0; ((args.capacity + 7) / 8) as usize],

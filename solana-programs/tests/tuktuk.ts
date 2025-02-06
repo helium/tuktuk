@@ -104,10 +104,18 @@ describe("tuktuk", () => {
         .accounts({
           tuktukConfig,
           payer: me,
-          queueAuthority: me,
           updateAuthority: me,
           taskQueue,
           taskQueueNameMapping: taskQueueNameMappingKey(tuktukConfig, name)[0],
+        })
+        .rpc();
+
+      await program.methods
+        .addQueueAuthorityV0()
+        .accounts({
+          payer: me,
+          queueAuthority: me,
+          taskQueue,
         })
         .rpc();
 
@@ -284,8 +292,8 @@ describe("tuktuk", () => {
           .remainingAccounts(remainingAccounts)
           .accounts({
             payer: me,
-            taskQueue,
             task,
+            taskQueue,
           })
           .rpc();
       });
@@ -361,7 +369,6 @@ describe("tuktuk", () => {
           .dequeueTaskV0()
           .accounts({
             task,
-            taskQueue,
           })
           .rpc();
         const taskAcc = await program.account.taskV0.fetchNullable(task);
@@ -412,12 +419,19 @@ describe("tuktuk", () => {
         .accounts({
           tuktukConfig,
           payer: me,
-          queueAuthority,
           updateAuthority: me,
           taskQueue,
           taskQueueNameMapping: taskQueueNameMappingKey(tuktukConfig, name)[0],
         })
         .rpc();
+        await program.methods
+          .addQueueAuthorityV0()
+          .accounts({
+            payer: me,
+            queueAuthority: me,
+            taskQueue,
+          })
+          .rpc();
     });
     it("allows scheduling a task", async () => {
       const freeTask1 = taskKey(taskQueue, 0)[0];
