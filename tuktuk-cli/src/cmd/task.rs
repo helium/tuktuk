@@ -12,7 +12,9 @@ use solana_sdk::{
     signer::Signer,
     transaction::VersionedTransaction,
 };
-use solana_transaction_utils::priority_fee::auto_compute_limit_and_price;
+use solana_transaction_utils::{
+    pack::pack_instructions_into_transactions, priority_fee::auto_compute_limit_and_price,
+};
 use tuktuk_program::{types::TriggerV0, TaskQueueV0, TaskV0};
 use tuktuk_sdk::prelude::*;
 
@@ -220,8 +222,10 @@ impl TaskCmd {
                 } else {
                     vec![]
                 };
+                let mut seen_ids = HashSet::new();
                 let ixs = tasks
                     .into_iter()
+                    .filter(|(_, task)| seen_ids.insert(task.id)) // Returns true if id wasn't in set
                     .map(|(_, task)| {
                         tuktuk::task::dequeue_ix(
                             task_queue_pubkey,
@@ -232,14 +236,26 @@ impl TaskCmd {
                         .map_err(|e| anyhow!("Failed to dequeue task: {}", e))
                     })
                     .collect::<Result<Vec<_>>>()?;
-                send_instructions(
-                    client.rpc_client.clone(),
+
+                let groups = pack_instructions_into_transactions(
+                    ixs.into_iter().map(|ix| vec![ix]).collect(),
                     &client.payer,
-                    client.opts.ws_url().as_str(),
-                    ixs,
-                    &[],
-                )
-                .await?;
+                    None,
+                )?;
+
+                for (mut to_send, _) in groups {
+                    // Remove compute budget ixs
+                    to_send.remove(0);
+                    to_send.remove(0);
+                    send_instructions(
+                        client.rpc_client.clone(),
+                        &client.payer,
+                        client.opts.ws_url().as_str(),
+                        to_send,
+                        &[],
+                    )
+                    .await?;
+                }
             }
             Cmd::Run {
                 task_queue,

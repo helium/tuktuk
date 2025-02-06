@@ -37,6 +37,7 @@ pub struct InitializeCronJobV0<'info> {
     #[account(
         seeds = [b"task_queue_authority", task_queue.key().as_ref(), queue_authority.key().as_ref()],
         bump = task_queue_authority.bump_seed,
+        seeds::program = tuktuk_program.key(),
     )]
     pub task_queue_authority: Box<Account<'info, TaskQueueAuthorityV0>>,
     /// CHECK: Just needed as a setting

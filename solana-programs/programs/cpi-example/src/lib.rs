@@ -72,10 +72,10 @@ pub mod cpi_example {
             vec![Instruction {
                 program_id: crate::ID,
                 accounts:
-                    crate::__cpi_client_accounts_recurring_task_with_account_return::RecurringTaskWithAccountReturn {
-                        system_program: ctx.accounts.system_program.to_account_info(),
-                        queue_authority: ctx.accounts.queue_authority.to_account_info(),
-                        task_return_account: ctx.accounts.task_return_account.to_account_info(),
+                    crate::__client_accounts_recurring_task_with_account_return::RecurringTaskWithAccountReturn {
+                        system_program: ctx.accounts.system_program.key(),
+                        queue_authority: ctx.accounts.queue_authority.key(),
+                        task_return_account: ctx.accounts.task_return_account.key(),
                     }
                     .to_account_metas(None)
                     .to_vec(),
