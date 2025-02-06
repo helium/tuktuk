@@ -101,9 +101,8 @@ runs:
       with:
         timeout_minutes: 10
         max_attempts: 50
-        working-directory: solana-programs
         shell: bash
-        command: anchor idl set-authority $IDL_BUFFER --provider.cluster $NETWORK --program-id $PROGRAM_ID --new-authority $AUTHORITY --provider.wallet ./deploy-keypair.json
+        command: cd solana-programs && anchor idl set-authority $IDL_BUFFER --provider.cluster $NETWORK --program-id $PROGRAM_ID --new-authority $AUTHORITY --provider.wallet ./deploy-keypair.json
       env:
         IDL_BUFFER: ${{ steps.buffer-deploy-store.outputs.IDL_BUFFER }}
         AUTHORITY: ${{ inputs.buffer-authority }}
@@ -116,8 +115,7 @@ runs:
         timeout_minutes: 10
         max_attempts: 50
         shell: bash
-        command: solana program set-buffer-authority $BUFFER -k ./deploy-keypair.json --new-buffer-authority $AUTHORITY -u $NETWORK
-        working-directory: solana-programs
+        command: cd solana-programs && solana program set-buffer-authority $BUFFER -k ./deploy-keypair.json --new-buffer-authority $AUTHORITY -u $NETWORK
       env:
         BUFFER: ${{ steps.buffer-deploy-store.outputs.BUFFER }}
         AUTHORITY: ${{ inputs.buffer-authority }}
