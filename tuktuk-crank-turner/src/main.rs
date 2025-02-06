@@ -144,13 +144,22 @@ impl Cli {
             rpc_client: rpc_client.clone(),
             payer: payer.clone(),
             in_progress_tasks: Arc::new(Mutex::new(HashMap::new())),
+            lookup_tables: Arc::new(Mutex::new(HashMap::new())),
+            task_queues: Arc::new(Mutex::new(HashMap::new())),
         });
 
         let pubsub_repoll = settings.pubsub_repoll;
         Toplevel::new(move |top_level| async move {
             let watcher_args_clone = watcher_args.clone();
             top_level.start(SubsystemBuilder::new("task-queue-watcher", {
-                move |handle| get_and_watch_task_queues(watcher_args_clone, handle)
+                let task_context = task_context.clone();
+                move |handle| {
+                    get_and_watch_task_queues(
+                        watcher_args_clone,
+                        handle,
+                        task_context.task_queues.clone(),
+                    )
+                }
             }));
             let task_context_clone = task_context.clone();
             top_level.start(SubsystemBuilder::new("transaction-queue", {

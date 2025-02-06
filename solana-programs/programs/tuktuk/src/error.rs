@@ -34,4 +34,6 @@ pub enum ErrorCode {
     InvalidTaskId,
     #[msg("Don't use the dummy instruction")]
     DummyInstruction,
+    #[msg("Invalid description length")]
+    InvalidDescriptionLength,
 }

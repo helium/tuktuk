@@ -9,12 +9,6 @@ lazy_static! {
         &["task_queue"]
     )
     .expect("metric can be created");
-    pub static ref DUPLICATE_TASKS: IntGaugeVec = IntGaugeVec::new(
-        opts!("solana_tuktuk_duplicate_tasks", "Duplicate tasks")
-            .const_label("version", env!("CARGO_PKG_VERSION")),
-        &["task_queue"]
-    )
-    .expect("metric can be created");
     pub static ref TASKS_NEXT_WAKEUP: IntGaugeVec = IntGaugeVec::new(
         opts!("solana_tuktuk_tasks_next_wakeup", "Tasks next wakeup")
             .const_label("version", env!("CARGO_PKG_VERSION")),
@@ -62,9 +56,6 @@ pub fn register_custom_metrics() {
         .expect("collector can be registered");
     REGISTRY
         .register(Box::new(TASKS_NEXT_WAKEUP.clone()))
-        .expect("collector can be registered");
-    REGISTRY
-        .register(Box::new(DUPLICATE_TASKS.clone()))
         .expect("collector can be registered");
     REGISTRY
         .register(Box::new(TASK_IDS_RESERVED.clone()))

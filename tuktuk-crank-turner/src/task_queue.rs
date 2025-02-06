@@ -1,6 +1,5 @@
 use std::{
-    collections::{BinaryHeap, HashSet},
-    hash::{DefaultHasher, Hash, Hasher},
+    collections::BinaryHeap,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
@@ -16,19 +15,29 @@ use tokio::{
     },
     task::JoinHandle,
 };
+use tuktuk_program::TaskV0;
 
-use crate::metrics::{DUPLICATE_TASKS, TASKS_IN_QUEUE, TASKS_NEXT_WAKEUP};
+use crate::metrics::{TASKS_IN_QUEUE, TASKS_NEXT_WAKEUP};
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone)]
 pub struct TimedTask {
     pub task_time: u64,
     pub task_key: Pubkey,
+    pub task: TaskV0,
     pub task_queue_key: Pubkey,
     pub task_queue_name: String,
     pub total_retries: u8,
     pub max_retries: u8,
     pub in_flight_task_ids: Vec<u16>,
 }
+
+impl PartialEq for TimedTask {
+    fn eq(&self, other: &Self) -> bool {
+        self.task_key == other.task_key && self.task_time == other.task_time
+    }
+}
+
+impl Eq for TimedTask {}
 
 // Implement Ord and PartialOrd for priority queue
 impl Ord for TimedTask {
@@ -68,7 +77,6 @@ pub struct TaskQueueArgs {
 pub struct TaskStream {
     task_queue: Arc<Mutex<BinaryHeap<TimedTask>>>,
     now: Receiver<u64>,
-    seen_tasks: HashSet<u64>,
     notify: Arc<Notify>,
 }
 
@@ -89,16 +97,7 @@ impl Stream for TaskStream {
                     TASKS_NEXT_WAKEUP
                         .with_label_values(&[task.task_queue_name.as_str()])
                         .set(0);
-                    let mut hasher = DefaultHasher::new();
-                    task.hash(&mut hasher);
-                    let hash = hasher.finish();
-                    if this.seen_tasks.insert(hash) {
-                        return Poll::Ready(Some(task));
-                    } else {
-                        DUPLICATE_TASKS
-                            .with_label_values(&[task.task_queue_name.as_str()])
-                            .inc();
-                    }
+                    return Poll::Ready(Some(task));
                 } else {
                     // Schedule a wake-up when the next task is ready
                     let wake_time = task.task_time.saturating_sub(now);
@@ -151,6 +150,7 @@ pub async fn create_task_queue(args: TaskQueueArgs) -> (TaskStream, TaskQueue) {
         while let Some(task) = rx.recv().await {
             let mut queue = task_queue_clone.lock().await;
             queue.push(task);
+            drop(queue);
             notify_clone.notify_one(); // Notify when a new task is added
         }
     });
@@ -158,7 +158,6 @@ pub async fn create_task_queue(args: TaskQueueArgs) -> (TaskStream, TaskQueue) {
     let stream = TaskStream {
         task_queue: Arc::clone(&task_queue),
         now,
-        seen_tasks: HashSet::new(),
         notify,
     };
 

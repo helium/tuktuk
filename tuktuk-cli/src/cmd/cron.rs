@@ -174,12 +174,14 @@ impl CronCmd {
             }],
             vec![],
         )?;
+        let trunc_name = cron_job.name.chars().take(32).collect::<String>();
         Ok(tuktuk::task::queue(
             client.rpc_client.as_ref(),
             client.payer.pubkey(),
             cron_job.task_queue,
             QueueTaskArgsV0 {
                 id,
+                description: format!("queue {}", trunc_name),
                 trigger: TriggerV0::Now,
                 transaction: TransactionSourceV0::CompiledV0(queue_tx),
                 crank_reward: None,

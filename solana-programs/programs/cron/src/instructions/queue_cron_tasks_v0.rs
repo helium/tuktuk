@@ -112,6 +112,13 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
         vec![],
     )?;
     let free_tasks_per_transaction = ctx.accounts.cron_job.free_tasks_per_transaction;
+    let trunc_name = ctx
+        .accounts
+        .cron_job
+        .name
+        .chars()
+        .take(32)
+        .collect::<String>();
     let tasks = (0..num_tasks_to_queue as usize)
         .filter_map(|i| {
             let transaction = ctx.remaining_accounts[i].clone();
@@ -127,6 +134,7 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
                 transaction: parsed_transaction.transaction,
                 crank_reward: None,
                 free_tasks: free_tasks_per_transaction,
+                description: format!("{} {}", trunc_name, parsed_transaction.id),
             })
         })
         .chain(std::iter::once(TaskReturnV0 {
@@ -134,6 +142,7 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
             transaction: TransactionSourceV0::CompiledV0(queue_tx),
             crank_reward: None,
             free_tasks: ctx.accounts.cron_job.num_tasks_per_queue_call + 1,
+            description: format!("queue {}", trunc_name),
         }));
 
     let WriteReturnTasksReturn {

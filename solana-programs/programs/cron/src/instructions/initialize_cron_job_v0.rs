@@ -87,6 +87,7 @@ pub struct InitializeCronJobV0<'info> {
 
 pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0) -> Result<()> {
     let schedule = Schedule::from_str(&args.schedule);
+    // Leave room for numerics after
     require_gt!(
         args.num_tasks_per_queue_call,
         0,
@@ -136,7 +137,7 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
         .cron_job_name_mapping
         .set_inner(CronJobNameMappingV0 {
             cron_job: ctx.accounts.cron_job.key(),
-            name: args.name,
+            name: args.name.clone(),
             bump_seed: ctx.bumps.cron_job_name_mapping,
         });
 
@@ -178,6 +179,13 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
         vec![],
     )?;
 
+    let trunc_name = ctx
+        .accounts
+        .cron_job
+        .name
+        .chars()
+        .take(32)
+        .collect::<String>();
     queue_task_v0(
         CpiContext::new(
             ctx.accounts.tuktuk_program.to_account_info(),
@@ -195,6 +203,7 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
             crank_reward: None,
             free_tasks: ctx.accounts.cron_job.num_tasks_per_queue_call + 1,
             id: ctx.accounts.task_queue.next_available_task_id().unwrap(),
+            description: format!("queue {}", trunc_name),
         },
     )?;
 

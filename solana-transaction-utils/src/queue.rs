@@ -46,8 +46,6 @@ pub enum TransactionQueueError {
     FeeTooHigh,
     #[error("Ix group too large")]
     IxGroupTooLarge,
-    #[error("Retries exceeded")]
-    RetriesExceeded,
 }
 
 #[derive(Debug)]
@@ -215,19 +213,20 @@ pub fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                             tasks.clear();
                         }
                         Err(_) => {
-                            // Send error result for all tasks in the batch
                             for task in tasks.iter() {
                                 result_tx.send(CompletedTransactionTask {
                                     err: Some(TransactionQueueError::IxGroupTooLarge),
                                     task: task.clone(),
                                 }).await.unwrap();
                             }
+                            tasks.clear();
                         }
                     }
 
                 }
 
                 Some(task) = rx.recv() => {
+                    println!("received task");
                     tasks.push(task);
                 }
             }

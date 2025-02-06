@@ -147,6 +147,7 @@ describe("tuktuk", () => {
           },
           crankReward: null,
           freeTasks: 0,
+          description: "test",
         })
         .remainingAccounts(remainingAccounts)
         .accounts({
@@ -202,6 +203,7 @@ describe("tuktuk", () => {
             },
             crankReward: null,
             freeTasks: 0,
+            description: "test",
           })
           .accounts({
             payer: crankTurner.publicKey,
@@ -277,6 +279,7 @@ describe("tuktuk", () => {
             },
             crankReward: null,
             freeTasks: 0,
+            description: "test",
           })
           .remainingAccounts(remainingAccounts)
           .accounts({
@@ -338,7 +341,7 @@ describe("tuktuk", () => {
         const txFee = txDetails?.meta?.fee || 0;
 
         // Get task account to check reward
-        const protocolFee = Math.floor(taskAcc.crankReward.toNumber() * 0.05); // 5% protocol fee
+        const protocolFee = Math.floor(taskAcc.crankReward.toNumber() * 0); // 0% protocol fee
         const expectedReward = taskAcc.crankReward.toNumber() - protocolFee;
 
         // Calculate expected balance change

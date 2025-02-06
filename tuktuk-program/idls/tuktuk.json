@@ -393,6 +393,11 @@
       "code": 6015,
       "name": "DummyInstruction",
       "msg": "Don't use the dummy instruction"
+    },
+    {
+      "code": 6016,
+      "name": "InvalidDescriptionLength",
+      "msg": "Invalid description length"
     }
   ],
   "types": [
@@ -546,6 +551,10 @@
           {
             "name": "free_tasks",
             "type": "u8"
+          },
+          {
+            "name": "description",
+            "type": "string"
           }
         ]
       }
@@ -720,6 +729,10 @@
           {
             "name": "free_tasks",
             "type": "u8"
+          },
+          {
+            "name": "description",
+            "type": "string"
           }
         ]
       }

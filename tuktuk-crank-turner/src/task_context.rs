@@ -4,9 +4,12 @@ use std::{
 };
 
 use solana_client::nonblocking::rpc_client::RpcClient;
-use solana_sdk::{pubkey::Pubkey, signature::Keypair};
+use solana_sdk::{
+    address_lookup_table::AddressLookupTableAccount, pubkey::Pubkey, signature::Keypair,
+};
 use solana_transaction_utils::queue::TransactionTask;
 use tokio::sync::{mpsc::Sender, watch::Receiver, Mutex};
+use tuktuk_program::TaskQueueV0;
 
 use crate::task_queue::{TaskQueue, TimedTask};
 
@@ -20,4 +23,7 @@ pub struct TaskContext {
     pub rpc_client: Arc<RpcClient>,
     pub payer: Arc<Keypair>,
     pub in_progress_tasks: Arc<Mutex<HashMap<Pubkey, HashSet<u16>>>>,
+    // Known lookup tables for the various task queues.
+    pub lookup_tables: Arc<Mutex<HashMap<Pubkey, AddressLookupTableAccount>>>,
+    pub task_queues: Arc<Mutex<HashMap<Pubkey, TaskQueueV0>>>,
 }

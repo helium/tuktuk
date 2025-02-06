@@ -491,6 +491,7 @@ pub mod task_queue {
 #[derive(Debug)]
 pub struct TaskUpdate {
     pub tasks: Vec<(Pubkey, Option<TaskV0>)>,
+    pub task_queue: TaskQueueV0,
     pub removed: Vec<Pubkey>,
 }
 
@@ -599,6 +600,7 @@ pub mod task {
 
                 let new_task_queue = TaskQueueV0::try_deserialize(&mut acc?.data.as_ref())?;
                 *last_tq_guard = new_task_queue.clone();
+
                 let task_ids = 0..new_task_queue.capacity;
                 let new_task_keys = task_ids
                     .clone()
@@ -615,6 +617,7 @@ pub mod task {
                 let tasks = client.anchor_accounts(&new_task_keys).await?;
                 Ok(TaskUpdate {
                     tasks,
+                    task_queue: new_task_queue,
                     removed: removed_task_keys,
                 })
             }

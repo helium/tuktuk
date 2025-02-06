@@ -701,6 +701,10 @@
           {
             "name": "free_tasks",
             "type": "u8"
+          },
+          {
+            "name": "description",
+            "type": "string"
           }
         ]
       }

@@ -1,5 +1,8 @@
+use std::{collections::HashMap, sync::Arc};
+
 use futures::TryStreamExt;
 use solana_sdk::pubkey::Pubkey;
+use tokio::sync::Mutex;
 use tokio_graceful_shutdown::SubsystemHandle;
 use tracing::info;
 use tuktuk::task;
@@ -14,6 +17,7 @@ pub async fn get_and_watch_tasks(
     task_queue_account: TaskQueueV0,
     args: WatcherArgs,
     handle: SubsystemHandle,
+    task_queues: Arc<Mutex<HashMap<Pubkey, TaskQueueV0>>>,
 ) -> anyhow::Result<()> {
     info!(?task_queue_key, "watching tasks for queue");
     let WatcherArgs {
@@ -37,11 +41,28 @@ pub async fn get_and_watch_tasks(
     )
     .await?;
 
+    async fn save_task_queue(
+        task_queue_key: Pubkey,
+        task_queue: TaskQueueV0,
+        task_queues: Arc<Mutex<HashMap<Pubkey, TaskQueueV0>>>,
+    ) {
+        let mut lock = task_queues.lock().await;
+        lock.insert(task_queue_key, task_queue);
+    }
+
+    save_task_queue(
+        task_queue_key,
+        task_queue_account.clone(),
+        task_queues.clone(),
+    )
+    .await;
+
     for (task_key, account) in tasks {
         let task = match account {
             Some(t) if t.crank_reward >= args.min_crank_fee => match t.trigger {
                 TriggerV0::Now => TimedTask {
                     task_queue_name: task_queue_account.name.clone(),
+                    task: t.clone(),
                     task_time: *now.borrow(),
                     task_key,
                     total_retries: 0,
@@ -51,6 +72,7 @@ pub async fn get_and_watch_tasks(
                 },
                 TriggerV0::Timestamp(ts) => TimedTask {
                     task_queue_name: task_queue_account.name.clone(),
+                    task: t.clone(),
                     task_time: ts as u64,
                     task_key,
                     total_retries: 0,
@@ -72,15 +94,19 @@ pub async fn get_and_watch_tasks(
         .try_for_each(|update| {
             let task_queue = task_queue.clone();
             let now = now.clone();
-            let name = task_queue_account.name.clone();
+            let task_queue_account = update.task_queue;
+            let task_queues = task_queues.clone();
+
             async move {
+                save_task_queue(task_queue_key, task_queue_account.clone(), task_queues).await;
                 let now = *now.borrow();
                 for (task_key, account) in update.tasks {
                     match &account {
                         Some(t) if t.crank_reward >= args.min_crank_fee => {
                             let task = match t.trigger {
                                 TriggerV0::Now => TimedTask {
-                                    task_queue_name: name.clone(),
+                                    task_queue_name: task_queue_account.name.clone(),
+                                    task: t.clone(),
                                     task_time: now,
                                     task_key,
                                     total_retries: 0,
@@ -90,7 +116,8 @@ pub async fn get_and_watch_tasks(
                                 },
                                 TriggerV0::Timestamp(ts) => TimedTask {
                                     task_time: ts as u64,
-                                    task_queue_name: name.clone(),
+                                    task_queue_name: task_queue_account.name.clone(),
+                                    task: t.clone(),
                                     task_key,
                                     total_retries: 0,
                                     max_retries: args.max_retries,

@@ -1,4 +1,7 @@
+use std::{collections::HashMap, sync::Arc};
+
 use futures::TryStreamExt;
+use tokio::sync::Mutex;
 use tokio_graceful_shutdown::{SubsystemBuilder, SubsystemHandle};
 use tuktuk::{config_key, task_queue};
 use tuktuk_program::{TaskQueueV0, TuktukConfigV0};
@@ -10,6 +13,7 @@ use crate::watchers::tasks::get_and_watch_tasks;
 pub async fn get_and_watch_task_queues(
     args: WatcherArgs,
     handle: SubsystemHandle,
+    queues_store: Arc<Mutex<HashMap<Pubkey, TaskQueueV0>>>,
 ) -> anyhow::Result<()> {
     let WatcherArgs {
         rpc_client,
@@ -40,7 +44,10 @@ pub async fn get_and_watch_task_queues(
         if let Some(task_queue) = maybe_task_queue {
             if task_queue.min_crank_reward >= args.min_crank_fee {
                 handle.start(SubsystemBuilder::new("task-queue-watcher", {
-                    move |handle| get_and_watch_tasks(task_queue_key, task_queue, args, handle)
+                    let queues_store = queues_store.clone();
+                    move |handle| {
+                        get_and_watch_tasks(task_queue_key, task_queue, args, handle, queues_store)
+                    }
                 }));
             }
         }
@@ -53,7 +60,16 @@ pub async fn get_and_watch_task_queues(
                 if let Some(task_queue) = task_queue_account {
                     let args = args.clone();
                     handle.start(SubsystemBuilder::new("task-queue-watcher", {
-                        move |handle| get_and_watch_tasks(task_queue_key, task_queue, args, handle)
+                        let queues_store = queues_store.clone();
+                        move |handle| {
+                            get_and_watch_tasks(
+                                task_queue_key,
+                                task_queue,
+                                args,
+                                handle,
+                                queues_store,
+                            )
+                        }
                     }));
                 }
             }

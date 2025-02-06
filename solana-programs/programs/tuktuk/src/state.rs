@@ -118,6 +118,7 @@ pub struct TaskV0 {
     pub queued_at: i64,
     pub bump_seed: u8,
     pub free_tasks: u8,
+    pub description: String,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]

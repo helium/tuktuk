@@ -20,6 +20,8 @@ pub struct QueueTaskArgsV0 {
     // Number of free tasks to append to the end of the accounts. This allows
     // you to easily add new tasks
     pub free_tasks: u8,
+    // Description of the task. Useful for debugging and logging
+    pub description: String,
 }
 
 #[derive(Accounts)]
@@ -36,7 +38,7 @@ pub struct QueueTaskV0<'info> {
     #[account(
         init,
         payer = payer,
-        space = 8 + std::mem::size_of::<TaskV0>() + 60,
+        space = 8 + std::mem::size_of::<TaskV0>() + 60 + args.description.len(),
         constraint = !task_queue.task_exists(args.id) @ ErrorCode::TaskAlreadyExists,
         constraint = args.id < task_queue.capacity,
         seeds = [b"task".as_ref(), task_queue.key().as_ref(), &args.id.to_le_bytes()[..]],
@@ -47,6 +49,11 @@ pub struct QueueTaskV0<'info> {
 }
 
 pub fn handler(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
+    require_gt!(
+        40,
+        args.description.len(),
+        ErrorCode::InvalidDescriptionLength
+    );
     let crank_reward = args
         .crank_reward
         .unwrap_or(ctx.accounts.task_queue.min_crank_reward);
@@ -61,6 +68,7 @@ pub fn handler(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
     }
     ctx.accounts.task.set_inner(TaskV0 {
         free_tasks: args.free_tasks,
+        description: args.description,
         task_queue: ctx.accounts.task_queue.key(),
         id: args.id,
         trigger: args.trigger,

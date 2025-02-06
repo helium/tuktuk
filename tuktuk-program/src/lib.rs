@@ -27,6 +27,8 @@ pub struct TaskReturnV0 {
     // Number of free tasks to append to the end of the accounts. This allows
     // you to easily add new tasks
     pub free_tasks: u8,
+    // Description of the task. Useful for debugging and logging
+    pub description: String,
 }
 
 impl Default for TaskReturnV0 {
@@ -36,6 +38,7 @@ impl Default for TaskReturnV0 {
             transaction: TransactionSourceV0::CompiledV0(CompiledTransactionV0::default()),
             crank_reward: None,
             free_tasks: 0,
+            description: "".to_string(),
         }
     }
 }

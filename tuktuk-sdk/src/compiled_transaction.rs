@@ -16,7 +16,7 @@ use tuktuk_program::{tuktuk, TaskQueueV0, TaskV0, TransactionSourceV0};
 
 use crate::{client::GetAnchorAccount, error::Error};
 
-fn next_available_task_ids_excluding_in_progress(
+pub fn next_available_task_ids_excluding_in_progress(
     capacity: u16,
     task_bitmap: &[u8],
     n: u8,
@@ -59,46 +59,13 @@ pub struct RunTaskResult {
     pub lookup_tables: Vec<AddressLookupTableAccount>,
 }
 
-pub async fn run_ix(
-    client: &impl GetAnchorAccount,
+pub async fn run_ix_with_free_tasks(
     task_key: Pubkey,
+    task: &TaskV0,
     payer: Pubkey,
-    in_progress_task_ids: &HashSet<u16>,
+    next_available: Vec<u16>,
+    lookup_tables: Vec<AddressLookupTableAccount>,
 ) -> Result<Option<RunTaskResult>, Error> {
-    let task: TaskV0 = client
-        .anchor_account(&task_key)
-        .await?
-        .ok_or_else(|| Error::AccountNotFound)?;
-
-    let task_queue: TaskQueueV0 = client
-        .anchor_account(&task.task_queue)
-        .await?
-        .ok_or_else(|| Error::AccountNotFound)?;
-
-    let lookup_tables = client
-        .accounts(&task_queue.lookup_tables)
-        .await?
-        .into_iter()
-        .filter_map(|(addr, raw)| {
-            raw.map(|acc| {
-                let lut = AddressLookupTable::deserialize(&acc.data).map_err(Error::from)?;
-                Ok::<AddressLookupTableAccount, Error>(AddressLookupTableAccount {
-                    key: addr,
-                    addresses: lut.addresses.to_vec(),
-                })
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(Error::from)?;
-
-    // Get next available task IDs excluding in-progress ones
-    let next_available = next_available_task_ids_excluding_in_progress(
-        task_queue.capacity,
-        &task_queue.task_bitmap,
-        task.free_tasks,
-        in_progress_task_ids,
-    )?;
-
     let transaction = &task.transaction;
 
     let free_tasks = next_available
@@ -241,6 +208,49 @@ pub async fn run_ix(
             }))
         }
     }
+}
+
+pub async fn run_ix(
+    client: &impl GetAnchorAccount,
+    task_key: Pubkey,
+    payer: Pubkey,
+    in_progress_task_ids: &HashSet<u16>,
+) -> Result<Option<RunTaskResult>, Error> {
+    let task: TaskV0 = client
+        .anchor_account(&task_key)
+        .await?
+        .ok_or_else(|| Error::AccountNotFound)?;
+
+    let task_queue: TaskQueueV0 = client
+        .anchor_account(&task.task_queue)
+        .await?
+        .ok_or_else(|| Error::AccountNotFound)?;
+
+    // Get next available task IDs excluding in-progress ones
+    let next_available = next_available_task_ids_excluding_in_progress(
+        task_queue.capacity,
+        &task_queue.task_bitmap,
+        task.free_tasks,
+        in_progress_task_ids,
+    )?;
+
+    let lookup_tables = client
+        .accounts(&task_queue.lookup_tables)
+        .await?
+        .into_iter()
+        .filter_map(|(addr, raw)| {
+            raw.map(|acc| {
+                let lut = AddressLookupTable::deserialize(&acc.data).map_err(Error::from)?;
+                Ok::<AddressLookupTableAccount, Error>(AddressLookupTableAccount {
+                    key: addr,
+                    addresses: lut.addresses.to_vec(),
+                })
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(Error::from)?;
+
+    run_ix_with_free_tasks(task_key, &task, payer, next_available, lookup_tables).await
 }
 
 #[derive(Default, Debug, Copy, Clone, Zeroable, Pod, Eq, PartialEq)]

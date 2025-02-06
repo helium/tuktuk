@@ -96,6 +96,7 @@ pub struct TaskReturnV0 {
     // Number of free tasks to append to the end of the accounts. This allows
     // you to easily add new tasks
     pub free_tasks: u8,
+    pub description: String,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
@@ -285,6 +286,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         require_eq!(key, free_task_account.key(), ErrorCode::InvalidTaskPDA);
 
         let mut task_data = TaskV0 {
+            description: task.description,
             task_queue: task_queue_key,
             id: task_id,
             rent_refund: task_queue_key,
@@ -418,7 +420,8 @@ pub fn handler<'info>(
 
     // Handle rewards
     let reward = ctx.accounts.task.crank_reward;
-    let protocol_fee = reward.checked_mul(5).unwrap().checked_div(100).unwrap();
+    // let protocol_fee = reward.checked_mul(5).unwrap().checked_div(100).unwrap();
+    let protocol_fee = 0;
     let task_fee = reward.checked_sub(protocol_fee).unwrap();
 
     let task_info = ctx.accounts.task.to_account_info();

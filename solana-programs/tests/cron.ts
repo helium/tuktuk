@@ -163,7 +163,7 @@ describe("cron", () => {
           name,
           schedule: "*/1 * * * * *", // Run every second
           freeTasksPerTransaction: 5,
-          numTasksPerQueueCall: 1
+          numTasksPerQueueCall: 1,
         })
         .accounts({
           payer: me,

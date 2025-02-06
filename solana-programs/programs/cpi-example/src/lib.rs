@@ -55,6 +55,7 @@ pub mod cpi_example {
                 crank_reward: None,
                 free_tasks: 1,
                 id: task_id,
+                description: "test".to_string(),
             },
         )?;
 
@@ -101,6 +102,7 @@ pub mod cpi_example {
                 crank_reward: None,
                 free_tasks: 15,
                 id: task_id,
+                description: "test".to_string(),
             },
         )?;
 
@@ -130,6 +132,7 @@ pub mod cpi_example {
                 transaction: TransactionSourceV0::CompiledV0(compiled_tx),
                 crank_reward: None,
                 free_tasks: 1,
+                description: "test".to_string(),
             }],
             accounts: vec![],
         })
@@ -174,6 +177,7 @@ pub mod cpi_example {
                 transaction: TransactionSourceV0::CompiledV0(compiled_tx.clone()),
                 crank_reward: None,
                 free_tasks: 1,
+                description: "test".to_string(),
             }),
         })?
         .used_accounts;
