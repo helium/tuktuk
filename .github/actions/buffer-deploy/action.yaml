@@ -46,6 +46,7 @@ runs:
         DEPLOY_KEYPAIR: ${{ inputs.keypair }}
       working-directory: solana-programs
     - run: solana-keygen new -s -o keyp --no-bip39-passphrase
+      working-directory: solana-programs
       shell: bash
     - run: ls -l ./target/deploy/
       shell: bash
