@@ -82,7 +82,7 @@ runs:
       id: buffer-deploy-store
       run: |
         echo "BUFFER=$(cat buffer.out | sed 's/Buffer: //g' | xargs echo -n)" >> $GITHUB_OUTPUT
-        echo "IDL_BUFFER=$(cat idl-buffer.out | sed 's/Idl buffer created: //g' | xargs echo -n)" >> $GITHUB_OUTPUT
+        echo "IDL_BUFFER=$(tail -n 1 idl-buffer.out | sed 's/Idl buffer created: //g' | xargs echo -n)" >> $GITHUB_OUTPUT
     - run: echo "The buffer is ${{ steps.buffer-deploy-store.outputs.BUFFER }}"
       shell: bash
       working-directory: solana-programs
