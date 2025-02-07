@@ -81,7 +81,6 @@ impl TaskCmd {
                     .await?
                     .ok_or_else(|| anyhow!("Topic account not found"))?;
                 let task_keys = tuktuk::task::keys(&task_queue_pubkey, &task_queue)?;
-                println!("thing: {:?}", task_queue.task_bitmap);
                 let tasks = client
                     .as_ref()
                     .anchor_accounts::<TaskV0>(&task_keys)

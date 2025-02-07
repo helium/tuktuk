@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use solana_client::{
     nonblocking::{rpc_client::RpcClient, tpu_client::TpuClient},
-    tpu_client::{TpuClientConfig, TpuSenderError},
+    tpu_client::TpuClientConfig,
 };
 use solana_sdk::{
     address_lookup_table::AddressLookupTableAccount,

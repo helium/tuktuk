@@ -26,6 +26,7 @@ pub struct RemoveQueueAuthorityV0<'info> {
     pub task_queue: Box<Account<'info, TaskQueueV0>>,
 }
 
-pub fn handler(_: Context<RemoveQueueAuthorityV0>) -> Result<()> {
+pub fn handler(ctx: Context<RemoveQueueAuthorityV0>) -> Result<()> {
+    ctx.accounts.task_queue.num_queue_authorities -= 1;
     Ok(())
 }

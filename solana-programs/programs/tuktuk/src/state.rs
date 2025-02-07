@@ -38,6 +38,7 @@ pub struct TaskQueueV0 {
     pub task_bitmap: Vec<u8>,
     pub name: String,
     pub lookup_tables: Vec<Pubkey>,
+    pub num_queue_authorities: u16,
 }
 
 #[macro_export]

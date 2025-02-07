@@ -36,4 +36,6 @@ pub enum ErrorCode {
     DummyInstruction,
     #[msg("Invalid description length")]
     InvalidDescriptionLength,
+    #[msg("Task queue has queue authorities")]
+    TaskQueueHasQueueAuthorities,
 }

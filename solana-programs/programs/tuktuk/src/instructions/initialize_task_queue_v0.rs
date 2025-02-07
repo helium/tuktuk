@@ -80,6 +80,7 @@ pub fn handler(ctx: Context<InitializeTaskQueueV0>, args: InitializeTaskQueueArg
         bump_seed: ctx.bumps.task_queue,
         created_at: Clock::get()?.unix_timestamp,
         updated_at: Clock::get()?.unix_timestamp,
+        num_queue_authorities: 0,
     });
     ctx.accounts
         .task_queue_name_mapping

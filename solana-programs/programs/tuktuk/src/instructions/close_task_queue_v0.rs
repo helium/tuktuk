@@ -22,6 +22,7 @@ pub struct CloseTaskQueueV0<'info> {
         has_one = update_authority,
         has_one = tuktuk_config,
         constraint = task_queue.task_bitmap.iter().all(|&bit| bit == 0) @ ErrorCode::TaskQueueNotEmpty,
+        constraint = task_queue.num_queue_authorities == 0 @ ErrorCode::TaskQueueHasQueueAuthorities,
     )]
     pub task_queue: Box<Account<'info, TaskQueueV0>>,
     #[account(

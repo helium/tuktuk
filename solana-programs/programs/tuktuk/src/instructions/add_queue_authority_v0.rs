@@ -33,5 +33,6 @@ pub fn handler(ctx: Context<AddQueueAuthorityV0>) -> Result<()> {
             task_queue: ctx.accounts.task_queue.key(),
             bump_seed: ctx.bumps.task_queue_authority,
         });
+    ctx.accounts.task_queue.num_queue_authorities += 1;
     Ok(())
 }
