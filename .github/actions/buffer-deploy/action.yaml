@@ -71,7 +71,7 @@ runs:
         timeout_minutes: 10
         max_attempts: 50
         shell: bash
-        command: solana-programs && ~/.cargo/bin/anchor idl write-buffer $PROGRAM_ID --filepath ./target/idl/$PROGRAM.json --provider.cluster $NETWORK --provider.wallet ./deploy-keypair.json > idl-buffer.out
+        command: cd solana-programs && ~/.cargo/bin/anchor idl write-buffer $PROGRAM_ID --filepath ./target/idl/$PROGRAM.json --provider.cluster $NETWORK --provider.wallet ./deploy-keypair.json > idl-buffer.out
       env:
         PROGRAM_ID: ${{ inputs.program-id }}
         PROGRAM: ${{ inputs.program }}
