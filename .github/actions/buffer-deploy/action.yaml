@@ -89,11 +89,6 @@ runs:
     - run: echo "the idl buffer is ${{ steps.buffer-deploy-store.outputs.IDL_BUFFER }}"
       shell: bash
       working-directory: solana-programs
-    - run: echo "the idl is $(cat ./target/idl/$PROGRAM.json)"
-      shell: bash
-      working-directory: solana-programs
-      env:
-        PROGRAM: ${{ inputs.program }}
     - name: Transfer idl buffer to authority
       uses: nick-invision/retry@v2
       if: steps.cache-buffer.outputs.cache-hit != 'true'
