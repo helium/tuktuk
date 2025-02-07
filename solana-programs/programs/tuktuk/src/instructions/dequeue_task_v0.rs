@@ -13,6 +13,7 @@ pub struct DequeuetaskV0<'info> {
         bump = task_queue_authority.bump_seed,
     )]
     pub task_queue_authority: Box<Account<'info, TaskQueueAuthorityV0>>,
+    #[account(mut)]
     pub task_queue: Box<Account<'info, TaskQueueV0>>,
     #[account(
         mut,

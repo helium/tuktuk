@@ -219,7 +219,7 @@ impl TaskQueueCmd {
                         capacity: *capacity,
                         min_crank_reward: *min_crank_reward,
                         lookup_tables: lookup_tables.clone(),
-                        update_authority: update_authority.clone(),
+                        update_authority: *update_authority,
                     },
                 )
                 .await?;

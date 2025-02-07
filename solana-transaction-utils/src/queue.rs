@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use solana_client::{
     nonblocking::{rpc_client::RpcClient, tpu_client::TpuClient},
-    tpu_client::TpuClientConfig,
+    tpu_client::{TpuClientConfig, TpuSenderError},
 };
 use solana_sdk::{
     address_lookup_table::AddressLookupTableAccount,
@@ -34,7 +34,7 @@ pub struct TransactionTask<T: Send + Clone> {
     pub lookup_tables: Option<Vec<AddressLookupTableAccount>>,
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, Clone)]
 pub enum TransactionQueueError {
     #[error("Transaction error: {0}")]
     TransactionError(#[from] TransactionError),
@@ -46,6 +46,8 @@ pub enum TransactionQueueError {
     FeeTooHigh,
     #[error("Ix group too large")]
     IxGroupTooLarge,
+    #[error("Tpu sender error: {0}")]
+    TpuSenderError(String),
 }
 
 #[derive(Debug)]
@@ -184,7 +186,7 @@ pub fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                     }
                                 }
                             } else {
-                                let results = send_and_confirm_transactions_in_parallel(
+                                let maybe_results = send_and_confirm_transactions_in_parallel(
                                     rpc_client.clone(),
                                     Some(tpu_client),
                                     &messages,
@@ -193,16 +195,30 @@ pub fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                         with_spinner: true,
                                         resign_txs_count: Some(5),
                                     },
-                                ).await.expect("Failed to send txs");
-                                for (i, result) in results.iter().enumerate() {
-                                    for task_id in &txs[i].1 {
-                                            if let Some(err) = result {
-                                                task_results.insert(*task_id, Some(TransactionQueueError::TransactionError(err.clone())));
-                                            } else if !task_results.contains_key(task_id) {
-                                                task_results.insert(*task_id, None);
+                                ).await;
+                                match maybe_results {
+                                    Ok(results) => {
+                                        for (i, result) in results.iter().enumerate() {
+                                            for task_id in &txs[i].1 {
+                                                    if let Some(err) = result {
+                                                        task_results.insert(*task_id, Some(TransactionQueueError::TransactionError(err.clone())));
+                                                    } else if !task_results.contains_key(task_id) {
+                                                        task_results.insert(*task_id, None);
+                                                    }
                                             }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let e = TransactionQueueError::TpuSenderError(e.to_string());
+                                        for task in tasks.iter() {
+                                            result_tx.send(CompletedTransactionTask {
+                                                err: Some(e.clone()),
+                                                task: task.clone(),
+                                            }).await.unwrap();
+                                        }
                                     }
                                 }
+
                             }
                             for (task_id, err) in task_results {
                                     result_tx.send(CompletedTransactionTask {

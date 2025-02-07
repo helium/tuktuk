@@ -264,6 +264,7 @@ impl TimedTask {
                 TransactionQueueError::RawTransactionError(_) => "RawTransaction",
                 TransactionQueueError::FeeTooHigh => "FeeTooHigh",
                 TransactionQueueError::IxGroupTooLarge => "IxGroupTooLarge",
+                TransactionQueueError::TpuSenderError(_) => "TpuError",
             };
             TASKS_FAILED
                 .with_label_values(&[self.task_queue_name.as_str(), label])
