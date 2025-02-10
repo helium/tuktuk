@@ -13,6 +13,7 @@ import {
   runTask,
   customSignerKey,
   RemoteTaskTransactionV0,
+  taskQueueAuthorityKey,
 } from "@helium/tuktuk-sdk";
 import {
   AccountMeta,
@@ -428,7 +429,7 @@ describe("tuktuk", () => {
           .addQueueAuthorityV0()
           .accounts({
             payer: me,
-            queueAuthority: me,
+            queueAuthority,
             taskQueue,
           })
           .rpc();
@@ -440,6 +441,7 @@ describe("tuktuk", () => {
       const method = await cpiProgram.methods.schedule(0).accounts({
         taskQueue,
         task: freeTask1,
+        taskQueueAuthority: taskQueueAuthorityKey(taskQueue, queueAuthority)[0],
       });
       await sendInstructions(provider, [
         SystemProgram.transfer({
@@ -511,10 +513,16 @@ describe("tuktuk", () => {
         freeTasks.push(taskKey(taskQueue, i)[0]);
       }
       const crankTurner = Keypair.generate();
-      const method = await cpiProgram.methods.scheduleWithAccountReturn(0).accounts({
-        taskQueue,
-        task: freeTasks[0],
-      });
+      const method = await cpiProgram.methods
+        .scheduleWithAccountReturn(0)
+        .accounts({
+          taskQueue,
+          task: freeTasks[0],
+          taskQueueAuthority: taskQueueAuthorityKey(
+            taskQueue,
+            queueAuthority
+          )[0],
+        });
       await sendInstructions(provider, [
         SystemProgram.transfer({
           fromPubkey: me,

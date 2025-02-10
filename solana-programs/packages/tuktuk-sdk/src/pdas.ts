@@ -22,6 +22,17 @@ export const taskQueueKey = (
   );
 };
 
+export const taskQueueAuthorityKey = (
+  taskQueue: PublicKey,
+  queueAuthority: PublicKey,
+  programId: PublicKey = PROGRAM_ID
+): [PublicKey, number] => {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("task_queue_authority"), taskQueue.toBuffer(), queueAuthority.toBuffer()],
+    programId
+  );
+};
+
 export const taskQueueNameMappingKey = (
   tuktukConfig: PublicKey,
   name: string,
