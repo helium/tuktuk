@@ -1,0 +1,54 @@
+{
+  "license": "ISC",
+  "scripts": {
+    "versionup": "lerna version --force-publish--conventional-commits --no-git-tag-version",
+    "versionup:patch": "lerna version patch --force-publish --conventional-commits --no-git-tag-version",
+    "versionup:minor": "lerna version minor --force-publish --conventional-commits --no-git-tag-version",
+    "versionup:major": "lerna version major --force-publish --conventional-commits --no-git-tag-version",
+    "versionup:pre": "lerna version prerelease --force-publish --conventional-commits --no-git-tag-version",
+    "postversionup": "npm run commit-version",
+    "postversionup:patch": "npm run commit-version",
+    "postversionup:minor": "npm run commit-version",
+    "postversionup:major": "npm run commit-version",
+    "commit-version": "git add . && git commit -m \"chore(release): publish `node -p 'require(\"./lerna.json\").version'`\"",
+    "release": "git stash && lerna publish from-package --no-verify-access --force-publish='*' --no-push --no-git-tag-version --no-verify-access --yes",
+    "release:canary": "git stash && lerna publish --canary --preid next --dist-tag next --force-publish='*' --no-push --no-git-tag-version --no-verify-access --yes",
+    "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
+    "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
+    "build": "lerna run --parallel prebuild && tsc --build",
+    "watch": "rm -f packages/**/*.tsbuildinfo && lerna run --parallel prebuild && tsc --build --watch",
+    "clean": "rm -rf {.,packages/*}/{node_modules,lib,dist}",
+    "fmt": "cargo fmt --check",
+    "clippy": "cargo clippy --all-targets -- -D warnings -A clippy::result_large_err -A clippy::too_many_arguments",
+    "heroku-postbuild": "npm run build -w hpl-docs",
+    "docs-dev": "yarn workspace hpl-docs dev"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "pre-commit": [
+    "fmt"
+  ],
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.30.1",
+    "@helium/spl-utils": "^0.9.18",
+    "@solana/spl-token": "^0.4.8",
+    "@solana/web3.js": "^1.95.2",
+    "tweetnacl": "^1.0.3"
+  },
+  "devDependencies": {
+    "@types/bn.js": "^5.1.0",
+    "@types/chai": "^4.3.0",
+    "@types/chai-as-promised": "^7.1.5",
+    "@types/mocha": "^9.0.0",
+    "chai": "^4.3.4",
+    "lerna": "^5.5.4",
+    "mocha": "^9.0.3",
+    "prettier": "^2.6.2",
+    "ts-loader": "^9.2.3",
+    "ts-mocha": "^10.0.0",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.2.2"
+  },
+  "packageManager": "yarn@3.6.4"
+}

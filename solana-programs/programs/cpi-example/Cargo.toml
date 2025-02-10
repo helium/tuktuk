@@ -1,0 +1,27 @@
+[package]
+name = "cpi-example"
+version = "0.1.0"
+description = "Created with Anchor"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "cpi_example"
+
+[features]
+default = []
+devnet = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+[dependencies]
+anchor-lang = { workspace = true, features = ["init-if-needed"] }
+anchor-spl = { workspace = true }
+# tuktuk-program = { path = "../../../tuktuk-program" }
+# Need to use this for build-verify to work. Use above for debug before pushing
+tuktuk-program = { git = "https://github.com/helium/tuktuk.git", rev = "1b2384c" }
+getrandom = { version = "0.2.15", features = ["custom"] }
+
