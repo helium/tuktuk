@@ -173,6 +173,14 @@ describe("tuktuk", () => {
 
     it("allows closing a task queue", async () => {
       await program.methods
+        .removeQueueAuthorityV0()
+        .accounts({
+          taskQueue,
+          rentRefund: me,
+          queueAuthority: me,
+        })
+        .rpc({ skipPreflight: true });
+      await program.methods
         .closeTaskQueueV0()
         .accounts({
           taskQueue,

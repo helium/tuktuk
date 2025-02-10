@@ -17,6 +17,7 @@ import {
 import { cronJobKey, cronJobNameMappingKey, cronJobTransactionKey, init as initCron, userCronJobsKey } from "@helium/cron-sdk";
 import {
   AccountMeta,
+  ComputeBudgetProgram,
   Keypair,
   PublicKey,
   SystemProgram,
@@ -173,6 +174,11 @@ describe("cron", () => {
           freeTasksPerTransaction: 5,
           numTasksPerQueueCall: 1,
         })
+        .preInstructions([
+          ComputeBudgetProgram.setComputeUnitLimit({
+            units: 1000000,
+          }),
+        ])
         .accounts({
           payer: me,
           authority: me,
