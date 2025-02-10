@@ -1,0 +1,64 @@
+name: tuktuk-crank-turner
+
+on:
+  push:
+    branches: [main]
+    tags: ['tuktuk-crank-turner-v*']
+    paths: ['tuktuk-program-sdk/**', 'solana-transaction-utils/**', 'tuktuk-crank-turner/**', '.github/workflows/tuktuk-crank-turner.yml']
+  pull_request:
+    branches: [main]
+    paths: ['tuktuk-crank-turner/**', '.github/workflows/tuktuk-crank-turner.yml']
+
+jobs: 
+  hygiene:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup | Cancel Previous Runs
+        uses: styfle/cancel-workflow-action@0.12.1
+        with:
+          access_token: ${{ github.token }}
+
+      - name: Setup | Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup | Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Setup | Tools
+        run: sudo apt-get install -y protobuf-compiler
+
+      - name: Build | Hygiene
+        run: |
+          cargo fmt --package tuktuk-crank-turner -- --check
+          cargo clippy --package tuktuk-crank-turner --all-features -- -D clippy::all
+
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup | Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup | Tarpaulin
+        uses: jaxxstorm/action-install-gh-release@v1.12.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          repo: xd009642/tarpaulin
+
+      - name: Setup | Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup | Tools
+        run: sudo apt-get install -y protobuf-compiler
+
+      - name: Test | Run
+        env:
+          RUST_BACKTRACE: 1
+        run: |
+          cargo tarpaulin --packages tuktuk-crank-turner --no-dead-code --engine llvm --out xml -- --test-threads 1

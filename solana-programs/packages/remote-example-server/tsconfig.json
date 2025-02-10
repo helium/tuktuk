@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.root.json",
+  "references": [
+    {
+      "path": "../tuktuk-idls"
+    },
+    {
+      "path": "../tuktuk-sdk"
+    },
+    {
+      "path": "./tsconfig.cjs.json"
+    },
+    {
+      "path": "./tsconfig.esm.json"
+    }
+  ]
+}
