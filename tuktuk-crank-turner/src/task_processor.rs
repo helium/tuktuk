@@ -288,7 +288,8 @@ impl TimedTask {
                 }
                 TransactionQueueError::RawTransactionError(_)
                 | TransactionQueueError::SimulatedTransactionError(_)
-                | TransactionQueueError::TransactionError(_) => {
+                | TransactionQueueError::TransactionError(_)
+                | TransactionQueueError::TpuSenderError(_) => {
                     if self.total_retries < self.max_retries {
                         let retry_delay = 30 * (1 << self.total_retries);
                         info!(

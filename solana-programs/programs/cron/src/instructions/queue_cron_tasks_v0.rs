@@ -190,6 +190,7 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
             accounts: vec![],
         })
     } else {
+        ctx.accounts.cron_job.removed_from_queue = false;
         cron_job_info.sub_lamports(lamports)?;
         ctx.accounts
             .task_queue
