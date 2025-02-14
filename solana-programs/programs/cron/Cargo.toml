@@ -20,8 +20,8 @@ idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 [dependencies]
 anchor-lang = { workspace = true, features = ["init-if-needed"] }
 anchor-spl = { workspace = true }
-tuktuk-program = { path = "../../../tuktuk-program" }
+# tuktuk-program = { path = "../../../tuktuk-program" }
 # Need to use this for build-verify to work. Use above for debug before pushing
-# tuktuk-program = { git = "https://github.com/helium/tuktuk.git", rev = "1b2384c" }
+tuktuk-program = { git = "https://github.com/helium/tuktuk.git", rev = "97ec1ff" }
 clockwork-cron = "2.0.19"
 chrono = "0.4.39"
