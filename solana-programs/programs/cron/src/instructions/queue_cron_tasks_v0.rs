@@ -145,10 +145,7 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
             description: format!("queue {}", trunc_name),
         }));
 
-    let WriteReturnTasksReturn {
-        used_accounts,
-        total_tasks,
-    } = write_return_tasks(WriteReturnTasksArgs {
+    let res = write_return_tasks(WriteReturnTasksArgs {
         program_id: crate::ID,
         payer_info: PayerInfo::PdaPayer(ctx.accounts.cron_job.to_account_info()),
         accounts: vec![
@@ -171,35 +168,54 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
         ],
         system_program: ctx.accounts.system_program.to_account_info(),
         tasks,
-    })?;
+    });
 
-    msg!("Queued {} tasks", total_tasks);
+    match res {
+        Ok(WriteReturnTasksReturn {
+            used_accounts,
+            total_tasks,
+        }) => {
+            msg!("Queued {} tasks", total_tasks);
 
-    // Transfer needed lamports from the cron job to the task queue
-    let cron_job_info = ctx.accounts.cron_job.to_account_info();
-    let cron_job_min_lamports = Rent::get()?.minimum_balance(cron_job_info.data_len());
-    let lamports = ctx.accounts.task_queue.min_crank_reward * total_tasks as u64;
-    if cron_job_info.lamports() < cron_job_min_lamports + lamports {
-        msg!(
-            "Not enough lamports to fund tasks. Please requeue cron job when you have enough lamports. {}",
-            cron_job_info.lamports()
-        );
-        ctx.accounts.cron_job.removed_from_queue = true;
-        Ok(RunTaskReturnV0 {
-            tasks: vec![],
-            accounts: vec![],
-        })
-    } else {
-        ctx.accounts.cron_job.removed_from_queue = false;
-        cron_job_info.sub_lamports(lamports)?;
-        ctx.accounts
-            .task_queue
-            .to_account_info()
-            .add_lamports(lamports)?;
+            // Transfer needed lamports from the cron job to the task queue
+            let cron_job_info = ctx.accounts.cron_job.to_account_info();
+            let cron_job_min_lamports = Rent::get()?.minimum_balance(cron_job_info.data_len());
+            let lamports = ctx.accounts.task_queue.min_crank_reward * total_tasks as u64;
+            if cron_job_info.lamports() < cron_job_min_lamports + lamports {
+                msg!(
+                    "Not enough lamports to fund tasks. Please requeue cron job when you have enough lamports. {}",
+                    cron_job_info.lamports()
+                );
+                ctx.accounts.cron_job.removed_from_queue = true;
+                Ok(RunTaskReturnV0 {
+                    tasks: vec![],
+                    accounts: vec![],
+                })
+            } else {
+                ctx.accounts.cron_job.removed_from_queue = false;
+                cron_job_info.sub_lamports(lamports)?;
+                ctx.accounts
+                    .task_queue
+                    .to_account_info()
+                    .add_lamports(lamports)?;
 
-        Ok(RunTaskReturnV0 {
-            tasks: vec![],
-            accounts: used_accounts,
-        })
+                Ok(RunTaskReturnV0 {
+                    tasks: vec![],
+                    accounts: used_accounts,
+                })
+            }
+        }
+        Err(e) if e.to_string().contains("rent exempt") => {
+            msg!(
+                "Not enough lamports to fund tasks. Please requeue cron job when you have enough lamports. {}",
+                ctx.accounts.cron_job.to_account_info().lamports()
+            );
+            ctx.accounts.cron_job.removed_from_queue = true;
+            Ok(RunTaskReturnV0 {
+                tasks: vec![],
+                accounts: vec![],
+            })
+        }
+        Err(e) => Err(e),
     }
 }

@@ -1,6 +1,11 @@
 use std::str::FromStr;
 
-use anchor_lang::{prelude::*, solana_program::instruction::Instruction, InstructionData};
+use anchor_lang::{
+    prelude::*,
+    solana_program::instruction::Instruction,
+    system_program::{transfer, Transfer},
+    InstructionData,
+};
 use chrono::{DateTime, Utc};
 use clockwork_cron::Schedule;
 use tuktuk_program::{
@@ -77,6 +82,7 @@ pub struct InitializeCronJobV0<'info> {
     pub task: AccountInfo<'info>,
     /// CHECK: Used to write return data
     #[account(
+        mut,
         seeds = [b"task_return_account_1", cron_job.key().as_ref()],
         bump
     )]
@@ -183,6 +189,18 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
             data: crate::instruction::QueueCronTasksV0.data(),
         }],
         vec![],
+    )?;
+
+    transfer(
+        CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.payer.to_account_info(),
+                to: ctx.accounts.task_return_account_1.to_account_info(),
+            },
+        ),
+        // Allocate enough rent for one tx
+        Rent::get()?.minimum_balance(1024),
     )?;
 
     let trunc_name = ctx

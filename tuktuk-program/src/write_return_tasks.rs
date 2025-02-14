@@ -28,6 +28,7 @@ pub enum PayerInfo<'info> {
     Signer(AccountInfo<'info>),
 }
 
+#[derive(Clone)]
 pub struct AccountWithSeeds<'info> {
     pub account: AccountInfo<'info>,
     pub seeds: Vec<Vec<u8>>,
@@ -53,6 +54,7 @@ where
         system_program,
     } = args;
     let mut used_accounts = Vec::with_capacity(accounts.len());
+    let mut original_sizes = Vec::with_capacity(accounts.len());
 
     // Get the first task outside the loop to check if we have any tasks
     let mut current_task = match tasks.next() {
@@ -66,7 +68,10 @@ where
     };
 
     let mut total_tasks = 0;
-    for AccountWithSeeds { account, seeds } in accounts {
+    for AccountWithSeeds { account, seeds } in accounts.iter() {
+        // Store original size before any reallocation
+        original_sizes.push(account.data_len());
+
         let mut header = TasksAccountHeaderV0 { num_tasks: 0 };
         let header_size = header.try_to_vec()?.len();
         let mut total_size = header_size;
@@ -131,8 +136,20 @@ where
             if rent_to_pay > 0 {
                 match &payer_info {
                     PayerInfo::PdaPayer(account_info) => {
-                        account.add_lamports(rent_to_pay)?;
+                        if account_info.lamports()
+                            - Rent::get()?.minimum_balance(account_info.data_len())
+                            < rent_to_pay
+                        {
+                            // Reset all account sizes on error
+                            for (account, original_size) in
+                                accounts.iter().zip(original_sizes.iter())
+                            {
+                                account.account.realloc(*original_size, false)?;
+                            }
+                            return Err(error!(ErrorCode::ConstraintRentExempt));
+                        }
                         account_info.sub_lamports(rent_to_pay)?;
+                        account.add_lamports(rent_to_pay)?;
                     }
                     PayerInfo::SystemPayer {
                         account_info,
@@ -141,6 +158,18 @@ where
                         let payer_seeds_refs: Vec<&[u8]> =
                             seeds.iter().map(|s| s.as_slice()).collect();
 
+                        if account_info.lamports()
+                            - Rent::get()?.minimum_balance(account_info.data_len())
+                            < rent_to_pay
+                        {
+                            // Reset all account sizes on error
+                            for (account, original_size) in
+                                accounts.iter().zip(original_sizes.iter())
+                            {
+                                account.account.realloc(*original_size, false)?;
+                            }
+                            return Err(error!(ErrorCode::ConstraintRentExempt));
+                        }
                         transfer(
                             CpiContext::new_with_signer(
                                 system_program.clone(),
@@ -153,16 +182,30 @@ where
                             rent_to_pay,
                         )?;
                     }
-                    PayerInfo::Signer(account_info) => transfer(
-                        CpiContext::new(
-                            system_program.clone(),
-                            Transfer {
-                                from: account_info.clone(),
-                                to: account.clone(),
-                            },
-                        ),
-                        rent_to_pay,
-                    )?,
+                    PayerInfo::Signer(account_info) => {
+                        if account_info.lamports()
+                            - Rent::get()?.minimum_balance(account_info.data_len())
+                            < rent_to_pay
+                        {
+                            // Reset all account sizes on error
+                            for (account, original_size) in
+                                accounts.iter().zip(original_sizes.iter())
+                            {
+                                account.account.realloc(*original_size, false)?;
+                            }
+                            return Err(error!(ErrorCode::ConstraintRentExempt));
+                        }
+                        transfer(
+                            CpiContext::new(
+                                system_program.clone(),
+                                Transfer {
+                                    from: account_info.clone(),
+                                    to: account.clone(),
+                                },
+                            ),
+                            rent_to_pay,
+                        )?;
+                    }
                 }
             }
 
