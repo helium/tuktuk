@@ -14,7 +14,7 @@ fn hash_name(name: &str) -> [u8; 32] {
 }
 
 pub fn config_key() -> Pubkey {
-    Pubkey::find_program_address(&[b"tuktuk_config"], &ID).0
+    Pubkey::find_program_address(&[b"tuktuk_config"], &tuktuk::ID).0
 }
 
 pub fn task_queue_name_mapping_key(config_key: &Pubkey, name: &str) -> Pubkey {
@@ -24,7 +24,7 @@ pub fn task_queue_name_mapping_key(config_key: &Pubkey, name: &str) -> Pubkey {
             config_key.as_ref(),
             &hash_name(name),
         ],
-        &ID,
+        &tuktuk::ID,
     )
     .0
 }
@@ -43,7 +43,7 @@ pub fn create_config(
     let config_key = config_key();
 
     let create_ix = Instruction {
-        program_id: ID,
+        program_id: tuktuk::ID,
         accounts: tuktuk::client::accounts::InitializeTuktukConfigV0 {
             payer,
             approver: payer,
@@ -67,8 +67,8 @@ pub mod cron {
             cron::{
                 accounts::{CronJobV0, UserCronJobsV0},
                 types::InitializeCronJobArgsV0,
+                ID,
             },
-            ID,
         },
         TaskQueueV0,
     };
@@ -87,7 +87,7 @@ pub mod cron {
                 authority.as_ref(),
                 &cron_job_id.to_le_bytes()[..],
             ],
-            &cron::ID,
+            &cron::cron::ID,
         )
         .0
     }
@@ -99,17 +99,25 @@ pub mod cron {
                 authority.as_ref(),
                 &hash_name(name),
             ],
-            &cron::ID,
+            &cron::cron::ID,
         )
         .0
     }
 
     pub fn task_return_account_1_key(cron_job: &Pubkey) -> Pubkey {
-        Pubkey::find_program_address(&[b"task_return_account_1", cron_job.as_ref()], &cron::ID).0
+        Pubkey::find_program_address(
+            &[b"task_return_account_1", cron_job.as_ref()],
+            &cron::cron::ID,
+        )
+        .0
     }
 
     pub fn task_return_account_2_key(cron_job: &Pubkey) -> Pubkey {
-        Pubkey::find_program_address(&[b"task_return_account_2", cron_job.as_ref()], &cron::ID).0
+        Pubkey::find_program_address(
+            &[b"task_return_account_2", cron_job.as_ref()],
+            &cron::cron::ID,
+        )
+        .0
     }
 
     pub fn keys(authority: &Pubkey, user_cron_jobs: &UserCronJobsV0) -> Result<Vec<Pubkey>, Error> {
@@ -142,7 +150,7 @@ pub mod cron {
                 cron_job: cron_job_key,
                 cron_job_name_mapping: self::name_mapping_key(&authority, &args.name),
                 task: task::key(&task_queue_key, task_id),
-                tuktuk_program: tuktuk_program::ID,
+                tuktuk_program: tuktuk_program::tuktuk::ID,
                 queue_authority,
                 task_return_account_1: self::task_return_account_1_key(&cron_job_key),
                 task_return_account_2: self::task_return_account_2_key(&cron_job_key),
@@ -197,7 +205,7 @@ pub mod cron {
         name: String,
     ) -> Result<Instruction, Error> {
         Ok(Instruction {
-            program_id: cron::ID,
+            program_id: cron::cron::ID,
             accounts: cron::cron::client::accounts::CloseCronJobV0 {
                 rent_refund,
                 payer,
@@ -259,7 +267,7 @@ pub mod cron_job_transaction {
                 cron_job_key.as_ref(),
                 &cron_job_transaction_id.to_le_bytes()[..],
             ],
-            &cron::ID,
+            &cron::cron::ID,
         )
         .0
     }
@@ -282,7 +290,7 @@ pub mod cron_job_transaction {
         Ok((
             cron_job_transaction_key,
             Instruction {
-                program_id: cron::ID,
+                program_id: cron::cron::ID,
                 accounts: cron::cron::client::accounts::AddCronTransactionV0 {
                     payer,
                     cron_job: cron_job_key,
@@ -304,7 +312,7 @@ pub mod cron_job_transaction {
         let cron_job_transaction_key = self::key(&cron_job_key, args.index);
 
         Ok(Instruction {
-            program_id: cron::ID,
+            program_id: cron::cron::ID,
             accounts: cron::cron::client::accounts::RemoveCronTransactionV0 {
                 rent_refund: payer,
                 authority: payer,
@@ -333,7 +341,7 @@ pub mod task_queue {
                 config_key.as_ref(),
                 &next_task_queue_id.to_le_bytes()[..],
             ],
-            &ID,
+            &tuktuk::ID,
         )
         .0
     }
@@ -345,7 +353,7 @@ pub mod task_queue {
                 task_queue_key.as_ref(),
                 queue_authority.as_ref(),
             ],
-            &ID,
+            &tuktuk::ID,
         )
         .0
     }
@@ -373,7 +381,7 @@ pub mod task_queue {
         Ok((
             queue_key,
             Instruction {
-                program_id: ID,
+                program_id: tuktuk::ID,
                 accounts: tuktuk::client::accounts::InitializeTaskQueueV0 {
                     task_queue: queue_key,
                     payer,
@@ -395,7 +403,7 @@ pub mod task_queue {
         update_authority: Pubkey,
     ) -> Result<Instruction, Error> {
         Ok(Instruction {
-            program_id: ID,
+            program_id: tuktuk::ID,
             accounts: tuktuk::client::accounts::AddQueueAuthorityV0 {
                 task_queue: task_queue_key,
                 queue_authority,
@@ -436,7 +444,7 @@ pub mod task_queue {
         update_authority: Pubkey,
     ) -> Result<Instruction, Error> {
         Ok(Instruction {
-            program_id: ID,
+            program_id: tuktuk::ID,
             accounts: tuktuk::client::accounts::RemoveQueueAuthorityV0 {
                 task_queue: task_queue_key,
                 queue_authority,
@@ -483,7 +491,7 @@ pub mod task_queue {
             .ok_or_else(|| Error::AccountNotFound)?;
 
         Ok(Instruction {
-            program_id: ID,
+            program_id: tuktuk::ID,
             accounts: tuktuk::client::accounts::CloseTaskQueueV0 {
                 task_queue: task_queue_key,
                 rent_refund,
@@ -524,7 +532,7 @@ pub mod task_queue {
         args: UpdateTaskQueueArgsV0,
     ) -> Result<Instruction, Error> {
         Ok(Instruction {
-            program_id: ID,
+            program_id: tuktuk::ID,
             accounts: tuktuk::client::accounts::UpdateTaskQueueV0 {
                 task_queue: task_queue_key,
                 payer,
@@ -601,9 +609,9 @@ pub mod task {
 
     use super::{
         task_queue::task_queue_authority_key,
-        tuktuk::{self, accounts::TaskQueueV0},
+        tuktuk::{self, accounts::TaskQueueV0, ID},
         types::QueueTaskArgsV0,
-        TaskUpdate, ID,
+        TaskUpdate,
     };
     use crate::{client::GetAnchorAccount, error::Error, watcher::PubsubTracker};
 

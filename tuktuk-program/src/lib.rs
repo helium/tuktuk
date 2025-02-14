@@ -7,8 +7,6 @@ pub mod write_return_tasks;
 
 pub use write_return_tasks::write_return_tasks;
 
-declare_id!("tuktukUrfhXT6ZT77QTU8RQtvgL967uRuVagWF57zVA");
-
 declare_program!(tuktuk);
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]

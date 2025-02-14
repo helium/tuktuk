@@ -143,14 +143,14 @@ impl CronCmd {
                         cron_job_key.as_ref(),
                         &i.to_le_bytes(),
                     ],
-                    &tuktuk_program::cron::ID,
+                    &tuktuk_program::cron::cron::ID,
                 )
                 .0
             })
             .collect::<Vec<Pubkey>>();
         let (queue_tx, _) = compile_transaction(
             vec![Instruction {
-                program_id: tuktuk_program::cron::ID,
+                program_id: tuktuk_program::cron::cron::ID,
                 accounts: [
                     QueueCronTasksV0 {
                         cron_job: *cron_job_key,

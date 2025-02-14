@@ -73,7 +73,7 @@ pub async fn run_ix_with_free_tasks(
         .map(|id| AccountMeta {
             pubkey: Pubkey::find_program_address(
                 &[b"task", task.task_queue.as_ref(), &id.to_le_bytes()],
-                &tuktuk_program::ID,
+                &tuktuk_program::tuktuk::ID,
             )
             .0,
             is_signer: false,
@@ -123,7 +123,7 @@ pub async fn run_ix_with_free_tasks(
 
             Ok(Some(RunTaskResult {
                 instructions: vec![Instruction {
-                    program_id: tuktuk_program::ID,
+                    program_id: tuktuk_program::tuktuk::ID,
                     accounts: all_accounts,
                     data: tuktuk::client::args::RunTaskV0 {
                         args: tuktuk_program::types::RunTaskArgsV0 {
@@ -181,7 +181,7 @@ pub async fn run_ix_with_free_tasks(
                         data: instruction_data,
                     },
                     Instruction {
-                        program_id: tuktuk_program::ID,
+                        program_id: tuktuk_program::tuktuk::ID,
                         accounts: [
                             tuktuk::client::accounts::RunTaskV0 {
                                 rent_refund: task.rent_refund,

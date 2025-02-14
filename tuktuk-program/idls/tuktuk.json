@@ -2,7 +2,7 @@
   "address": "tuktukUrfhXT6ZT77QTU8RQtvgL967uRuVagWF57zVA",
   "metadata": {
     "name": "tuktuk",
-    "version": "0.1.0",
+    "version": "0.1.2",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },
@@ -133,6 +133,7 @@
         },
         {
           "name": "task_queue",
+          "writable": true,
           "relations": ["task"]
         },
         {
@@ -543,6 +544,11 @@
       "code": 6016,
       "name": "InvalidDescriptionLength",
       "msg": "Invalid description length"
+    },
+    {
+      "code": 6017,
+      "name": "TaskQueueHasQueueAuthorities",
+      "msg": "Task queue has queue authorities"
     }
   ],
   "types": [
@@ -838,6 +844,10 @@
             "type": {
               "vec": "pubkey"
             }
+          },
+          {
+            "name": "num_queue_authorities",
+            "type": "u16"
           }
         ]
       }
