@@ -304,47 +304,53 @@ impl TaskCmd {
                     vec![]
                 };
                 for (task_key, _) in tasks {
-                    if let Ok(Some(run_ix)) = tuktuk_sdk::compiled_transaction::run_ix(
+                    let run_ix_result = tuktuk_sdk::compiled_transaction::run_ix(
                         client.as_ref(),
                         task_key,
                         client.payer.pubkey(),
                         &HashSet::new(),
                     )
-                    .await
-                    {
-                        let blockhash = client.rpc_client.get_latest_blockhash().await?;
-                        let (computed, _) = auto_compute_limit_and_price(
-                            &client.rpc_client,
-                            run_ix.instructions,
-                            1.2,
-                            &client.payer.pubkey(),
-                            Some(blockhash),
-                            Some(run_ix.lookup_tables.clone()),
-                        )
-                        .await
-                        .unwrap();
-
-                        let recent_blockhash = client.rpc_client.get_latest_blockhash().await?;
-                        let message = VersionedMessage::V0(v0::Message::try_compile(
-                            &client.payer.pubkey(),
-                            &computed,
-                            &run_ix.lookup_tables,
-                            recent_blockhash,
-                        )?);
-                        let tx = VersionedTransaction::try_new(message, &[&client.payer])?;
-                        let txid = client
-                            .rpc_client
-                            .send_transaction_with_config(
-                                &tx,
-                                solana_client::rpc_config::RpcSendTransactionConfig {
-                                    skip_preflight: *skip_preflight,
-                                    preflight_commitment: Some(CommitmentLevel::Confirmed),
-                                    ..Default::default()
-                                },
+                    .await;
+                    match run_ix_result {
+                        Ok(Some(run_ix)) => {
+                            let blockhash = client.rpc_client.get_latest_blockhash().await?;
+                            let (computed, _) = auto_compute_limit_and_price(
+                                &client.rpc_client,
+                                run_ix.instructions,
+                                1.2,
+                                &client.payer.pubkey(),
+                                Some(blockhash),
+                                Some(run_ix.lookup_tables.clone()),
                             )
-                            .await?;
+                            .await
+                            .unwrap();
 
-                        println!("Tx sent: {}", txid);
+                            let recent_blockhash = client.rpc_client.get_latest_blockhash().await?;
+                            let message = VersionedMessage::V0(v0::Message::try_compile(
+                                &client.payer.pubkey(),
+                                &computed,
+                                &run_ix.lookup_tables,
+                                recent_blockhash,
+                            )?);
+                            let tx = VersionedTransaction::try_new(message, &[&client.payer])?;
+                            let txid = client
+                                .rpc_client
+                                .send_transaction_with_config(
+                                    &tx,
+                                    solana_client::rpc_config::RpcSendTransactionConfig {
+                                        skip_preflight: *skip_preflight,
+                                        preflight_commitment: Some(CommitmentLevel::Confirmed),
+                                        ..Default::default()
+                                    },
+                                )
+                                .await?;
+
+                            println!("Tx sent: {}", txid);
+                        }
+                        Err(e) => {
+                            println!("Error running task: {}", e);
+                        }
+                        _ => {}
                     }
                 }
             }

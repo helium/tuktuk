@@ -92,6 +92,7 @@ pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>>(
 ) -> Result<(solana_sdk::instruction::Instruction, u32), crate::error::Error> {
     // Check for existing compute unit limit instruction and replace it if found
     let mut updated_instructions = instructions.clone();
+    let mut has_compute_budget = false;
     for ix in &mut updated_instructions {
         if ix.program_id == solana_sdk::compute_budget::id()
             && ix.data.first()
@@ -103,8 +104,19 @@ pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>>(
                 1900000,
             )
             .data; // Replace limit
+            has_compute_budget = true;
+            break;
         }
     }
+
+    if !has_compute_budget {
+        // Prepend compute budget instruction if none was found
+        updated_instructions.insert(
+            0,
+            solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(1900000),
+        );
+    }
+
     let blockhash_actual = match blockhash {
         Some(hash) => hash,
         None => client.as_ref().get_latest_blockhash().await?,

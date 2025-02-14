@@ -292,6 +292,7 @@ async fn fetch_remote_transaction(
     url: &str,
 ) -> Result<FetchedRemoteResponse, Error> {
     let client = reqwest::Client::new();
+    println!("Fetching remote transaction for task: {}", url);
     let response = client
         .post(url)
         .json(&serde_json::json!({
