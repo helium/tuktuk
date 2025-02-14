@@ -793,7 +793,7 @@ dependencies = [
  "anchor-lang",
  "anchor-spl",
  "getrandom 0.2.15",
- "tuktuk-program 0.1.0 (git+https://github.com/helium/tuktuk.git?rev=a18bd79)",
+ "tuktuk-program 0.1.0 (git+https://github.com/helium/tuktuk.git?rev=6313618)",
 ]
 
 [[package]]
@@ -2483,7 +2483,7 @@ dependencies = [
 [[package]]
 name = "tuktuk-program"
 version = "0.1.0"
-source = "git+https://github.com/helium/tuktuk.git?rev=97ec1ff#97ec1ffd000deb0622be445ee778a21764da51c2"
+source = "git+https://github.com/helium/tuktuk.git?rev=6313618#631361881166446a8d9dae8df3331237ffe25d31"
 dependencies = [
  "anchor-lang",
 ]
@@ -2491,7 +2491,7 @@ dependencies = [
 [[package]]
 name = "tuktuk-program"
 version = "0.1.0"
-source = "git+https://github.com/helium/tuktuk.git?rev=a18bd79#a18bd798ef776ee285eebc41e3165d1905b98d01"
+source = "git+https://github.com/helium/tuktuk.git?rev=97ec1ff#97ec1ffd000deb0622be445ee778a21764da51c2"
 dependencies = [
  "anchor-lang",
 ]
