@@ -813,7 +813,7 @@ dependencies = [
  "anchor-spl",
  "chrono",
  "clockwork-cron",
- "tuktuk-program 0.1.0",
+ "tuktuk-program 0.1.0 (git+https://github.com/helium/tuktuk.git?rev=97ec1ff)",
 ]
 
 [[package]]
@@ -2483,6 +2483,7 @@ dependencies = [
 [[package]]
 name = "tuktuk-program"
 version = "0.1.0"
+source = "git+https://github.com/helium/tuktuk.git?rev=1b2384c#1b2384cffc8e6121b19e6c8908683f3788a37034"
 dependencies = [
  "anchor-lang",
 ]
@@ -2490,7 +2491,7 @@ dependencies = [
 [[package]]
 name = "tuktuk-program"
 version = "0.1.0"
-source = "git+https://github.com/helium/tuktuk.git?rev=1b2384c#1b2384cffc8e6121b19e6c8908683f3788a37034"
+source = "git+https://github.com/helium/tuktuk.git?rev=97ec1ff#97ec1ffd000deb0622be445ee778a21764da51c2"
 dependencies = [
  "anchor-lang",
 ]
