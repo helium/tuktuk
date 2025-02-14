@@ -22,6 +22,6 @@ anchor-lang = { workspace = true, features = ["init-if-needed"] }
 anchor-spl = { workspace = true }
 # tuktuk-program = { path = "../../../tuktuk-program" }
 # Need to use this for build-verify to work. Use above for debug before pushing
-tuktuk-program = { git = "https://github.com/helium/tuktuk.git", rev = "1b2384c" }
+tuktuk-program = { git = "https://github.com/helium/tuktuk.git", rev = "a18bd79" }
 getrandom = { version = "0.2.15", features = ["custom"] }
 
