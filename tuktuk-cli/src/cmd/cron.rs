@@ -9,7 +9,7 @@ use solana_sdk::{
 use tuktuk::cron;
 use tuktuk_program::{
     compile_transaction,
-    cron::cron::{
+    cron::{
         accounts::{CronJobNameMappingV0, CronJobV0, UserCronJobsV0},
         client::{accounts::QueueCronTasksV0, args::QueueCronTasksV0 as QueueCronTasksV0Args},
         types::InitializeCronJobArgsV0,
@@ -143,14 +143,14 @@ impl CronCmd {
                         cron_job_key.as_ref(),
                         &i.to_le_bytes(),
                     ],
-                    &tuktuk_program::cron::cron::ID,
+                    &tuktuk_program::cron::ID,
                 )
                 .0
             })
             .collect::<Vec<Pubkey>>();
         let (queue_tx, _) = compile_transaction(
             vec![Instruction {
-                program_id: tuktuk_program::cron::cron::ID,
+                program_id: tuktuk_program::cron::ID,
                 accounts: [
                     QueueCronTasksV0 {
                         cron_job: *cron_job_key,

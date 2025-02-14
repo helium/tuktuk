@@ -1,7 +1,7 @@
 use clap::{Args, Subcommand};
 use serde::Serialize;
 use solana_sdk::{pubkey::Pubkey, signer::Signer};
-use tuktuk_program::cron::cron::{
+use tuktuk_program::cron::{
     accounts::{CronJobTransactionV0, CronJobV0},
     types::{AddCronTransactionArgsV0, RemoveCronTransactionArgsV0, TransactionSourceV0},
 };

@@ -64,11 +64,9 @@ pub mod cron {
     use tuktuk_program::{
         cron::{
             self,
-            cron::{
-                accounts::{CronJobV0, UserCronJobsV0},
-                types::InitializeCronJobArgsV0,
-                ID,
-            },
+            accounts::{CronJobV0, UserCronJobsV0},
+            types::InitializeCronJobArgsV0,
+            ID,
         },
         TaskQueueV0,
     };
@@ -87,7 +85,7 @@ pub mod cron {
                 authority.as_ref(),
                 &cron_job_id.to_le_bytes()[..],
             ],
-            &cron::cron::ID,
+            &cron::ID,
         )
         .0
     }
@@ -99,25 +97,17 @@ pub mod cron {
                 authority.as_ref(),
                 &hash_name(name),
             ],
-            &cron::cron::ID,
+            &cron::ID,
         )
         .0
     }
 
     pub fn task_return_account_1_key(cron_job: &Pubkey) -> Pubkey {
-        Pubkey::find_program_address(
-            &[b"task_return_account_1", cron_job.as_ref()],
-            &cron::cron::ID,
-        )
-        .0
+        Pubkey::find_program_address(&[b"task_return_account_1", cron_job.as_ref()], &cron::ID).0
     }
 
     pub fn task_return_account_2_key(cron_job: &Pubkey) -> Pubkey {
-        Pubkey::find_program_address(
-            &[b"task_return_account_2", cron_job.as_ref()],
-            &cron::cron::ID,
-        )
-        .0
+        Pubkey::find_program_address(&[b"task_return_account_2", cron_job.as_ref()], &cron::ID).0
     }
 
     pub fn keys(authority: &Pubkey, user_cron_jobs: &UserCronJobsV0) -> Result<Vec<Pubkey>, Error> {
@@ -141,7 +131,7 @@ pub mod cron {
     ) -> Result<Instruction, Error> {
         Ok(Instruction {
             program_id: ID,
-            accounts: cron::cron::client::accounts::InitializeCronJobV0 {
+            accounts: cron::client::accounts::InitializeCronJobV0 {
                 task_queue: task_queue_key,
                 payer,
                 system_program: solana_sdk::system_program::ID,
@@ -157,7 +147,7 @@ pub mod cron {
                 task_queue_authority: task_queue_authority_key(&task_queue_key, &queue_authority),
             }
             .to_account_metas(None),
-            data: cron::cron::client::args::InitializeCronJobV0 { args }.data(),
+            data: cron::client::args::InitializeCronJobV0 { args }.data(),
         })
     }
 
@@ -205,8 +195,8 @@ pub mod cron {
         name: String,
     ) -> Result<Instruction, Error> {
         Ok(Instruction {
-            program_id: cron::cron::ID,
-            accounts: cron::cron::client::accounts::CloseCronJobV0 {
+            program_id: cron::ID,
+            accounts: cron::client::accounts::CloseCronJobV0 {
                 rent_refund,
                 payer,
                 authority: payer,
@@ -216,7 +206,7 @@ pub mod cron {
                 system_program: solana_sdk::system_program::ID,
             }
             .to_account_metas(None),
-            data: cron::cron::client::args::CloseCronJobV0 {}.data(),
+            data: cron::client::args::CloseCronJobV0 {}.data(),
         })
     }
 
@@ -252,10 +242,8 @@ pub mod cron_job_transaction {
     use solana_sdk::{instruction::Instruction, pubkey::Pubkey};
     use tuktuk_program::cron::{
         self,
-        cron::{
-            accounts::CronJobV0,
-            types::{AddCronTransactionArgsV0, RemoveCronTransactionArgsV0},
-        },
+        accounts::CronJobV0,
+        types::{AddCronTransactionArgsV0, RemoveCronTransactionArgsV0},
     };
 
     use crate::error::Error;
@@ -267,7 +255,7 @@ pub mod cron_job_transaction {
                 cron_job_key.as_ref(),
                 &cron_job_transaction_id.to_le_bytes()[..],
             ],
-            &cron::cron::ID,
+            &cron::ID,
         )
         .0
     }
@@ -290,8 +278,8 @@ pub mod cron_job_transaction {
         Ok((
             cron_job_transaction_key,
             Instruction {
-                program_id: cron::cron::ID,
-                accounts: cron::cron::client::accounts::AddCronTransactionV0 {
+                program_id: cron::ID,
+                accounts: cron::client::accounts::AddCronTransactionV0 {
                     payer,
                     cron_job: cron_job_key,
                     cron_job_transaction: cron_job_transaction_key,
@@ -299,7 +287,7 @@ pub mod cron_job_transaction {
                     authority: payer,
                 }
                 .to_account_metas(None),
-                data: cron::cron::client::args::AddCronTransactionV0 { args }.data(),
+                data: cron::client::args::AddCronTransactionV0 { args }.data(),
             },
         ))
     }
@@ -312,8 +300,8 @@ pub mod cron_job_transaction {
         let cron_job_transaction_key = self::key(&cron_job_key, args.index);
 
         Ok(Instruction {
-            program_id: cron::cron::ID,
-            accounts: cron::cron::client::accounts::RemoveCronTransactionV0 {
+            program_id: cron::ID,
+            accounts: cron::client::accounts::RemoveCronTransactionV0 {
                 rent_refund: payer,
                 authority: payer,
                 cron_job: cron_job_key,
@@ -321,7 +309,7 @@ pub mod cron_job_transaction {
                 system_program: solana_sdk::system_program::ID,
             }
             .to_account_metas(None),
-            data: cron::cron::client::args::RemoveCronTransactionV0 { args }.data(),
+            data: cron::client::args::RemoveCronTransactionV0 { args }.data(),
         })
     }
 }
