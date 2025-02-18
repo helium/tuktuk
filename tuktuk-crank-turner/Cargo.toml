@@ -4,6 +4,8 @@ version = "0.1.17"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
+homepage.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "tuktuk-crank-turner"

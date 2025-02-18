@@ -1,10 +1,13 @@
 [package]
 name = "tuktuk-cli"
 version = "0.1.0"
-description = "A Helium Network cli"
+description = "A cli for tuktuk"
+homepage.workspace = true
+repository.workspace = true
 authors.workspace = true
 license.workspace = true
 edition.workspace = true
+
 
 [[bin]]
 name = "tuktuk"

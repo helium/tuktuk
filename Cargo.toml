@@ -2,6 +2,9 @@
 authors = ["Helium <info@helium.com>"]
 license = "Apache-2.0"
 edition = "2021"
+description = "Tuktuk is a permissionless timed crank system for Solana."
+homepage = "https://github.com/helium/tuktuk"
+repository = "https://github.com/helium/tuktuk"
 
 [workspace]
 resolver = "2"
