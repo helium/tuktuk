@@ -57,7 +57,13 @@ spl-associated-token-account = "2.3.0"
 spl-token = "4.0.0"
 itertools = "0.13"
 tokio-graceful-shutdown = "0.15"
-solana-transaction-utils = { path = "./solana-transaction-utils" }
+solana-transaction-utils = { version = "0.1.0", path = "./solana-transaction-utils" }
+tuktuk-sdk = { version = "0.1.0", path = "./tuktuk-sdk" }
+tuktuk-program = { version = "0.1.0", path = "./tuktuk-program" }
+# solana-transaction-utils = { version = "0.1.0" }
+# tuktuk-sdk = { version = "0.1.0" }
+# tuktuk-program = { version = "0.1.0" }
+
 
 [profile.release]
 debug = true

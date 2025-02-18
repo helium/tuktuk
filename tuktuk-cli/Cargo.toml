@@ -30,8 +30,8 @@ serde_json = { workspace = true }
 anchor-client = { workspace = true, features = ["async"] }
 solana-sdk = { workspace = true }
 dirs = "5.0.1"
-tuktuk-sdk = { path = "../tuktuk-sdk" }
-tuktuk-program = { path = "../tuktuk-program" }
+tuktuk-sdk = { workspace = true }
+tuktuk-program = { workspace = true }
 solana-transaction-utils = { workspace = true}
 spl-associated-token-account = { workspace = true }
 spl-token = { workspace = true }
