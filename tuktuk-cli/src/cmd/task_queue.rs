@@ -208,6 +208,7 @@ impl TaskQueueCmd {
                     update_authority: task_queue.update_authority,
                     min_crank_reward: task_queue.min_crank_reward,
                     balance: task_queue_balance,
+                    stale_task_age: *stale_task_age,
                 })?;
             }
             Cmd::Update {
@@ -269,6 +270,7 @@ impl TaskQueueCmd {
                     name: task_queue.name,
                     min_crank_reward: task_queue.min_crank_reward,
                     balance: task_queue_balance,
+                    stale_task_age: task_queue.stale_task_age,
                 };
                 print_json(&serializable)?;
             }
@@ -383,4 +385,5 @@ pub struct TaskQueue {
     pub name: String,
     pub min_crank_reward: u64,
     pub balance: u64,
+    pub stale_task_age: u32,
 }
