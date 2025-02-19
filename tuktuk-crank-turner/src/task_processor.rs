@@ -318,6 +318,20 @@ impl TimedTask {
                             "task {:?} failed after {} retries",
                             self.task_key, self.max_retries
                         );
+                        let task_queue = self.get_task_queue(ctx.clone()).await;
+                        ctx.task_queue
+                            .add_task(TimedTask {
+                                task: self.task.clone(),
+                                total_retries: self.total_retries + 1,
+                                // Try again in 30 seconds with exponential backoff
+                                task_time: self.task_time + task_queue.stale_task_age as u64,
+                                task_key: self.task_key,
+                                task_queue_key: self.task_queue_key,
+                                task_queue_name: self.task_queue_name.clone(),
+                                max_retries: self.max_retries,
+                                in_flight_task_ids: vec![],
+                            })
+                            .await?;
                         TASKS_FAILED
                             .with_label_values(&[self.task_queue_name.as_str(), "RetriesExceeded"])
                             .inc();

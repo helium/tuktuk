@@ -10,6 +10,7 @@ pub struct UpdateTaskQueueArgsV0 {
     pub capacity: Option<u16>,
     pub lookup_tables: Option<Vec<Pubkey>>,
     pub update_authority: Option<Pubkey>,
+    pub stale_task_age: Option<u32>,
 }
 
 #[derive(Accounts)]
@@ -51,6 +52,9 @@ pub fn handler(ctx: Context<UpdateTaskQueueV0>, args: UpdateTaskQueueArgsV0) -> 
     }
     if let Some(update_authority) = args.update_authority {
         ctx.accounts.task_queue.update_authority = update_authority;
+    }
+    if let Some(stale_task_age) = args.stale_task_age {
+        ctx.accounts.task_queue.stale_task_age = stale_task_age;
     }
 
     resize_to_fit(
