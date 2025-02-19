@@ -25,7 +25,7 @@ Next, create a task queue. A task queue has a default crank reward that will be 
 Note that the `funding-amount` you specify is not inclusive of the 1 SOL minimum deposit. The funding amount will be used to pay the fees for tasks queued recursively (ie, by other tasks). 
 
 ```
-tuktuk task-queue -u <your-solana-url> create --name <your-queue-name> --capacity 10 --funding-amount 100000000 --queue-authority <the-authority-to-queue-tasks> --crank-reward 1000000
+tuktuk -u <your-solana-url> task-queue create --name <your-queue-name> --capacity 10 --funding-amount 100000000 --queue-authority <the-authority-to-queue-tasks> --crank-reward 1000000
 ```
 
 The queue capacity is the maximum number of tasks that can be queued at once. Higher capacity means more tasks can be queued, but it also costs more rent in SOL.
@@ -35,7 +35,7 @@ The queue capacity is the maximum number of tasks that can be queued at once. Hi
 After tasks have been run, you will need to continually fund the task queue to keep it alive. Note that you will not need to fund the task queue immediately if you specified a `funding-amount` in the `create` command.
 
 ```
-tuktuk task-queue -u <your-solana-url> fund --task-queue-name <your-queue-name> --amount 100000000
+tuktuk -u <your-solana-url> task-queue fund --task-queue-name <your-queue-name> --amount 100000000
 ```
 
 ### Adding Queue Authorities
@@ -45,7 +45,7 @@ Task queues are meant to be reused for multiple use cases. As such, there can be
 You can add queue authorities to a task queue by using the `add-queue-authority` command. Queue authorities can queue tasks on behalf of other users.
 
 ```
-tuktuk task-queue -u <your-solana-url> add-queue-authority --task-queue-name <your-queue-name> --queue-authority <the-authority-to-queue-tasks>
+tuktuk -u <your-solana-url> task-queue add-queue-authority --task-queue-name <your-queue-name> --queue-authority <the-authority-to-queue-tasks>
 ```
 
 An example use case for multiple authorities at Helium is that we have a program, hpl-crons, that allows users to
