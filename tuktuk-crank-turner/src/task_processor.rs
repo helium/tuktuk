@@ -303,8 +303,8 @@ impl TimedTask {
                         ctx.task_queue
                             .add_task(TimedTask {
                                 task: self.task.clone(),
-                                total_retries: self.total_retries + 1,
-                                // Try again in 30 seconds with exponential backoff
+                                total_retries: 0,
+                                // Try again when task is stale
                                 task_time: now + retry_delay,
                                 task_key: self.task_key,
                                 task_queue_key: self.task_queue_key,
