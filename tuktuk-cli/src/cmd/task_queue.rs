@@ -43,6 +43,11 @@ pub enum Cmd {
         min_crank_reward: u64,
         #[arg(long, help = "Lookup tables to create")]
         lookup_tables: Option<Vec<Pubkey>>,
+        #[arg(
+            long,
+            help = "Age before a task is considered stale and can be deleted without running the instructions. This is effectively the retention rate for debugging purposes."
+        )]
+        stale_task_age: u32,
     },
     Update {
         #[command(flatten)]
@@ -55,6 +60,11 @@ pub enum Cmd {
         update_authority: Option<Pubkey>,
         #[arg(long)]
         capacity: Option<u16>,
+        #[arg(
+            long,
+            help = "Age before a task is considered stale and can be deleted without running the instructions. This is effectively the retention rate for debugging purposes."
+        )]
+        stale_task_age: Option<u32>,
     },
     Get {
         #[command(flatten)]
@@ -137,6 +147,7 @@ impl TaskQueueCmd {
                 min_crank_reward,
                 funding_amount,
                 lookup_tables,
+                stale_task_age,
             } => {
                 let client = opts.client().await?;
 
@@ -148,6 +159,7 @@ impl TaskQueueCmd {
                         min_crank_reward: *min_crank_reward,
                         name: name.clone(),
                         lookup_tables: lookup_tables.clone().unwrap_or_default(),
+                        stale_task_age: *stale_task_age,
                     },
                     *update_authority,
                 )
@@ -204,6 +216,7 @@ impl TaskQueueCmd {
                 lookup_tables,
                 update_authority,
                 capacity,
+                stale_task_age,
             } => {
                 let client = opts.client().await?;
                 let task_queue_key = task_queue.get_pubkey(&client).await?.ok_or_else(|| {
@@ -220,6 +233,7 @@ impl TaskQueueCmd {
                         min_crank_reward: *min_crank_reward,
                         lookup_tables: lookup_tables.clone(),
                         update_authority: *update_authority,
+                        stale_task_age: *stale_task_age,
                     },
                 )
                 .await?;

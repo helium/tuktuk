@@ -353,6 +353,12 @@ pub fn handler<'info>(
     ctx: Context<'_, '_, '_, 'info, RunTaskV0<'info>>,
     args: RunTaskArgsV0,
 ) -> Result<()> {
+    let now = Clock::get()?.unix_timestamp;
+    let task_time = match ctx.accounts.task.trigger {
+        TriggerV0::Now => now,
+        TriggerV0::Timestamp(timestamp) => timestamp,
+    };
+    ctx.accounts.task_queue.updated_at = now;
     for id in args.free_task_ids.clone() {
         require_gt!(
             ctx.accounts.task_queue.capacity,
@@ -360,7 +366,6 @@ pub fn handler<'info>(
             ErrorCode::InvalidTaskId
         );
     }
-    ctx.accounts.task_queue.updated_at = Clock::get()?.unix_timestamp;
     let remaining_accounts = ctx.remaining_accounts;
 
     let transaction = match ctx.accounts.task.transaction.clone() {
@@ -447,11 +452,19 @@ pub fn handler<'info>(
         );
     }
 
-    let mut processor = TaskProcessor::new(ctx, &transaction, args.free_task_ids)?;
+    if now.saturating_sub(task_time) <= ctx.accounts.task_queue.stale_task_age as i64 {
+        let mut processor = TaskProcessor::new(ctx, &transaction, args.free_task_ids)?;
 
-    // Process each instruction
-    for ix in &transaction.instructions {
-        processor.process_instruction(ix, remaining_accounts)?;
+        // Process each instruction
+        for ix in &transaction.instructions {
+            processor.process_instruction(ix, remaining_accounts)?;
+        }
+    } else {
+        msg!(
+            "Task is stale with run time {:?}, current time {:?}, closing task",
+            task_time,
+            now
+        );
     }
 
     msg!(

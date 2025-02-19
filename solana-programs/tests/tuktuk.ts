@@ -101,6 +101,7 @@ describe("tuktuk", () => {
           minCrankReward: crankReward,
           capacity: 100,
           lookupTables: [],
+          staleTaskAge: 100,
         })
         .accounts({
           tuktukConfig,
@@ -424,6 +425,7 @@ describe("tuktuk", () => {
           minCrankReward: new anchor.BN(10),
           capacity: 100,
           lookupTables: [],
+          staleTaskAge: 100,
         })
         .accounts({
           tuktukConfig,

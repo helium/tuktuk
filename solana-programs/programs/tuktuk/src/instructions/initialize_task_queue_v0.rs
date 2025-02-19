@@ -14,6 +14,7 @@ pub struct InitializeTaskQueueArgsV0 {
     pub name: String,
     pub capacity: u16,
     pub lookup_tables: Vec<Pubkey>,
+    pub stale_task_age: u32,
 }
 
 pub fn hash_name(name: &str) -> [u8; 32] {
@@ -81,6 +82,7 @@ pub fn handler(ctx: Context<InitializeTaskQueueV0>, args: InitializeTaskQueueArg
         created_at: Clock::get()?.unix_timestamp,
         updated_at: Clock::get()?.unix_timestamp,
         num_queue_authorities: 0,
+        stale_task_age: args.stale_task_age,
     });
     ctx.accounts
         .task_queue_name_mapping

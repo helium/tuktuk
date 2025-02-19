@@ -5339,7 +5339,7 @@ dependencies = [
 
 [[package]]
 name = "tuktuk-crank-turner"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -5370,14 +5370,14 @@ dependencies = [
 
 [[package]]
 name = "tuktuk-program"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anchor-lang",
 ]
 
 [[package]]
 name = "tuktuk-sdk"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anchor-lang",
  "async-trait",

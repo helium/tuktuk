@@ -39,6 +39,11 @@ pub struct TaskQueueV0 {
     pub name: String,
     pub lookup_tables: Vec<Pubkey>,
     pub num_queue_authorities: u16,
+    // Age before a task is considered stale and can be run/deleted without running the instructions.
+    // The longer this value, the more likely you have stale tasks clogging up your queue, which can cause
+    // the queue to be full and prevent new tasks from being added.
+    // The shorter this value, the more difficult it will be to debug, as failed tasks dissappear.
+    pub stale_task_age: u32,
 }
 
 #[macro_export]
