@@ -460,7 +460,11 @@ pub fn handler<'info>(
             processor.process_instruction(ix, remaining_accounts)?;
         }
     } else {
-        msg!("Task is stale, closing task");
+        msg!(
+            "Task is stale with run time {:?}, current time {:?}, closing task",
+            task_time,
+            now
+        );
     }
 
     msg!(

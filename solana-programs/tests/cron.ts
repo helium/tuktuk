@@ -93,6 +93,7 @@ describe("cron", () => {
           minCrankReward: crankReward,
           capacity: 100,
           lookupTables: [],
+          staleTaskAge: 10000,
         })
         .accounts({
           tuktukConfig,
@@ -223,6 +224,7 @@ describe("cron", () => {
       );
 
       await tx.sign([crankTurner]);
+
       await sendAndConfirmWithRetry(
         provider.connection,
         Buffer.from(tx.serialize()),
@@ -249,7 +251,6 @@ describe("cron", () => {
         task: task3,
         crankTurner: crankTurner.publicKey,
       });
-
       const tx2 = toVersionedTx(
         await populateMissingDraftInfo(provider.connection, {
           feePayer: crankTurner.publicKey,
@@ -260,7 +261,6 @@ describe("cron", () => {
           })
         })
       );
-
       await tx2.sign([crankTurner]);
       console.log(await sendAndConfirmWithRetry(
         provider.connection,

@@ -12,7 +12,8 @@ pub struct InitializeTuktukConfigArgsV0 {
 }
 
 #[derive(Accounts)]
-pub struct InitializeTuktukConfigV0<'info> {
+pub struct InitializeTuktukConfigV0<'i
+nfo> {
     #[account(mut)]
     pub payer: Signer<'info>,
     #[account(
