@@ -14,7 +14,7 @@ Creators of Task Queues set their payment per-crank turn in SOL. Crankers that r
 
 ## Usage
 
-Clone this repo and run `cargo build -p tuktuk-cli` to get the command line interface. It will be in the `target/debug/tuktuk` directory.
+Install the tuktuk cli by running `cargo install tuktuk-cli`.
 
 ### Create a task queue
 
