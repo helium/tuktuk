@@ -51,7 +51,7 @@ pub struct QueueTaskV0<'info> {
 }
 
 pub fn handler(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
-    require_gt!(
+    require_gte!(
         40,
         args.description.len(),
         ErrorCode::InvalidDescriptionLength

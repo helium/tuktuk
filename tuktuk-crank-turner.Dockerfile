@@ -12,7 +12,13 @@ RUN apt-get update && \
     rm -rf /tmp/*
 
 WORKDIR /app
-COPY . .
+COPY Cargo.toml Cargo.toml
+COPY Cargo.lock Cargo.lock
+COPY tuktuk-crank-turner tuktuk-crank-turner
+COPY tuktuk-program tuktuk-program
+COPY tuktuk-sdk tuktuk-sdk
+COPY tuktuk-cli tuktuk-cli
+COPY solana-transaction-utils solana-transaction-utils
 
 # Build with cleanup
 RUN cargo build --release --package tuktuk-crank-turner && \
