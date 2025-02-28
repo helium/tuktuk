@@ -79,10 +79,7 @@ impl TimedTask {
         Ok(result)
     }
 
-    pub async fn get_next_available_task_ids(
-        &self,
-        ctx: Arc<TaskContext>,
-    ) -> anyhow::Result<Vec<u16>> {
+    pub async fn get_available_task_ids(&self, ctx: Arc<TaskContext>) -> anyhow::Result<Vec<u16>> {
         let task_queue = self.get_task_queue(ctx.clone()).await;
         let mut in_progress = ctx.in_progress_tasks.lock().await;
         let mut task_ids = in_progress
@@ -101,6 +98,7 @@ impl TimedTask {
             &task_queue.task_bitmap,
             self.task.free_tasks,
             &task_ids,
+            rand::random_range(0..task_queue.task_bitmap.len()),
         )?;
         task_ids.extend(next_available.clone());
         Ok(next_available)
@@ -144,7 +142,7 @@ impl TimedTask {
             return self.handle_ix_err(ctx.clone(), err).await;
         }
         let lookup_tables = maybe_lookup_tables.unwrap();
-        let next_available = self.get_next_available_task_ids(ctx.clone()).await?;
+        let next_available = self.get_available_task_ids(ctx.clone()).await?;
         self.in_flight_task_ids = next_available.clone();
 
         let maybe_run_ix = run_ix_with_free_tasks(
@@ -291,7 +289,9 @@ impl TimedTask {
                 | TransactionQueueError::TransactionError(_)
                 | TransactionQueueError::TpuSenderError(_) => {
                     if self.total_retries < self.max_retries {
-                        let retry_delay = 30 * (1 << self.total_retries);
+                        let base_delay = 30 * (1 << self.total_retries);
+                        let jitter = rand::random_range(0..60); // Jitter up to 1 minute to prevent conflicts with other turners
+                        let retry_delay = base_delay + jitter;
                         info!(
                             ?self,
                             ?err,
@@ -303,7 +303,7 @@ impl TimedTask {
                         ctx.task_queue
                             .add_task(TimedTask {
                                 task: self.task.clone(),
-                                total_retries: 0,
+                                total_retries: self.total_retries + 1,
                                 // Try again when task is stale
                                 task_time: now + retry_delay,
                                 task_key: self.task_key,

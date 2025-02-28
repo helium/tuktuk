@@ -21,14 +21,17 @@ pub fn next_available_task_ids_excluding_in_progress(
     task_bitmap: &[u8],
     n: u8,
     in_progress_task_ids: &HashSet<u16>,
+    start_idx: usize,
 ) -> Result<Vec<u16>, Error> {
     if n == 0 {
         return Ok(vec![]);
     }
 
     let mut available_task_ids = Vec::new();
-    for (byte_idx, byte) in task_bitmap.iter().enumerate() {
-        if *byte != 0xff {
+    for offset in 0..task_bitmap.len() {
+        let byte_idx = (start_idx + offset) % task_bitmap.len();
+        let byte = task_bitmap[byte_idx];
+        if byte != 0xff {
             // If byte is not all 1s
             for bit_idx in 0..8 {
                 let id = (byte_idx * 8 + bit_idx) as u16;
@@ -232,6 +235,7 @@ pub async fn run_ix(
         &task_queue.task_bitmap,
         task.free_tasks,
         in_progress_task_ids,
+        rand::random_range(0..task_queue.task_bitmap.len()),
     )?;
 
     let lookup_tables = client
@@ -247,8 +251,7 @@ pub async fn run_ix(
                 })
             })
         })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(Error::from)?;
+        .collect::<Result<Vec<_>, _>>()?;
 
     run_ix_with_free_tasks(task_key, &task, payer, next_available, lookup_tables).await
 }
