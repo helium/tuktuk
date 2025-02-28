@@ -251,8 +251,7 @@ pub async fn run_ix(
                 })
             })
         })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(Error::from)?;
+        .collect::<Result<Vec<_>, _>>()?;
 
     run_ix_with_free_tasks(task_key, &task, payer, next_available, lookup_tables).await
 }
