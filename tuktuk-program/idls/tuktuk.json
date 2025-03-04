@@ -353,7 +353,12 @@
     {
       "name": "return_tasks_v0",
       "discriminator": [38, 235, 111, 148, 44, 99, 189, 164],
-      "accounts": [],
+      "accounts": [
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
       "args": [
         {
           "name": "args",
