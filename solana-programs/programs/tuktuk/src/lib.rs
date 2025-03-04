@@ -64,6 +64,13 @@ pub mod tuktuk {
     pub fn remove_queue_authority_v0(ctx: Context<RemoveQueueAuthorityV0>) -> Result<()> {
         remove_queue_authority_v0::handler(ctx)
     }
+
+    pub fn return_tasks_v0(
+        ctx: Context<ReturnTasksV0>,
+        args: ReturnTasksArgsV0,
+    ) -> Result<RunTaskReturnV0> {
+        return_tasks_v0::handler(ctx, args)
+    }
 }
 
 #[derive(Accounts)]
