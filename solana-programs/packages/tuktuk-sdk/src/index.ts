@@ -10,7 +10,9 @@ export function nextAvailableTaskIds(taskBitmap: Buffer, n: number): number[] {
   }
 
   const availableTaskIds: number[] = [];
-  for (let byteIdx = 0; byteIdx < taskBitmap.length; byteIdx++) {
+  const randStart = Math.floor(Math.random() * taskBitmap.length);
+  for (let byteOffset = 0; byteOffset < taskBitmap.length; byteOffset++) {
+    const byteIdx = (byteOffset + randStart) % taskBitmap.length;
     const byte = taskBitmap[byteIdx];
     if (byte !== 0xff) {
       // If byte is not all 1s
