@@ -224,7 +224,12 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         )?;
 
         if let Some((_, return_data)) = solana_program::program::get_return_data() {
-            self.process_return_data(&return_data, &accounts)?;
+            match self.process_return_data(&return_data, &accounts) {
+                Ok(_) => (),
+                Err(e) => {
+                    msg!("Error processing return data: {:?}", e);
+                }
+            }
         }
 
         Ok(())
