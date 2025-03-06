@@ -6,6 +6,8 @@ pub enum Error {
     RpcError(#[from] solana_client::client_error::ClientError),
     #[error("Instruction error: {0}")]
     InstructionError(#[from] solana_sdk::instruction::InstructionError),
+    #[error("Serialization error: {0}")]
+    SerializationError(#[from] bincode::Error),
     #[error("Compile error: {0}")]
     CompileError(#[from] CompileError),
     #[error("Signer error: {0}")]

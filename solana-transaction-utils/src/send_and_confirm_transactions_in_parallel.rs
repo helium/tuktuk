@@ -302,7 +302,10 @@ async fn sign_all_messages_and_send<T: Signers + ?Sized>(
         });
     }
     // collect to convert Vec<Result<_>> to Result<Vec<_>>
-    join_all(futures).await.into_iter().collect::<Result<_>>()?;
+    join_all(futures)
+        .await
+        .into_iter()
+        .collect::<Result<()>>()?;
     Ok(())
 }
 
