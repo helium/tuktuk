@@ -5,9 +5,10 @@ use solana_client::rpc_config::RpcSimulateTransactionConfig;
 use solana_sdk::{
     address_lookup_table::{state::AddressLookupTable, AddressLookupTableAccount},
     commitment_config::CommitmentConfig,
+    instruction::InstructionError,
     message::{v0, VersionedMessage},
     signer::Signer,
-    transaction::VersionedTransaction,
+    transaction::{TransactionError, VersionedTransaction},
 };
 use solana_transaction_utils::queue::{TransactionQueueError, TransactionTask};
 use tokio_graceful_shutdown::SubsystemHandle;
@@ -283,6 +284,13 @@ impl TimedTask {
                             in_flight_task_ids: vec![],
                         })
                         .await?;
+                }
+                // Handle task not found
+                TransactionQueueError::TransactionError(TransactionError::InstructionError(
+                    _,
+                    InstructionError::Custom(code),
+                )) if code == 3012 && ctx.rpc_client.get_account(&self.task_key).await.is_err() => {
+                    info!(?self.task_key, "task not found, removing from queue");
                 }
                 TransactionQueueError::RawTransactionError(_)
                 | TransactionQueueError::SimulatedTransactionError(_)

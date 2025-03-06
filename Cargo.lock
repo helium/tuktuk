@@ -5382,7 +5382,7 @@ dependencies = [
 
 [[package]]
 name = "tuktuk-crank-turner"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "anchor-client",
  "anchor-lang",
