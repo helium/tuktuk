@@ -407,10 +407,21 @@ pub fn handler<'info>(
                     &ctx.accounts.task.queued_at.to_le_bytes()[..],
                     &remaining_accounts[..num_accounts as usize]
                         .iter()
-                        .map(|acc| {
+                        .enumerate()
+                        .map(|(i, acc)| {
                             let mut data = Vec::with_capacity(34);
                             data.extend_from_slice(&acc.key.to_bytes());
-                            data.push(if acc.is_writable { 1 } else { 0 });
+                            let writable_end_idx = remote_tx.transaction.num_rw
+                                + remote_tx.transaction.num_ro_signers
+                                + remote_tx.transaction.num_rw_signers;
+                            // The rent refund account may make an account that shouldn't be writable appear writable
+                            if i >= writable_end_idx as usize
+                                && *acc.key == ctx.accounts.rent_refund.key()
+                            {
+                                data.push(0);
+                            } else {
+                                data.push(if acc.is_writable { 1 } else { 0 });
+                            }
                             data.push(if acc.is_signer { 1 } else { 0 });
                             remote_tx.transaction.accounts.push(*acc.key);
                             data
