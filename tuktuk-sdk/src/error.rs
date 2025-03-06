@@ -26,7 +26,7 @@ pub enum Error {
     TooManyTasks,
     #[error("Price arithmetic error")]
     PriceArithmeticError,
-    #[error("Failed to fetch remote transaction")]
+    #[error("Failed to fetch remote transaction: {0}")]
     FetchRemoteTransactionError(#[from] reqwest::Error),
     #[error("Failed to decode base64")]
     DecodeBase64Error(#[from] base64::DecodeError),
