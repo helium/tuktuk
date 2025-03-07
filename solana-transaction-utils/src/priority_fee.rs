@@ -237,7 +237,7 @@ pub async fn auto_compute_limit_and_price<C: AsRef<RpcClient>>(
     Ok((
         updated_instructions,
         // compute fee + signature fees + ed25519 signature fees
-        ((priority_fee * (compute_limit as u64) + 999_999) / 1000000)  // Ceiling division
+        (priority_fee * (compute_limit as u64)).div_ceil(1_000_000)  // Ceiling div
             + (num_unique_signers as u64 * 5000)
             + (num_ed25519_sigs as u64 * 5000)
             + (num_secp_sigs as u64 * 5000),

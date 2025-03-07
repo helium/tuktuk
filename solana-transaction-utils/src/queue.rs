@@ -140,7 +140,7 @@ pub fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                 let (computed, fee) = auto_compute_limit_and_price(&rpc_client, tx.clone(), 1.2, &payer_pubkey, Some(blockhash.0), Some(lookup_tables.clone())).await.unwrap();
                                 let num_tasks = task_ids.len();
                                 for task_id in task_ids.iter() {
-                                    fees_by_task_id.insert(*task_id, (fee + num_tasks as u64 - 1) / num_tasks as u64);  // Ceiling division
+                                    fees_by_task_id.insert(*task_id, fee.div_ceil(num_tasks as u64));
                                 }
                                 if fee > max_sol_fee {
                                     for task_id in task_ids {
