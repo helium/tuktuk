@@ -148,7 +148,7 @@ impl Cli {
             in_progress_tasks: Arc::new(Mutex::new(HashMap::new())),
             lookup_tables: Arc::new(Mutex::new(HashMap::new())),
             task_queues: Arc::new(Mutex::new(HashMap::new())),
-            profitability: Arc::new(TaskQueueProfitability::new()),
+            profitability: Arc::new(TaskQueueProfitability::new(settings.recent_attempts_window)),
         });
 
         let pubsub_repoll = settings.pubsub_repoll;
