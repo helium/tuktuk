@@ -147,7 +147,7 @@ pub async fn get_and_watch_tasks(
         });
 
     tokio::select! {
-        res = stream_fut => res.map_err(anyhow::Error::from),
+        res = stream_fut => res,
         _ = handle.on_shutdown_requested() => anyhow::Ok(()),
     }
 }
