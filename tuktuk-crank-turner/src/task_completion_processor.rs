@@ -23,7 +23,7 @@ pub async fn process_task_completions(
             result
                 .task
                 .task
-                .handle_completion(ctx.clone(), result.err)
+                .handle_completion(ctx.clone(), result.err, result.fee)
                 .await
                 .expect("Failed to handle completion");
         }

@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{cmp::max, collections::HashSet, sync::Arc};
 
 use futures::{Stream, StreamExt, TryStreamExt};
 use solana_client::rpc_config::RpcSimulateTransactionConfig;
@@ -115,15 +115,15 @@ impl TimedTask {
         match err {
             tuktuk_sdk::error::Error::AccountNotFound => {
                 info!("lookup table accounts, removing from queue");
-                self.handle_completion(ctx, None).await
+                self.handle_completion(ctx, None, 0).await
             }
             _ => {
                 self.handle_completion(
                     ctx,
-                    Some(TransactionQueueError::SimulatedTransactionError(format!(
-                        "Failed to get instructions: {:?}",
-                        err
-                    ))),
+                    Some(TransactionQueueError::RawSimulatedTransactionError(
+                        format!("Failed to get instructions: {:?}", err),
+                    )),
+                    0,
                 )
                 .await
             }
@@ -135,8 +135,28 @@ impl TimedTask {
             rpc_client,
             payer,
             tx_sender,
+            task_queue,
+            profitability,
             ..
         } = &*ctx;
+
+        // Maybe delay the task by 5-10 seconds if it's not profitable
+        if self.total_retries == 0 && !self.profitability_delayed {
+            let now = *ctx.now_rx.borrow();
+            let should_delay = profitability.should_delay(&self.task_queue_name).await;
+            if should_delay {
+                let delay = rand::random_range(5..10);
+                info!(?self.task_key, ?delay, "task is from unprofitable queue, delaying");
+                task_queue
+                    .add_task(TimedTask {
+                        profitability_delayed: true,
+                        task_time: max(now, self.task_time) + delay,
+                        ..self.clone()
+                    })
+                    .await?;
+                return Ok(());
+            }
+        }
 
         let maybe_lookup_tables = self.get_or_populate_luts(ctx.clone()).await;
         if let Err(err) = maybe_lookup_tables {
@@ -196,7 +216,7 @@ impl TimedTask {
                 Ok(simulated) => {
                     if let Some(err) = simulated.value.err {
                         info!(
-                                    ?self,
+                                    ?self.task_key,
                             ?err,
                             ?simulated.value.logs,
                             "task simulation failed",
@@ -204,7 +224,8 @@ impl TimedTask {
                         return self
                             .handle_completion(
                                 ctx,
-                                Some(TransactionQueueError::TransactionError(err)),
+                                Some(TransactionQueueError::SimulatedTransactionError(err)),
+                                0,
                             )
                             .await;
                     }
@@ -214,9 +235,10 @@ impl TimedTask {
                     return self
                         .handle_completion(
                             ctx,
-                            Some(TransactionQueueError::SimulatedTransactionError(
+                            Some(TransactionQueueError::RawSimulatedTransactionError(
                                 err.to_string(),
                             )),
+                            0,
                         )
                         .await;
                 }
@@ -241,6 +263,7 @@ impl TimedTask {
         &self,
         ctx: Arc<TaskContext>,
         err: Option<TransactionQueueError>,
+        tx_fee: u64,
     ) -> anyhow::Result<()> {
         let mut in_progress = ctx.in_progress_tasks.lock().await;
         let task_ids = in_progress
@@ -256,6 +279,20 @@ impl TimedTask {
             .with_label_values(&[self.task_queue_name.as_str()])
             .dec();
         drop(in_progress);
+
+        // Record the result
+        ctx.profitability
+            .record_transaction_result(
+                &self.task_queue_name,
+                if err.is_none() {
+                    self.task.crank_reward
+                } else {
+                    0
+                },
+                tx_fee,
+            )
+            .await;
+
         if let Some(err) = err {
             let label = match err {
                 TransactionQueueError::SimulatedTransactionError(_) => "Simulated",
@@ -264,6 +301,7 @@ impl TimedTask {
                 TransactionQueueError::FeeTooHigh => "FeeTooHigh",
                 TransactionQueueError::IxGroupTooLarge => "IxGroupTooLarge",
                 TransactionQueueError::TpuSenderError(_) => "TpuError",
+                TransactionQueueError::RawSimulatedTransactionError(_) => "RawSimulated",
             };
             TASKS_FAILED
                 .with_label_values(&[self.task_queue_name.as_str(), label])
@@ -275,17 +313,21 @@ impl TimedTask {
                         .add_task(TimedTask {
                             task: self.task.clone(),
                             total_retries: 0,
+                            in_flight_task_ids: vec![],
+                            profitability_delayed: false,
                             // Try again in 10 seconds
                             task_time: self.task_time + 10,
-                            task_queue_name: self.task_queue_name.clone(),
-                            task_key: self.task_key,
-                            task_queue_key: self.task_queue_key,
-                            max_retries: self.max_retries,
-                            in_flight_task_ids: vec![],
+                            ..self.clone()
                         })
                         .await?;
                 }
-                // Handle task not found
+                // Handle task not found (simulated)
+                TransactionQueueError::SimulatedTransactionError(
+                    TransactionError::InstructionError(_, InstructionError::Custom(code)),
+                ) if code == 3012 && ctx.rpc_client.get_account(&self.task_key).await.is_err() => {
+                    info!(?self.task_key, "task not found, removing from queue");
+                }
+                // Handle task not found (real)
                 TransactionQueueError::TransactionError(TransactionError::InstructionError(
                     _,
                     InstructionError::Custom(code),
@@ -296,7 +338,7 @@ impl TimedTask {
                 | TransactionQueueError::SimulatedTransactionError(_)
                 | TransactionQueueError::TransactionError(_)
                 | TransactionQueueError::TpuSenderError(_) => {
-                    if self.total_retries < self.max_retries {
+                    if self.total_retries < self.max_retries && !self.is_cleanup_task {
                         let base_delay = 30 * (1 << self.total_retries);
                         let jitter = rand::random_range(0..60); // Jitter up to 1 minute to prevent conflicts with other turners
                         let retry_delay = base_delay + jitter;
@@ -314,14 +356,10 @@ impl TimedTask {
                                 total_retries: self.total_retries + 1,
                                 // Try again when task is stale
                                 task_time: now + retry_delay,
-                                task_key: self.task_key,
-                                task_queue_key: self.task_queue_key,
-                                task_queue_name: self.task_queue_name.clone(),
-                                max_retries: self.max_retries,
-                                in_flight_task_ids: self.in_flight_task_ids.clone(),
+                                ..self.clone()
                             })
                             .await?;
-                    } else {
+                    } else if !self.is_cleanup_task {
                         info!(
                             "task {:?} failed after {} retries",
                             self.task_key, self.max_retries
@@ -331,13 +369,10 @@ impl TimedTask {
                             .add_task(TimedTask {
                                 task: self.task.clone(),
                                 total_retries: 0,
-                                // Try again in 30 seconds with exponential backoff
                                 task_time: self.task_time + task_queue.stale_task_age as u64,
-                                task_key: self.task_key,
-                                task_queue_key: self.task_queue_key,
-                                task_queue_name: self.task_queue_name.clone(),
-                                max_retries: self.max_retries,
                                 in_flight_task_ids: vec![],
+                                is_cleanup_task: true,
+                                ..self.clone()
                             })
                             .await?;
                         TASKS_FAILED

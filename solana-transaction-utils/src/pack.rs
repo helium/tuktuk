@@ -14,6 +14,8 @@ use crate::error::Error;
 const MAX_TRANSACTION_SIZE: usize = 1232; // Maximum transaction size in bytes
 
 // Returns packed txs with the indices in instructions that were used in that tx.
+#[allow(clippy::type_complexity)]
+#[allow(clippy::result_large_err)]
 pub fn pack_instructions_into_transactions(
     instructions: Vec<Vec<Instruction>>,
     payer: &Keypair,
@@ -51,7 +53,7 @@ pub fn pack_instructions_into_transactions(
 
         // Add the entire group to current transaction
         curr_instructions.extend(group.iter().cloned());
-        curr_indices.extend(vec![group_idx; group.len()]);
+        curr_indices.push(group_idx);
 
         // If this single group alone exceeds transaction size, we have a problem
         let message = VersionedMessage::V0(v0::Message::try_compile(

@@ -3,6 +3,7 @@ use std::{collections::HashMap, path, sync::Arc, time::Duration};
 use anyhow::Result;
 use clap::Parser;
 use metrics::{register_custom_metrics, REGISTRY};
+use profitability::TaskQueueProfitability;
 use settings::Settings;
 use solana_client::nonblocking::{pubsub_client::PubsubClient, rpc_client::RpcClient};
 use solana_sdk::{commitment_config::CommitmentConfig, signature::Keypair, signer::EncodableKey};
@@ -20,6 +21,7 @@ use warp::{reject::Rejection, reply::Reply, Filter};
 use watchers::{args::WatcherArgs, task_queues::get_and_watch_task_queues};
 
 mod metrics;
+pub mod profitability;
 pub mod settings;
 pub mod task_completion_processor;
 pub mod task_context;
@@ -146,6 +148,7 @@ impl Cli {
             in_progress_tasks: Arc::new(Mutex::new(HashMap::new())),
             lookup_tables: Arc::new(Mutex::new(HashMap::new())),
             task_queues: Arc::new(Mutex::new(HashMap::new())),
+            profitability: Arc::new(TaskQueueProfitability::new()),
         });
 
         let pubsub_repoll = settings.pubsub_repoll;

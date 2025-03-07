@@ -69,6 +69,8 @@ pub async fn get_and_watch_tasks(
                     max_retries: args.max_retries,
                     task_queue_key,
                     in_flight_task_ids: vec![],
+                    is_cleanup_task: false,
+                    profitability_delayed: false,
                 },
                 TriggerV0::Timestamp(ts) => TimedTask {
                     task_queue_name: task_queue_account.name.clone(),
@@ -79,6 +81,8 @@ pub async fn get_and_watch_tasks(
                     max_retries: args.max_retries,
                     task_queue_key,
                     in_flight_task_ids: vec![],
+                    is_cleanup_task: false,
+                    profitability_delayed: false,
                 },
             },
             _ => continue,
@@ -113,6 +117,8 @@ pub async fn get_and_watch_tasks(
                                     max_retries: args.max_retries,
                                     task_queue_key,
                                     in_flight_task_ids: vec![],
+                                    is_cleanup_task: false,
+                                    profitability_delayed: false,
                                 },
                                 TriggerV0::Timestamp(ts) => TimedTask {
                                     task_time: ts as u64,
@@ -123,6 +129,8 @@ pub async fn get_and_watch_tasks(
                                     max_retries: args.max_retries,
                                     task_queue_key,
                                     in_flight_task_ids: vec![],
+                                    is_cleanup_task: false,
+                                    profitability_delayed: false,
                                 },
                             };
                             task_queue

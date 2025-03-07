@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use solana_client::{
     nonblocking::{rpc_client::RpcClient, tpu_client::TpuClient},
@@ -40,8 +40,10 @@ pub enum TransactionQueueError {
     TransactionError(#[from] TransactionError),
     #[error("Raw transaction error: {0}")]
     RawTransactionError(String),
+    #[error("Raw simulated transaction error: {0}")]
+    RawSimulatedTransactionError(String),
     #[error("Simulated transaction error: {0}")]
-    SimulatedTransactionError(String),
+    SimulatedTransactionError(TransactionError),
     #[error("Fee too high")]
     FeeTooHigh,
     #[error("Ix group too large")]
@@ -53,6 +55,7 @@ pub enum TransactionQueueError {
 #[derive(Debug)]
 pub struct CompletedTransactionTask<T: Send + Clone> {
     pub err: Option<TransactionQueueError>,
+    pub fee: u64,
     pub task: TransactionTask<T>,
 }
 
@@ -125,6 +128,7 @@ pub fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                     };
 
                     let txs = pack_instructions_into_transactions(ix_groups, &payer, Some(lookup_tables.clone()));
+                    let mut fees_by_task_id: HashMap<usize, u64> = HashMap::new();
                     match txs {
                         Ok(txs) => {
                             let mut with_auto_compute: Vec<(v0::Message, Vec<usize>)> = Vec::new();
@@ -134,11 +138,16 @@ pub fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                     continue;
                                 }
                                 let (computed, fee) = auto_compute_limit_and_price(&rpc_client, tx.clone(), 1.2, &payer_pubkey, Some(blockhash.0), Some(lookup_tables.clone())).await.unwrap();
+                                let num_tasks = task_ids.len();
+                                for task_id in task_ids.iter() {
+                                    fees_by_task_id.insert(*task_id, (fee + num_tasks as u64 - 1) / num_tasks as u64);  // Ceiling division
+                                }
                                 if fee > max_sol_fee {
                                     for task_id in task_ids {
                                         result_tx.send(CompletedTransactionTask {
                                             err: Some(TransactionQueueError::FeeTooHigh),
                                             task: tasks[*task_id].clone(),
+                                            fee: 0,
                                         }).await.unwrap();
                                     }
                                     continue;
@@ -213,6 +222,7 @@ pub fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                         for task in tasks.iter() {
                                             result_tx.send(CompletedTransactionTask {
                                                 err: Some(e.clone()),
+                                                fee: 0,
                                                 task: task.clone(),
                                             }).await.unwrap();
                                         }
@@ -224,6 +234,7 @@ pub fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                     result_tx.send(CompletedTransactionTask {
                                         err,
                                         task: tasks[task_id].clone(),
+                                        fee: fees_by_task_id[&task_id],
                                     }).await.unwrap();
                                 }
                             tasks.clear();
@@ -233,6 +244,7 @@ pub fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                 result_tx.send(CompletedTransactionTask {
                                     err: Some(TransactionQueueError::IxGroupTooLarge),
                                     task: task.clone(),
+                                    fee: 0,
                                 }).await.unwrap();
                             }
                             tasks.clear();
@@ -242,7 +254,6 @@ pub fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                 }
 
                 Some(task) = rx.recv() => {
-                    println!("received task");
                     tasks.push(task);
                 }
             }

@@ -29,6 +29,8 @@ pub struct TimedTask {
     pub total_retries: u8,
     pub max_retries: u8,
     pub in_flight_task_ids: Vec<u16>,
+    pub is_cleanup_task: bool,
+    pub profitability_delayed: bool,
 }
 
 impl PartialEq for TimedTask {

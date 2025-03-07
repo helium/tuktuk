@@ -11,8 +11,10 @@ use solana_transaction_utils::queue::TransactionTask;
 use tokio::sync::{mpsc::Sender, watch::Receiver, Mutex};
 use tuktuk_program::TaskQueueV0;
 
-use crate::task_queue::{TaskQueue, TimedTask};
-
+use crate::{
+    profitability::TaskQueueProfitability,
+    task_queue::{TaskQueue, TimedTask},
+};
 // Disallow concurrent transactions on the same queue node since the IDs will conflict.
 pub type QueueNodeSegmentsInProgress = Arc<Mutex<HashSet<u32>>>;
 
@@ -26,4 +28,5 @@ pub struct TaskContext {
     // Known lookup tables for the various task queues.
     pub lookup_tables: Arc<Mutex<HashMap<Pubkey, AddressLookupTableAccount>>>,
     pub task_queues: Arc<Mutex<HashMap<Pubkey, TaskQueueV0>>>,
+    pub profitability: Arc<TaskQueueProfitability>,
 }
