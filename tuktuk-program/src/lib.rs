@@ -72,6 +72,9 @@ impl TriggerV0 {
 
 impl TaskQueueV0 {
     pub fn task_exists(&self, task_idx: u16) -> bool {
+        if task_idx >= self.capacity {
+            return false;
+        }
         self.task_bitmap[task_idx as usize / 8] & (1 << (task_idx % 8)) != 0
     }
 

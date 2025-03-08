@@ -20,7 +20,7 @@ use tuktuk_sdk::prelude::*;
 
 use super::{task_queue::TaskQueueArg, TransactionSource};
 use crate::{
-    client::send_instructions,
+    client::{send_instructions, CliClient},
     cmd::Opts,
     result::Result,
     serde::{print_json, serde_pubkey},
@@ -42,6 +42,8 @@ pub enum Cmd {
         // Description prefix for the task to filter by
         #[arg(long)]
         description: Option<String>,
+        #[arg(long, default_value = "false")]
+        skip_simulate: bool,
     },
     Run {
         #[command(flatten)]
@@ -62,7 +64,66 @@ pub enum Cmd {
         // Description prefix to close by
         #[arg(long)]
         description: Option<String>,
+        #[arg(
+            long,
+            default_value = "false",
+            help = "Close tasks that fail simulation"
+        )]
+        failed: bool,
     },
+}
+
+async fn simulate_task(client: &CliClient, task_key: Pubkey) -> Result<Option<SimulationResult>> {
+    // Get the run instruction
+    let run_ix = tuktuk_sdk::compiled_transaction::run_ix(
+        client.as_ref(),
+        task_key,
+        client.payer.pubkey(),
+        &HashSet::new(),
+    )
+    .await?;
+
+    if let Some(run_ix) = run_ix {
+        // Create and simulate the transaction
+        let mut updated_instructions = vec![
+            solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(1900000),
+        ];
+        updated_instructions.extend(run_ix.instructions.clone());
+        let recent_blockhash = client.rpc_client.get_latest_blockhash().await?;
+        let message = VersionedMessage::V0(v0::Message::try_compile(
+            &client.payer.pubkey(),
+            &updated_instructions,
+            &run_ix.lookup_tables,
+            recent_blockhash,
+        )?);
+        let tx = VersionedTransaction::try_new(message, &[&client.payer])?;
+        let sim_result = client
+            .rpc_client
+            .simulate_transaction_with_config(
+                &tx,
+                RpcSimulateTransactionConfig {
+                    commitment: Some(solana_sdk::commitment_config::CommitmentConfig::confirmed()),
+                    sig_verify: true,
+                    ..Default::default()
+                },
+            )
+            .await;
+
+        match sim_result {
+            Ok(simulated) => Ok(Some(SimulationResult {
+                error: simulated.value.err.map(|e| e.to_string()),
+                logs: Some(simulated.value.logs.unwrap_or_default()),
+                compute_units: simulated.value.units_consumed,
+            })),
+            Err(err) => Ok(Some(SimulationResult {
+                error: Some(err.to_string()),
+                logs: None,
+                compute_units: None,
+            })),
+        }
+    } else {
+        Ok(None)
+    }
 }
 
 impl TaskCmd {
@@ -71,6 +132,7 @@ impl TaskCmd {
             Cmd::List {
                 task_queue,
                 description,
+                skip_simulate,
             } => {
                 let client = opts.client().await?;
                 let task_queue_pubkey = task_queue.get_pubkey(&client).await?.unwrap();
@@ -102,61 +164,8 @@ impl TaskCmd {
                 for (pubkey, maybe_task) in filtered_tasks {
                     if let Some(task) = maybe_task {
                         let mut simulation_result = None;
-                        if task.trigger.is_active(now) {
-                            // Get the run instruction
-                            if let Ok(Some(run_ix)) = tuktuk_sdk::compiled_transaction::run_ix(
-                                client.as_ref(),
-                                pubkey,
-                                client.payer.pubkey(),
-                                &HashSet::new(),
-                            )
-                            .await
-                            {
-                                // Create and simulate the transaction
-                                let mut updated_instructions = vec![
-                                    solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(
-                                        1900000,
-                                    ),
-                                ];
-                                updated_instructions.extend(run_ix.instructions.clone());
-                                let recent_blockhash =
-                                    client.rpc_client.get_latest_blockhash().await?;
-                                let message = VersionedMessage::V0(v0::Message::try_compile(
-                                    &client.payer.pubkey(),
-                                    &updated_instructions,
-                                    &run_ix.lookup_tables,
-                                    recent_blockhash,
-                                )?);
-                                let tx = VersionedTransaction::try_new(message, &[&client.payer])?;
-                                let sim_result = client
-                                    .rpc_client
-                                    .simulate_transaction_with_config(
-                                        &tx,
-                                        RpcSimulateTransactionConfig {
-                                            commitment: Some(solana_sdk::commitment_config::CommitmentConfig::confirmed()),
-                                            sig_verify: true,
-                                            ..Default::default()
-                                        },
-                                    )
-                                    .await;
-
-                                match sim_result {
-                                    Ok(simulated) => {
-                                        simulation_result = Some(SimulationResult {
-                                            error: simulated.value.err.map(|e| e.to_string()),
-                                            logs: Some(simulated.value.logs.unwrap_or_default()),
-                                            compute_units: simulated.value.units_consumed,
-                                        });
-                                    }
-                                    Err(err) => {
-                                        simulation_result = Some(SimulationResult {
-                                            error: Some(err.to_string()),
-                                            logs: None,
-                                            compute_units: None,
-                                        });
-                                    }
-                                }
-                            }
+                        if !*skip_simulate && task.trigger.is_active(now) {
+                            simulation_result = simulate_task(&client, pubkey).await?;
                         }
 
                         json_tasks.push(Task {
@@ -181,6 +190,7 @@ impl TaskCmd {
                 task_queue,
                 id: index,
                 description,
+                failed,
             } => {
                 if index.is_none() && description.is_none() {
                     return Err(anyhow!("Either id or description must be provided"));
@@ -222,11 +232,28 @@ impl TaskCmd {
                 } else {
                     vec![]
                 };
+
                 let mut seen_ids = HashSet::new();
-                let ixs = tasks
+                let mut to_close = Vec::new();
+
+                // If failed flag is set, simulate each task first
+                for (pubkey, task) in &tasks {
+                    if seen_ids.insert(task.id) {
+                        if *failed {
+                            if let Some(sim_result) = simulate_task(&client, *pubkey).await? {
+                                if sim_result.error.is_some() {
+                                    to_close.push(task.clone());
+                                }
+                            }
+                        } else {
+                            to_close.push(task.clone());
+                        }
+                    }
+                }
+
+                let ixs = to_close
                     .into_iter()
-                    .filter(|(_, task)| seen_ids.insert(task.id)) // Returns true if id wasn't in set
-                    .map(|(_, task)| {
+                    .map(|task| {
                         tuktuk::task::dequeue_ix(
                             task_queue_pubkey,
                             client.payer.pubkey(),
@@ -314,6 +341,7 @@ impl TaskCmd {
                     match run_ix_result {
                         Ok(Some(run_ix)) => {
                             let blockhash = client.rpc_client.get_latest_blockhash().await?;
+                            println!("Ix: {:?}", run_ix.instructions);
                             let (computed, _) = auto_compute_limit_and_price(
                                 &client.rpc_client,
                                 run_ix.instructions,

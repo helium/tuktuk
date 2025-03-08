@@ -2,6 +2,7 @@ use itertools::Itertools;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
     address_lookup_table::AddressLookupTableAccount,
+    ed25519_instruction,
     instruction::Instruction,
     message::{v0, VersionedMessage},
     pubkey::Pubkey,
@@ -211,9 +212,34 @@ pub async fn auto_compute_limit_and_price<C: AsRef<RpcClient>>(
         updated_instructions.insert(1, compute_price_ix); // Insert after compute budget
     }
 
+    // Count unique signers
+    let num_unique_signers = instructions
+        .iter()
+        .flat_map(|i| i.accounts.iter())
+        .filter(|a| a.is_signer)
+        .map(|a| a.pubkey)
+        .chain(std::iter::once(*payer)) // Include payer
+        .unique_by(|pubkey| *pubkey)
+        .count();
+
+    // Count ed25519 signatures
+    let num_ed25519_sigs = instructions
+        .iter()
+        .filter(|ix| ix.program_id == solana_sdk::ed25519_program::id())
+        .map(|ix| ix.data[0] as usize)
+        .sum::<usize>();
+
+    let num_secp_sigs = instructions
+        .iter()
+        .filter(|ix| ix.program_id == solana_sdk::secp256k1_program::id())
+        .map(|ix| ix.data[0] as usize)
+        .sum::<usize>();
     Ok((
         updated_instructions,
-        // Get the actual total fee in lamports
-        5000 + (priority_fee * (compute_limit as u64)) / 1000000,
+        // compute fee + signature fees + ed25519 signature fees
+        (priority_fee * (compute_limit as u64)).div_ceil(1_000_000)  // Ceiling div
+            + (num_unique_signers as u64 * 5000)
+            + (num_ed25519_sigs as u64 * 5000)
+            + (num_secp_sigs as u64 * 5000),
     ))
 }
