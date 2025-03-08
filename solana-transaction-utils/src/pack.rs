@@ -17,7 +17,7 @@ pub fn pack_instructions_into_transactions(
     instructions: Vec<Vec<Instruction>>,
     payer: &Keypair,
     lookup_tables: Option<Vec<AddressLookupTableAccount>>,
-) -> Result<Vec<(Vec<Instruction>, Vec<usize>)>, Error> {
+) -> Result<Vec<(Vec<Instruction>, usize)>, Error> {
     // make a transaction from a slice of instructions
     fn mk_transaction(
         ixs: &[Instruction],
@@ -44,7 +44,7 @@ pub fn pack_instructions_into_transactions(
         ComputeBudgetInstruction::set_compute_unit_price(1),
     ];
     let mut curr_instructions: Vec<Instruction> = compute_ixs.to_vec();
-    let mut curr_indices: Vec<usize> = Vec::new();
+    let mut curr_index: usize = usize::MAX;
     let lookup_tables = lookup_tables.unwrap_or_default();
 
     // Instead of flattening all instructions, process them group by group
@@ -58,14 +58,13 @@ pub fn pack_instructions_into_transactions(
 
         // If adding the entire group would exceed size limit, start a new transaction
         // (but only if we already have instructions in the current batch)
-        if transaction_len(&test_tx)? > MAX_TRANSACTION_SIZE && !curr_indices.is_empty() {
-            transactions.push((curr_instructions, curr_indices.clone()));
+        if transaction_len(&test_tx)? > MAX_TRANSACTION_SIZE && curr_index != usize::MAX {
+            transactions.push((curr_instructions, curr_index));
             curr_instructions = compute_ixs.to_vec();
-            curr_indices.clear();
         }
 
         // Add the entire group to current transaction
-        curr_indices.push(group_idx);
+        curr_index = group_idx;
         curr_instructions.extend(group);
 
         let tx = mk_transaction(&curr_instructions, &lookup_tables, payer)?;
@@ -75,8 +74,8 @@ pub fn pack_instructions_into_transactions(
     }
 
     // Push final transaction if there are remaining instructions
-    if !curr_instructions.len() > compute_ixs.len() {
-        transactions.push((curr_instructions, curr_indices));
+    if !curr_instructions.len() > compute_ixs.len() && curr_index != usize::MAX {
+        transactions.push((curr_instructions, curr_index));
     }
 
     Ok(transactions)

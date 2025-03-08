@@ -127,20 +127,18 @@ pub fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                     let txs = pack_instructions_into_transactions(ix_groups, &payer, Some(lookup_tables.clone()));
                     match txs {
                         Ok(txs) => {
-                            let mut with_auto_compute: Vec<(v0::Message, Vec<usize>)> = Vec::new();
-                            for (tx, task_ids) in &txs {
+                            let mut with_auto_compute: Vec<(v0::Message, usize)> = Vec::new();
+                            for (tx, task_id) in &txs {
                                 // This is just a tx with compute ixs. Skip it
                                 if tx.len() == 2 {
                                     continue;
                                 }
                                 let (computed, fee) = auto_compute_limit_and_price(&rpc_client, tx.clone(), 1.2, &payer_pubkey, Some(blockhash.0), Some(lookup_tables.clone())).await.unwrap();
                                 if fee > max_sol_fee {
-                                    for task_id in task_ids {
                                         result_tx.send(CompletedTransactionTask {
                                             err: Some(TransactionQueueError::FeeTooHigh),
                                             task: tasks[*task_id].clone(),
-                                        }).await.unwrap();
-                                    }
+                                        }).await.ok();
                                     continue;
                                 }
                                 with_auto_compute.push((v0::Message::try_compile(
@@ -148,7 +146,7 @@ pub fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                     &computed,
                                     &lookup_tables.clone(),
                                     blockhash.0,
-                                ).unwrap(), task_ids.clone()));
+                                ).unwrap(), *task_id));
                             }
                             if with_auto_compute.is_empty() {
                                 continue;
@@ -172,16 +170,11 @@ pub fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                         },
                                     ).await {
                                         Ok(_) => {
-                                            for task_id in &with_auto_compute[i].1 {
-                                                task_results.insert(*task_id, None);
-                                            }
+                                            task_results.insert(with_auto_compute[i].1, None);
                                         }
                                         Err(err) => {
-                                            for task_id in &with_auto_compute[i].1 {
-                                                task_results.insert(*task_id, Some(TransactionQueueError::RawTransactionError(
-                                                    err.to_string()
-                                                )));
-                                            }
+                                            task_results.insert(with_auto_compute[i].1, Some(TransactionQueueError::RawTransactionError(
+                                                    err.to_string())));
                                         }
                                     }
                                 }
@@ -199,12 +192,11 @@ pub fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                 match maybe_results {
                                     Ok(results) => {
                                         for (i, result) in results.iter().enumerate() {
-                                            for task_id in &txs[i].1 {
-                                                    if let Some(err) = result {
-                                                        task_results.insert(*task_id, Some(TransactionQueueError::TransactionError(err.clone())));
-                                                    } else if !task_results.contains_key(task_id) {
-                                                        task_results.insert(*task_id, None);
-                                                    }
+                                            let task_id = txs[i].1;
+                                            if let Some(err) = result {
+                                                task_results.insert(task_id, Some(TransactionQueueError::TransactionError(err.clone())));
+                                            } else {
+                                                task_results.entry(task_id).or_insert(None);
                                             }
                                         }
                                     }
