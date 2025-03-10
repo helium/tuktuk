@@ -132,18 +132,18 @@ pub fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                     match txs {
                         Ok(txs) => {
                             let mut with_auto_compute: Vec<(v0::Message, Vec<usize>)> = Vec::new();
-                            for (tx, task_ids) in &txs {
+                            for tx in &txs {
                                 // This is just a tx with compute ixs. Skip it
-                                if tx.len() == 2 {
+                                if tx.is_empty() {
                                     continue;
                                 }
-                                let (computed, fee) = auto_compute_limit_and_price(&rpc_client, tx.clone(), 1.2, &payer_pubkey, Some(blockhash.0), Some(lookup_tables.clone())).await.unwrap();
-                                let num_tasks = task_ids.len();
-                                for task_id in task_ids.iter() {
+                                let (computed, fee) = auto_compute_limit_and_price(&rpc_client, tx.instructions.clone(), 1.2, &payer_pubkey, Some(blockhash.0), Some(lookup_tables.clone())).await.unwrap();
+                                let num_tasks = tx.task_ids.len();
+                                for task_id in tx.task_ids.iter() {
                                     fees_by_task_id.insert(*task_id, fee.div_ceil(num_tasks as u64));
                                 }
                                 if fee > max_sol_fee {
-                                    for task_id in task_ids {
+                                    for task_id in &tx.task_ids {
                                         result_tx.send(CompletedTransactionTask {
                                             err: Some(TransactionQueueError::FeeTooHigh),
                                             task: tasks[*task_id].clone(),
@@ -157,7 +157,7 @@ pub fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                     &computed,
                                     &lookup_tables.clone(),
                                     blockhash.0,
-                                ).unwrap(), task_ids.clone()));
+                                ).unwrap(), tx.task_ids.clone()));
                             }
                             if with_auto_compute.is_empty() {
                                 continue;
@@ -208,7 +208,7 @@ pub fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                 match maybe_results {
                                     Ok(results) => {
                                         for (i, result) in results.iter().enumerate() {
-                                            for task_id in &txs[i].1 {
+                                            for task_id in &txs[i].task_ids {
                                                     if let Some(err) = result {
                                                         task_results.insert(*task_id, Some(TransactionQueueError::TransactionError(err.clone())));
                                                     } else if !task_results.contains_key(task_id) {
