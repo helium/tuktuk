@@ -270,15 +270,15 @@ impl TaskCmd {
                     None,
                 )?;
 
-                for (mut to_send, _) in groups {
+                for mut to_send in groups {
                     // Remove compute budget ixs
-                    to_send.remove(0);
-                    to_send.remove(0);
+                    to_send.instructions.remove(0);
+                    to_send.instructions.remove(0);
                     send_instructions(
                         client.rpc_client.clone(),
                         &client.payer,
                         client.opts.ws_url().as_str(),
-                        to_send,
+                        to_send.instructions,
                         &[],
                     )
                     .await?;

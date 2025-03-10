@@ -12,20 +12,40 @@ use solana_sdk::{
 
 const MAX_TRANSACTION_SIZE: usize = 1232; // Maximum transaction size in bytes
 
-// Returns packed txs with the indices in instructions that were used in that tx.
-#[allow(clippy::type_complexity)]
-#[allow(clippy::result_large_err)]
-pub fn pack_instructions_into_transactions(
-    instructions: Vec<Vec<Instruction>>,
-    payer: &Keypair,
-    lookup_tables: Option<Vec<AddressLookupTableAccount>>,
-) -> Result<Vec<(Vec<Instruction>, Vec<usize>)>, Error> {
-    // make a transaction from a slice of instructions
-    fn mk_transaction(
-        ixs: &[Instruction],
+pub struct PackedTransaction {
+    pub instructions: Vec<Instruction>,
+    pub task_ids: Vec<usize>,
+}
+
+impl Default for PackedTransaction {
+    fn default() -> Self {
+        Self {
+            instructions: vec![
+                ComputeBudgetInstruction::set_compute_unit_limit(200000),
+                ComputeBudgetInstruction::set_compute_unit_price(1),
+            ],
+            task_ids: Default::default(),
+        }
+    }
+}
+
+impl PackedTransaction {
+    pub fn push(&mut self, instructions: &[Instruction], index: usize) {
+        self.instructions.extend_from_slice(instructions);
+        self.task_ids.push(index);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.task_ids.is_empty()
+    }
+
+    pub fn mk_transaction(
+        &self,
+        extra_ixs: &[Instruction],
         lookup_tables: &[AddressLookupTableAccount],
         payer: &Keypair,
     ) -> Result<VersionedTransaction, Error> {
+        let ixs = &[&self.instructions, extra_ixs].concat();
         v0::Message::try_compile(&payer.pubkey(), ixs, lookup_tables, Hash::default())
             .map_err(Error::from)
             .map(VersionedMessage::V0)
@@ -34,51 +54,54 @@ pub fn pack_instructions_into_transactions(
                     .map_err(Error::from)
             })
     }
-    // get the lenth in bytes for a given txn
-    fn transaction_len(tx: &VersionedTransaction) -> Result<usize, Error> {
-        bincode::serialize(tx)
+
+    pub fn transaction_len(
+        &self,
+        extra_ixs: &[Instruction],
+        lookup_tables: &[AddressLookupTableAccount],
+        payer: &Keypair,
+    ) -> Result<usize, Error> {
+        let tx = self.mk_transaction(extra_ixs, lookup_tables, payer)?;
+        bincode::serialize(&tx)
             .map(|data| data.len())
             .map_err(Error::from)
     }
+}
+
+// Returns packed txs with the indices in instructions that were used in that tx.
+pub fn pack_instructions_into_transactions(
+    instructions: Vec<Vec<Instruction>>,
+    payer: &Keypair,
+    lookup_tables: Option<Vec<AddressLookupTableAccount>>,
+) -> Result<Vec<PackedTransaction>, Error> {
     let mut transactions = Vec::new();
-    let compute_ixs = &[
-        ComputeBudgetInstruction::set_compute_unit_limit(200000),
-        ComputeBudgetInstruction::set_compute_unit_price(1),
-    ];
-    let mut curr_instructions: Vec<Instruction> = compute_ixs.to_vec();
-    let mut curr_indices: Vec<usize> = Vec::new();
+    let mut curr_transaction = PackedTransaction::default();
     let lookup_tables = lookup_tables.unwrap_or_default();
 
     // Instead of flattening all instructions, process them group by group
     for (group_idx, group) in instructions.into_iter().enumerate() {
-        // Create a test transaction with current instructions + entire new group
-        let test_tx = mk_transaction(
-            &[&curr_instructions, group.as_slice()].concat(),
-            &lookup_tables,
-            payer,
-        )?;
-
+        // Create a test transaction with current instructions + entire new group.
         // If adding the entire group would exceed size limit, start a new transaction
         // (but only if we already have instructions in the current batch)
-        if transaction_len(&test_tx)? > MAX_TRANSACTION_SIZE && !curr_indices.is_empty() {
-            transactions.push((curr_instructions, curr_indices.clone()));
-            curr_instructions = compute_ixs.to_vec();
-            curr_indices.clear();
+        if curr_transaction.transaction_len(group.as_slice(), &lookup_tables, payer)?
+            > MAX_TRANSACTION_SIZE
+            && !curr_transaction.is_empty()
+        {
+            transactions.push(curr_transaction);
+            curr_transaction = PackedTransaction::default();
         }
 
         // Add the entire group to current transaction
-        curr_indices.push(group_idx);
-        curr_instructions.extend(group);
+        curr_transaction.push(&group, group_idx);
 
-        let tx = mk_transaction(&curr_instructions, &lookup_tables, payer)?;
-        if transaction_len(&tx)? > MAX_TRANSACTION_SIZE {
+        if curr_transaction.transaction_len(&[], &lookup_tables, payer)? > MAX_TRANSACTION_SIZE {
             return Err(Error::IxGroupTooLarge);
         }
     }
 
     // Push final transaction if there are remaining instructions
-    if !curr_instructions.len() > compute_ixs.len() {
-        transactions.push((curr_instructions, curr_indices));
+    if !curr_transaction.is_empty() {
+        transactions.push(curr_transaction);
     }
 
     Ok(transactions)

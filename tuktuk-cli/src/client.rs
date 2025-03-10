@@ -59,15 +59,15 @@ pub async fn send_instructions(
     let keys: Vec<&dyn Signer> = std::iter::once(&payer as &dyn Signer)
         .chain(extra_signers.iter().map(|k| k as &dyn Signer))
         .collect();
-    for (tx, _) in &txs {
+    for tx in txs {
         // This is just a tx with compute ixs. Skip it
-        if tx.len() == 2 {
+        if tx.is_empty() {
             continue;
         }
 
         let (computed, _) = auto_compute_limit_and_price(
             &rpc_client,
-            tx.clone(),
+            tx.instructions,
             1.2,
             &payer.pubkey(),
             Some(blockhash),

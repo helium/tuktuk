@@ -2,7 +2,6 @@ use itertools::Itertools;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
     address_lookup_table::AddressLookupTableAccount,
-    ed25519_instruction,
     instruction::Instruction,
     message::{v0, VersionedMessage},
     pubkey::Pubkey,
