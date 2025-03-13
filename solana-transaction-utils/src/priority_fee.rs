@@ -84,14 +84,14 @@ pub async fn compute_price_instruction_for_accounts<C: AsRef<RpcClient>>(
 
 pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>>(
     client: &C,
-    instructions: Vec<Instruction>,
+    instructions: &[Instruction],
     compute_multiplier: f32,
     payer: &Pubkey,
     blockhash: Option<solana_program::hash::Hash>,
     lookup_tables: Option<Vec<AddressLookupTableAccount>>,
 ) -> Result<(solana_sdk::instruction::Instruction, u32), crate::error::Error> {
     // Check for existing compute unit limit instruction and replace it if found
-    let mut updated_instructions = instructions.clone();
+    let mut updated_instructions = instructions.to_vec();
     let mut has_compute_budget = false;
     for ix in &mut updated_instructions {
         if ix.program_id == solana_sdk::compute_budget::id()
@@ -139,17 +139,13 @@ pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>>(
         .map(|_| NullSigner::new(payer))
         .collect::<Vec<_>>();
     let null_signers: Vec<&NullSigner> = signers.iter().collect();
-    let snub_tx = VersionedTransaction::try_new(message, null_signers.as_slice())?;
+    let snub_tx = VersionedTransaction::try_new(message, null_signers.as_slice())
+        .map_err(|e| Error::SignerError(e.to_string()))?;
 
     // Simulate the transaction to get the actual compute used
     let simulation_result = client.as_ref().simulate_transaction(&snub_tx).await?;
     if let Some(err) = simulation_result.value.err {
-        println!("Error: {}", err);
-        if let Some(logs) = simulation_result.value.logs {
-            for log in logs {
-                println!("Log: {}", log);
-            }
-        }
+        return Err(Error::SimulatedTransactionError(err));
     }
     let actual_compute_used = simulation_result.value.units_consumed.unwrap_or(200000);
 
@@ -163,18 +159,18 @@ pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>>(
 // Returns the instructions and the total fee in lamports
 pub async fn auto_compute_limit_and_price<C: AsRef<RpcClient>>(
     client: &C,
-    instructions: Vec<Instruction>,
+    instructions: &[Instruction],
     compute_multiplier: f32,
     payer: &Pubkey,
     blockhash: Option<solana_program::hash::Hash>,
     lookup_tables: Option<Vec<AddressLookupTableAccount>>,
 ) -> Result<(Vec<Instruction>, u64), Error> {
-    let mut updated_instructions = instructions.clone();
+    let mut updated_instructions = instructions.to_vec();
 
     // Compute budget instruction
     let (compute_budget_ix, compute_limit) = compute_budget_for_instructions(
         client,
-        instructions.clone(),
+        &updated_instructions,
         compute_multiplier,
         payer,
         blockhash,

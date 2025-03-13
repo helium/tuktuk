@@ -46,7 +46,7 @@ pub async fn send_instructions(
     rpc_client: Arc<RpcClient>,
     payer: &Keypair,
     ws_url: &str,
-    ixs: Vec<Instruction>,
+    ixs: &[Instruction],
     extra_signers: &[Keypair],
 ) -> Result<()> {
     let (blockhash, _) = rpc_client
@@ -54,7 +54,7 @@ pub async fn send_instructions(
         .get_latest_blockhash_with_commitment(CommitmentConfig::finalized())
         .await
         .expect("Failed to get latest blockhash");
-    let txs = pack_instructions_into_transactions(vec![ixs], payer, None)?;
+    let txs = pack_instructions_into_transactions(&[ixs], payer, None)?;
     let mut with_auto_compute: Vec<Message> = Vec::new();
     let keys: Vec<&dyn Signer> = std::iter::once(&payer as &dyn Signer)
         .chain(extra_signers.iter().map(|k| k as &dyn Signer))
@@ -67,7 +67,7 @@ pub async fn send_instructions(
 
         let (computed, _) = auto_compute_limit_and_price(
             &rpc_client,
-            tx.instructions,
+            &tx.instructions,
             1.2,
             &payer.pubkey(),
             Some(blockhash),

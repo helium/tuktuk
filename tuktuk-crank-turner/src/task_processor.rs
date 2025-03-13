@@ -10,7 +10,7 @@ use solana_sdk::{
     signer::Signer,
     transaction::{TransactionError, VersionedTransaction},
 };
-use solana_transaction_utils::queue::{TransactionQueueError, TransactionTask};
+use solana_transaction_utils::{error::Error as TransactionQueueError, queue::TransactionTask};
 use tokio_graceful_shutdown::SubsystemHandle;
 use tracing::info;
 use tuktuk_program::TaskQueueV0;
@@ -303,21 +303,26 @@ impl TimedTask {
                 TransactionQueueError::IxGroupTooLarge => "IxGroupTooLarge",
                 TransactionQueueError::TpuSenderError(_) => "TpuError",
                 TransactionQueueError::RawSimulatedTransactionError(_) => "RawSimulated",
+                TransactionQueueError::RpcError(_) => "RpcError",
+                TransactionQueueError::InstructionError(_) => "InstructionError",
+                TransactionQueueError::SerializationError(_) => "SerializationError",
+                TransactionQueueError::CompileError(_) => "CompileError",
+                TransactionQueueError::SignerError(_) => "SignerError",
             };
             TASKS_FAILED
                 .with_label_values(&[self.task_queue_name.as_str(), label])
                 .inc();
             match err {
                 TransactionQueueError::FeeTooHigh => {
-                    info!(?self, ?err, "task fee too high");
+                    info!(?self.task_key, ?err, "task fee too high");
                     ctx.task_queue
                         .add_task(TimedTask {
                             task: self.task.clone(),
-                            total_retries: 0,
+                            total_retries: self.total_retries,
                             in_flight_task_ids: vec![],
-                            profitability_delayed: false,
-                            // Try again in 10 seconds
-                            task_time: self.task_time + 10,
+                            profitability_delayed: self.profitability_delayed,
+                            // Try again in 10-30 seconds
+                            task_time: self.task_time + rand::random_range(10..30),
                             ..self.clone()
                         })
                         .await?;

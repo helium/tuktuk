@@ -1,4 +1,11 @@
-use crate::error::Error;
+use std::{
+    sync::{
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
+
 use bincode::serialize;
 use dashmap::DashMap;
 use futures_util::future::join_all;
@@ -17,14 +24,9 @@ use solana_sdk::{
     transaction::{TransactionError, VersionedTransaction},
 };
 use solana_tpu_client::tpu_client::TpuSenderError;
-use std::{
-    sync::{
-        atomic::{AtomicU64, AtomicUsize, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
 use tokio::{sync::RwLock, task::JoinHandle};
+
+use crate::error::Error;
 
 const BLOCKHASH_REFRESH_RATE: Duration = Duration::from_secs(5);
 const SEND_INTERVAL: Duration = Duration::from_millis(10);
@@ -236,7 +238,8 @@ async fn sign_all_messages_and_send<T: Signers + ?Sized>(
     // send all the transaction messages
     for (counter, (index, message)) in messages_with_index.iter().enumerate() {
         let transaction =
-            VersionedTransaction::try_new(VersionedMessage::V0(message.clone()), signers)?;
+            VersionedTransaction::try_new(VersionedMessage::V0(message.clone()), signers)
+                .map_err(|e| Error::SignerError(e.to_string()))?;
         futures.push(async move {
             tokio::time::sleep(SEND_INTERVAL.saturating_mul(counter as u32)).await;
             let blockhashdata = *context.blockhash_data_rw.read().await;
@@ -417,7 +420,8 @@ pub async fn send_and_confirm_transactions_in_parallel<T: Signers + ?Sized>(
     messages
         .iter()
         .map(|x| VersionedTransaction::try_new(VersionedMessage::V0(x.clone()), signers))
-        .collect::<std::result::Result<Vec<_>, SignerError>>()?;
+        .collect::<std::result::Result<Vec<_>, SignerError>>()
+        .map_err(|e| Error::SignerError(e.to_string()))?;
 
     // get current block height
     let block_height = rpc_client.get_block_height().await?;
