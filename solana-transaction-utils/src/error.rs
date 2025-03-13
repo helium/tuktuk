@@ -1,32 +1,42 @@
-use solana_sdk::{message::CompileError, signer::SignerError};
+use solana_sdk::{message::CompileError, transaction::TransactionError};
 use solana_tpu_client::tpu_client::TpuSenderError;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, Clone)]
 pub enum Error {
     #[error("RPC error: {0}")]
-    RpcError(Box<solana_client::client_error::ClientError>),
+    RpcError(String),
     #[error("Instruction error: {0}")]
     InstructionError(#[from] solana_sdk::instruction::InstructionError),
     #[error("Serialization error: {0}")]
-    SerializationError(#[from] bincode::Error),
+    SerializationError(String),
     #[error("Compile error: {0}")]
     CompileError(#[from] CompileError),
     #[error("Signer error: {0}")]
-    SignerError(#[from] SignerError),
+    SignerError(String),
     #[error("Ix group too large")]
     IxGroupTooLarge,
     #[error("TPU sender error: {0}")]
-    TpuError(Box<TpuSenderError>),
+    TpuSenderError(String),
+    #[error("Transaction error: {0}")]
+    TransactionError(TransactionError),
+    #[error("Simulated transaction error: {0}")]
+    SimulatedTransactionError(TransactionError),
+    #[error("Raw simulated transaction error: {0}")]
+    RawSimulatedTransactionError(String),
+    #[error("Raw transaction error: {0}")]
+    RawTransactionError(String),
+    #[error("Fee too high")]
+    FeeTooHigh,
 }
 
 impl From<solana_client::client_error::ClientError> for Error {
     fn from(value: solana_client::client_error::ClientError) -> Self {
-        Self::RpcError(Box::new(value))
+        Self::RpcError(value.to_string())
     }
 }
 
 impl From<TpuSenderError> for Error {
     fn from(value: TpuSenderError) -> Self {
-        Self::TpuError(Box::new(value))
+        Self::TpuSenderError(value.to_string())
     }
 }

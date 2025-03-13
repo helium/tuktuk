@@ -232,7 +232,7 @@ impl CronCmd {
                     client.rpc_client.clone(),
                     &client.payer,
                     client.opts.ws_url().as_str(),
-                    vec![fund_ix, ix],
+                    &[fund_ix, ix],
                     &[],
                 )
                 .await?;
@@ -308,7 +308,7 @@ impl CronCmd {
                         client.rpc_client.clone(),
                         &client.payer,
                         client.opts.ws_url().as_str(),
-                        vec![ix],
+                        &[ix],
                         &[],
                     )
                     .await?;
@@ -339,7 +339,7 @@ impl CronCmd {
                     client.rpc_client.clone(),
                     &client.payer,
                     client.opts.ws_url().as_str(),
-                    ixs,
+                    &ixs,
                     &[],
                 )
                 .await?;
@@ -367,7 +367,7 @@ impl CronCmd {
                     client.rpc_client.clone(),
                     &client.payer,
                     client.opts.ws_url().as_str(),
-                    vec![ix],
+                    &[ix],
                     &[],
                 )
                 .await?;

@@ -1,4 +1,3 @@
-use crate::error::Error;
 use solana_sdk::{
     address_lookup_table::AddressLookupTableAccount,
     compute_budget::ComputeBudgetInstruction,
@@ -9,6 +8,8 @@ use solana_sdk::{
     signer::Signer,
     transaction::VersionedTransaction,
 };
+
+use crate::error::Error;
 
 const MAX_TRANSACTION_SIZE: usize = 1232; // Maximum transaction size in bytes
 
@@ -51,7 +52,7 @@ impl PackedTransaction {
             .map(VersionedMessage::V0)
             .and_then(|message| {
                 VersionedTransaction::try_new(message, &[&NullSigner::new(&payer.pubkey())])
-                    .map_err(Error::from)
+                    .map_err(|e| Error::SignerError(e.to_string()))
             })
     }
 
@@ -64,13 +65,13 @@ impl PackedTransaction {
         let tx = self.mk_transaction(extra_ixs, lookup_tables, payer)?;
         bincode::serialize(&tx)
             .map(|data| data.len())
-            .map_err(Error::from)
+            .map_err(|e| Error::SerializationError(e.to_string()))
     }
 }
 
 // Returns packed txs with the indices in instructions that were used in that tx.
 pub fn pack_instructions_into_transactions(
-    instructions: Vec<Vec<Instruction>>,
+    instructions: &[&[Instruction]],
     payer: &Keypair,
     lookup_tables: Option<Vec<AddressLookupTableAccount>>,
 ) -> Result<Vec<PackedTransaction>, Error> {
@@ -79,12 +80,11 @@ pub fn pack_instructions_into_transactions(
     let lookup_tables = lookup_tables.unwrap_or_default();
 
     // Instead of flattening all instructions, process them group by group
-    for (group_idx, group) in instructions.into_iter().enumerate() {
+    for (group_idx, group) in instructions.iter().enumerate() {
         // Create a test transaction with current instructions + entire new group.
         // If adding the entire group would exceed size limit, start a new transaction
         // (but only if we already have instructions in the current batch)
-        if curr_transaction.transaction_len(group.as_slice(), &lookup_tables, payer)?
-            > MAX_TRANSACTION_SIZE
+        if curr_transaction.transaction_len(group, &lookup_tables, payer)? > MAX_TRANSACTION_SIZE
             && !curr_transaction.is_empty()
         {
             transactions.push(curr_transaction);
@@ -92,7 +92,7 @@ pub fn pack_instructions_into_transactions(
         }
 
         // Add the entire group to current transaction
-        curr_transaction.push(&group, group_idx);
+        curr_transaction.push(group, group_idx);
 
         if curr_transaction.transaction_len(&[], &lookup_tables, payer)? > MAX_TRANSACTION_SIZE {
             return Err(Error::IxGroupTooLarge);

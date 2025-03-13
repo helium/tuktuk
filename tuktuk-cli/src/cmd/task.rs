@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use anyhow::anyhow;
 use clap::{Args, Subcommand};
 use clock::SYSVAR_CLOCK;
+use itertools::Itertools;
 use serde::Serialize;
 use solana_client::rpc_config::RpcSimulateTransactionConfig;
 use solana_sdk::{
@@ -264,8 +265,9 @@ impl TaskCmd {
                     })
                     .collect::<Result<Vec<_>>>()?;
 
+                let ix_groups = ixs.into_iter().map(|ix| vec![ix]).collect_vec();
                 let groups = pack_instructions_into_transactions(
-                    ixs.into_iter().map(|ix| vec![ix]).collect(),
+                    &ix_groups.iter().map(|ix| ix.as_slice()).collect_vec(),
                     &client.payer,
                     None,
                 )?;
@@ -278,7 +280,7 @@ impl TaskCmd {
                         client.rpc_client.clone(),
                         &client.payer,
                         client.opts.ws_url().as_str(),
-                        to_send.instructions,
+                        &to_send.instructions,
                         &[],
                     )
                     .await?;
@@ -343,7 +345,7 @@ impl TaskCmd {
                             let blockhash = client.rpc_client.get_latest_blockhash().await?;
                             let (computed, _) = auto_compute_limit_and_price(
                                 &client.rpc_client,
-                                run_ix.instructions,
+                                &run_ix.instructions,
                                 1.2,
                                 &client.payer.pubkey(),
                                 Some(blockhash),

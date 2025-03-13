@@ -79,7 +79,7 @@ impl CronTransactionCmd {
                     client.rpc_client.clone(),
                     &client.payer,
                     client.opts.ws_url().as_str(),
-                    vec![ix],
+                    &[ix],
                     &[],
                 )
                 .await?;
@@ -122,7 +122,7 @@ impl CronTransactionCmd {
                     client.rpc_client.clone(),
                     &client.payer,
                     client.opts.ws_url().as_str(),
-                    vec![ix],
+                    &[ix],
                     &[],
                 )
                 .await?;
