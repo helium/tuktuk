@@ -246,6 +246,7 @@ impl TimedTask {
 
             tx_sender
                 .send(TransactionTask {
+                    worth: self.task.crank_reward,
                     task: TimedTask {
                         in_flight_task_ids: run_ix.free_task_ids,
                         ..self.clone()
