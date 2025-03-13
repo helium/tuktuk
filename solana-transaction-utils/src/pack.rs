@@ -80,7 +80,7 @@ pub fn pack_instructions_into_transactions(
     let lookup_tables = lookup_tables.unwrap_or_default();
 
     // Instead of flattening all instructions, process them group by group
-    for (group_idx, group) in instructions.into_iter().enumerate() {
+    for (group_idx, group) in instructions.iter().enumerate() {
         // Create a test transaction with current instructions + entire new group.
         // If adding the entire group would exceed size limit, start a new transaction
         // (but only if we already have instructions in the current batch)
@@ -92,7 +92,7 @@ pub fn pack_instructions_into_transactions(
         }
 
         // Add the entire group to current transaction
-        curr_transaction.push(&group, group_idx);
+        curr_transaction.push(group, group_idx);
 
         if curr_transaction.transaction_len(&[], &lookup_tables, payer)? > MAX_TRANSACTION_SIZE {
             return Err(Error::IxGroupTooLarge);
