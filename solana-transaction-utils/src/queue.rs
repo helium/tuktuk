@@ -30,6 +30,8 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct TransactionTask<T: Send + Clone> {
     pub task: T,
+    // What is this task worth in lamports? Will not run tx if it is not worth it. To guarentee task runs, set to u64::MAX
+    pub worth: u64,
     pub instructions: Vec<Instruction>,
     pub lookup_tables: Option<Vec<AddressLookupTableAccount>>,
 }
@@ -142,7 +144,8 @@ pub fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                 for task_id in tx.task_ids.iter() {
                                     fees_by_task_id.insert(*task_id, fee.div_ceil(num_tasks as u64));
                                 }
-                                if fee > max_sol_fee {
+                                let total_task_worth = tx.task_ids.iter().map(|task_id| tasks[*task_id].worth).sum::<u64>();
+                                if fee > max_sol_fee || fee > total_task_worth {
                                     for task_id in &tx.task_ids {
                                         result_tx.send(CompletedTransactionTask {
                                             err: Some(TransactionQueueError::FeeTooHigh),
