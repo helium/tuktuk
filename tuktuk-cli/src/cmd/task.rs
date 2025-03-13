@@ -341,7 +341,6 @@ impl TaskCmd {
                     match run_ix_result {
                         Ok(Some(run_ix)) => {
                             let blockhash = client.rpc_client.get_latest_blockhash().await?;
-                            println!("Ix: {:?}", run_ix.instructions);
                             let (computed, _) = auto_compute_limit_and_price(
                                 &client.rpc_client,
                                 run_ix.instructions,
