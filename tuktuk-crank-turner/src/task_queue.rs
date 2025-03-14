@@ -20,7 +20,7 @@ use tokio::{
 use tuktuk_program::TaskV0;
 use tuktuk_sdk::compiled_transaction::RunTaskResult;
 
-use crate::metrics::{TASKS_IN_QUEUE, TASKS_NEXT_WAKEUP};
+use crate::metrics::{TASKS_IN_PROGRESS, TASKS_IN_QUEUE, TASKS_NEXT_WAKEUP};
 
 #[derive(Debug, Clone)]
 pub struct TimedTask {
@@ -119,6 +119,9 @@ impl Stream for TaskStream {
                     if removed_tasks.contains(&key) {
                         // Task was removed, continue polling
                         cx.waker().wake_by_ref();
+                        TASKS_IN_PROGRESS
+                            .with_label_values(&[task.task_queue_name.as_str()])
+                            .dec();
                         return Poll::Pending;
                     }
 
