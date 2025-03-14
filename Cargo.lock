@@ -4566,6 +4566,7 @@ dependencies = [
  "solana-transaction-status",
  "thiserror",
  "tokio",
+ "tokio-graceful-shutdown",
 ]
 
 [[package]]

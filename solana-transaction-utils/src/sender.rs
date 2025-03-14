@@ -18,13 +18,11 @@ use solana_sdk::{
     signer::Signer,
     transaction::VersionedTransaction,
 };
-use tokio::{
-    sync::{
-        mpsc::{Receiver, Sender},
-        RwLock,
-    },
-    task::JoinHandle,
+use tokio::sync::{
+    mpsc::{Receiver, Sender},
+    RwLock,
 };
+use tokio_graceful_shutdown::{SubsystemBuilder, SubsystemHandle};
 
 use crate::{
     error::Error,
@@ -53,11 +51,11 @@ struct TransactionData<T: Send + Clone> {
 }
 
 #[derive(Clone, Debug, Copy)]
-struct BlockHashData {
+pub struct BlockHashData {
     last_valid_block_height: u64,
 }
 
-pub(crate) struct TransactionSender<T: Send + Clone> {
+pub struct TransactionSender<T: Send + Clone + Sync> {
     unconfirmed_txs: Arc<DashMap<Signature, TransactionData<T>>>,
     blockhash_data: Arc<RwLock<BlockHashData>>,
     current_block_height: Arc<AtomicU64>,
@@ -67,7 +65,37 @@ pub(crate) struct TransactionSender<T: Send + Clone> {
     payer: Arc<Keypair>,
 }
 
-impl<T: Send + Clone> TransactionSender<T> {
+pub async fn spawn_background_tasks(
+    handle: SubsystemHandle,
+    blockhash_data: Arc<RwLock<BlockHashData>>,
+    current_block_height: Arc<AtomicU64>,
+    rpc_client: Arc<RpcClient>,
+) -> Result<(), Error> {
+    // Spawn blockhash updater
+    let mut interval = tokio::time::interval(BLOCKHASH_REFRESH_INTERVAL);
+    loop {
+        tokio::select! {
+            _ = handle.on_shutdown_requested() => {
+                return Ok(());
+            }
+            _ = interval.tick() => {
+                if let Ok((_, last_valid_block_height)) = rpc_client
+                    .get_latest_blockhash_with_commitment(rpc_client.commitment())
+                    .await
+                {
+                    *blockhash_data.write().await = BlockHashData {
+                        last_valid_block_height,
+                    };
+                }
+                if let Ok(block_height) = rpc_client.get_block_height().await {
+                    current_block_height.store(block_height, Ordering::Relaxed);
+                }
+            }
+        }
+    }
+}
+
+impl<T: Send + Clone + Sync> TransactionSender<T> {
     pub async fn new(
         rpc_client: Arc<RpcClient>,
         ws_url: String,
@@ -108,35 +136,11 @@ impl<T: Send + Clone> TransactionSender<T> {
         })
     }
 
-    pub fn spawn_background_tasks(&self) -> JoinHandle<()> {
-        let blockhash_data = self.blockhash_data.clone();
-        let current_block_height = self.current_block_height.clone();
-        let rpc_client = self.rpc_client.clone();
-
-        // Spawn blockhash updater
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(BLOCKHASH_REFRESH_INTERVAL);
-            loop {
-                interval.tick().await;
-                if let Ok((_, last_valid_block_height)) = rpc_client
-                    .get_latest_blockhash_with_commitment(rpc_client.commitment())
-                    .await
-                {
-                    *blockhash_data.write().await = BlockHashData {
-                        last_valid_block_height,
-                    };
-                }
-                if let Ok(block_height) = rpc_client.get_block_height().await {
-                    current_block_height.store(block_height, Ordering::Relaxed);
-                }
-            }
-        })
-    }
-
     pub async fn process_packed_tx(
         &self,
         packed: &PackedTransactionWithTasks<T>,
     ) -> Result<(), Error> {
+        println!("processing packed tx");
         let blockhash = self.rpc_client.get_latest_blockhash().await?;
         let message = v0::Message::try_compile(
             &self.payer.pubkey(),
@@ -259,16 +263,23 @@ impl<T: Send + Clone> TransactionSender<T> {
     pub async fn run(
         self,
         mut rx: Receiver<PackedTransactionWithTasks<T>>,
-        mut shutdown: tokio::sync::broadcast::Receiver<()>,
-    ) {
-        let background_handle = self.spawn_background_tasks();
+        handle: SubsystemHandle,
+    ) -> Result<(), Error> {
+        handle.start(SubsystemBuilder::new("transaction-sender", {
+            let blockhash_data = self.blockhash_data.clone();
+            let current_block_height = self.current_block_height.clone();
+            let rpc_client = self.rpc_client.clone();
+            move |handle| {
+                spawn_background_tasks(handle, blockhash_data, current_block_height, rpc_client)
+            }
+        }));
+
         let mut check_interval = tokio::time::interval(CONFIRMATION_CHECK_INTERVAL);
 
         loop {
             tokio::select! {
-                _ = shutdown.recv() => {
-                    background_handle.abort();
-                    break;
+                _ = handle.on_shutdown_requested() => {
+                    return Ok(());
                 }
                 Some(packed_tx) = rx.recv() => {
                     if let Err(e) = self.process_packed_tx(&packed_tx).await {
