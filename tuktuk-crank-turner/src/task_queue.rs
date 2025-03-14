@@ -1,11 +1,13 @@
 use std::{
     collections::BinaryHeap,
+    num::NonZero,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
 };
 
 use futures::Stream;
+use lru::LruCache;
 use solana_sdk::pubkey::Pubkey;
 use tokio::{
     sync::{
@@ -16,6 +18,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tuktuk_program::TaskV0;
+use tuktuk_sdk::compiled_transaction::RunTaskResult;
 
 use crate::metrics::{TASKS_IN_QUEUE, TASKS_NEXT_WAKEUP};
 
@@ -31,6 +34,7 @@ pub struct TimedTask {
     pub in_flight_task_ids: Vec<u16>,
     pub is_cleanup_task: bool,
     pub profitability_delayed: bool,
+    pub cached_result: Option<RunTaskResult>,
 }
 
 impl PartialEq for TimedTask {
@@ -54,8 +58,15 @@ impl PartialOrd for TimedTask {
     }
 }
 
+#[derive(Hash, Eq, PartialEq)]
+pub struct RemovedTaskKey {
+    task_key: Pubkey,
+    queued_at: i64,
+}
+
 pub struct TaskQueue {
     tx: Sender<TimedTask>,
+    removal_tx: Sender<Pubkey>,
     message_thread: JoinHandle<()>,
 }
 
@@ -69,6 +80,9 @@ impl TaskQueue {
     pub async fn abort(&self) {
         self.message_thread.abort();
     }
+    pub async fn remove_task(&self, task_key: Pubkey) -> Result<(), SendError<Pubkey>> {
+        self.removal_tx.send(task_key).await
+    }
 }
 
 pub struct TaskQueueArgs {
@@ -78,6 +92,7 @@ pub struct TaskQueueArgs {
 
 pub struct TaskStream {
     task_queue: Arc<Mutex<BinaryHeap<TimedTask>>>,
+    removed_tasks: Arc<Mutex<LruCache<RemovedTaskKey, ()>>>,
     now: Receiver<u64>,
     notify: Arc<Notify>,
 }
@@ -93,6 +108,20 @@ impl Stream for TaskStream {
             if let Some(task) = queue.peek() {
                 if task.task_time <= now {
                     let task = queue.pop().unwrap();
+
+                    // Check if task was removed
+                    let removed_tasks = this.removed_tasks.try_lock().unwrap();
+                    let key = RemovedTaskKey {
+                        task_key: task.task_key,
+                        queued_at: task.task.queued_at,
+                    };
+
+                    if removed_tasks.contains(&key) {
+                        // Task was removed, continue polling
+                        cx.waker().wake_by_ref();
+                        return Poll::Pending;
+                    }
+
                     TASKS_IN_QUEUE
                         .with_label_values(&[task.task_queue_name.as_str()])
                         .dec();
@@ -101,7 +130,6 @@ impl Stream for TaskStream {
                         .set(0);
                     return Poll::Ready(Some(task));
                 } else {
-                    // Schedule a wake-up when the next task is ready
                     let wake_time = task.task_time.saturating_sub(now);
                     TASKS_NEXT_WAKEUP
                         .with_label_values(&[task.task_queue_name.as_str()])
@@ -136,32 +164,60 @@ impl Stream for TaskStream {
     }
 }
 
+const REMOVAL_LRU_SIZE: usize = 500;
+const QUEUED_AT_LRU_SIZE: usize = 5000;
 pub async fn create_task_queue(args: TaskQueueArgs) -> (TaskStream, TaskQueue) {
-    let TaskQueueArgs {
-        channel_capacity,
-        now,
-    } = args;
-    let (tx, mut rx) = mpsc::channel::<TimedTask>(channel_capacity);
+    let (tx, mut rx) = mpsc::channel::<TimedTask>(args.channel_capacity);
+    let (removal_tx, mut removal_rx) = mpsc::channel::<Pubkey>(args.channel_capacity);
     let task_queue = Arc::new(Mutex::new(BinaryHeap::new()));
+    let removed_tasks = Arc::new(Mutex::new(LruCache::new(NonZero::new(REMOVAL_LRU_SIZE).unwrap()))); // Keep last n removed tasks
 
-    let task_queue_clone = Arc::clone(&task_queue);
-
+    // Keep last n queued ats, since the watcher does not know the queue_at of removed task, just that the pubkey disappeared. And we don't want to permanently taint a pubkey,
+    // we just want to taint that pubkey for the queue_at time of the task.
+    let task_queued_ats = Arc::new(Mutex::new(LruCache::new(NonZero::new(QUEUED_AT_LRU_SIZE).unwrap())));
     let notify = Arc::new(Notify::new());
-    let notify_clone = notify.clone();
-    let message_thread = tokio::spawn(async move {
-        while let Some(task) = rx.recv().await {
-            let mut queue = task_queue_clone.lock().await;
-            queue.push(task);
-            drop(queue);
-            notify_clone.notify_one(); // Notify when a new task is added
-        }
-    });
+
+    // Handle both tasks and removals
+    let message_thread = {
+        let task_queue = task_queue.clone();
+        let removed_tasks = removed_tasks.clone();
+        let notify = notify.clone();
+
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    Some(task) = rx.recv() => {
+                        task_queued_ats.lock().await.put(task.task_key, task.task.queued_at);
+                        task_queue.lock().await.push(task);
+                        notify.notify_one();
+                    }
+                    Some(removed) = removal_rx.recv() => {
+                        if let Some(queued_at) = task_queued_ats.lock().await.get(&removed) {
+                            removed_tasks.lock().await.put(RemovedTaskKey {
+                                task_key: removed,
+                                queued_at: *queued_at,
+                            }, ());
+                        }
+                    }
+                    else => break,
+                }
+            }
+        })
+    };
 
     let stream = TaskStream {
         task_queue: Arc::clone(&task_queue),
-        now,
+        removed_tasks: removed_tasks.clone(),
+        now: args.now,
         notify,
     };
 
-    (stream, TaskQueue { tx, message_thread })
+    (
+        stream,
+        TaskQueue {
+            tx,
+            removal_tx,
+            message_thread,
+        },
+    )
 }

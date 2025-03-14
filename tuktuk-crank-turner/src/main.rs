@@ -87,7 +87,10 @@ impl Cli {
         tokio::spawn(warp::serve(metrics_route).run(([0, 0, 0, 0], settings.metrics_port)));
 
         let solana_url = settings.rpc_url.clone();
-        let solana_ws_url = solana_url.replace("http", "ws").replace("https", "wss");
+        let solana_ws_url = solana_url
+            .replace("http", "ws")
+            .replace("https", "wss")
+            .replace("127.0.0.1:8899", "127.0.0.1:8900");
 
         // Create a non-blocking RPC client
         // We can work off of processed accounts because we simulate the next tx before actually

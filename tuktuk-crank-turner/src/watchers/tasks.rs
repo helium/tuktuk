@@ -71,6 +71,7 @@ pub async fn get_and_watch_tasks(
                     in_flight_task_ids: vec![],
                     is_cleanup_task: false,
                     profitability_delayed: false,
+                    cached_result: None,
                 },
                 TriggerV0::Timestamp(ts) => TimedTask {
                     task_queue_name: task_queue_account.name.clone(),
@@ -83,6 +84,7 @@ pub async fn get_and_watch_tasks(
                     in_flight_task_ids: vec![],
                     is_cleanup_task: false,
                     profitability_delayed: false,
+                    cached_result: None,
                 },
             },
             _ => continue,
@@ -104,6 +106,12 @@ pub async fn get_and_watch_tasks(
             async move {
                 save_task_queue(task_queue_key, task_queue_account.clone(), task_queues).await;
                 let now = *now.borrow();
+                for removed in update.removed {
+                    task_queue
+                        .remove_task(removed)
+                        .await
+                        .map_err(|e| anyhow::anyhow!("Failed to remove task: {}", e))?;
+                }
                 for (task_key, account) in update.tasks {
                     match &account {
                         Some(t) if t.crank_reward >= args.min_crank_fee => {
@@ -119,20 +127,23 @@ pub async fn get_and_watch_tasks(
                                     in_flight_task_ids: vec![],
                                     is_cleanup_task: false,
                                     profitability_delayed: false,
+                                    cached_result: None,
                                 },
                                 TriggerV0::Timestamp(ts) => TimedTask {
                                     task_time: ts as u64,
                                     task_queue_name: task_queue_account.name.clone(),
                                     task: t.clone(),
                                     task_key,
-                                    total_retries: 0,
                                     max_retries: args.max_retries,
                                     task_queue_key,
+                                    cached_result: None,
+                                    total_retries: 0,
                                     in_flight_task_ids: vec![],
                                     is_cleanup_task: false,
                                     profitability_delayed: false,
                                 },
                             };
+
                             task_queue
                                 .add_task(task)
                                 .await

@@ -84,46 +84,41 @@ async fn simulate_task(client: &CliClient, task_key: Pubkey) -> Result<Option<Si
     )
     .await?;
 
-    if let Some(run_ix) = run_ix {
-        // Create and simulate the transaction
-        let mut updated_instructions = vec![
-            solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(1900000),
-        ];
-        updated_instructions.extend(run_ix.instructions.clone());
-        let recent_blockhash = client.rpc_client.get_latest_blockhash().await?;
-        let message = VersionedMessage::V0(v0::Message::try_compile(
-            &client.payer.pubkey(),
-            &updated_instructions,
-            &run_ix.lookup_tables,
-            recent_blockhash,
-        )?);
-        let tx = VersionedTransaction::try_new(message, &[&client.payer])?;
-        let sim_result = client
-            .rpc_client
-            .simulate_transaction_with_config(
-                &tx,
-                RpcSimulateTransactionConfig {
-                    commitment: Some(solana_sdk::commitment_config::CommitmentConfig::confirmed()),
-                    sig_verify: true,
-                    ..Default::default()
-                },
-            )
-            .await;
+    // Create and simulate the transaction
+    let mut updated_instructions =
+        vec![solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(1900000)];
+    updated_instructions.extend(run_ix.instructions.clone());
+    let recent_blockhash = client.rpc_client.get_latest_blockhash().await?;
+    let message = VersionedMessage::V0(v0::Message::try_compile(
+        &client.payer.pubkey(),
+        &updated_instructions,
+        &run_ix.lookup_tables,
+        recent_blockhash,
+    )?);
+    let tx = VersionedTransaction::try_new(message, &[&client.payer])?;
+    let sim_result = client
+        .rpc_client
+        .simulate_transaction_with_config(
+            &tx,
+            RpcSimulateTransactionConfig {
+                commitment: Some(solana_sdk::commitment_config::CommitmentConfig::confirmed()),
+                sig_verify: true,
+                ..Default::default()
+            },
+        )
+        .await;
 
-        match sim_result {
-            Ok(simulated) => Ok(Some(SimulationResult {
-                error: simulated.value.err.map(|e| e.to_string()),
-                logs: Some(simulated.value.logs.unwrap_or_default()),
-                compute_units: simulated.value.units_consumed,
-            })),
-            Err(err) => Ok(Some(SimulationResult {
-                error: Some(err.to_string()),
-                logs: None,
-                compute_units: None,
-            })),
-        }
-    } else {
-        Ok(None)
+    match sim_result {
+        Ok(simulated) => Ok(Some(SimulationResult {
+            error: simulated.value.err.map(|e| e.to_string()),
+            logs: Some(simulated.value.logs.unwrap_or_default()),
+            compute_units: simulated.value.units_consumed,
+        })),
+        Err(err) => Ok(Some(SimulationResult {
+            error: Some(err.to_string()),
+            logs: None,
+            compute_units: None,
+        })),
     }
 }
 
@@ -341,7 +336,7 @@ impl TaskCmd {
                     )
                     .await;
                     match run_ix_result {
-                        Ok(Some(run_ix)) => {
+                        Ok(run_ix) => {
                             let blockhash = client.rpc_client.get_latest_blockhash().await?;
                             let (computed, _) = auto_compute_limit_and_price(
                                 &client.rpc_client,
@@ -379,7 +374,6 @@ impl TaskCmd {
                         Err(e) => {
                             println!("Error running task: {}", e);
                         }
-                        _ => {}
                     }
                 }
             }
