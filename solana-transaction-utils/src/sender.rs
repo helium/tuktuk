@@ -140,7 +140,6 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         &self,
         packed: &PackedTransactionWithTasks<T>,
     ) -> Result<(), Error> {
-        println!("processing packed tx");
         let blockhash = self.rpc_client.get_latest_blockhash().await?;
         let message = v0::Message::try_compile(
             &self.payer.pubkey(),
