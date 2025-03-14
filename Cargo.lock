@@ -4547,7 +4547,7 @@ dependencies = [
 
 [[package]]
 name = "solana-transaction-utils"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bincode",
  "dashmap",
@@ -5379,7 +5379,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tuktuk-cli"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -5408,7 +5408,7 @@ dependencies = [
 
 [[package]]
 name = "tuktuk-crank-turner"
-version = "0.1.24"
+version = "0.2.0"
 dependencies = [
  "anchor-client",
  "anchor-lang",

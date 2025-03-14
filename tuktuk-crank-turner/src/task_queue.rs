@@ -170,11 +170,15 @@ pub async fn create_task_queue(args: TaskQueueArgs) -> (TaskStream, TaskQueue) {
     let (tx, mut rx) = mpsc::channel::<TimedTask>(args.channel_capacity);
     let (removal_tx, mut removal_rx) = mpsc::channel::<Pubkey>(args.channel_capacity);
     let task_queue = Arc::new(Mutex::new(BinaryHeap::new()));
-    let removed_tasks = Arc::new(Mutex::new(LruCache::new(NonZero::new(REMOVAL_LRU_SIZE).unwrap()))); // Keep last n removed tasks
+    let removed_tasks = Arc::new(Mutex::new(LruCache::new(
+        NonZero::new(REMOVAL_LRU_SIZE).unwrap(),
+    ))); // Keep last n removed tasks
 
     // Keep last n queued ats, since the watcher does not know the queue_at of removed task, just that the pubkey disappeared. And we don't want to permanently taint a pubkey,
     // we just want to taint that pubkey for the queue_at time of the task.
-    let task_queued_ats = Arc::new(Mutex::new(LruCache::new(NonZero::new(QUEUED_AT_LRU_SIZE).unwrap())));
+    let task_queued_ats = Arc::new(Mutex::new(LruCache::new(
+        NonZero::new(QUEUED_AT_LRU_SIZE).unwrap(),
+    )));
     let notify = Arc::new(Notify::new());
 
     // Handle both tasks and removals
