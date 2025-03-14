@@ -352,7 +352,8 @@ impl TimedTask {
                         let jitter = rand::random_range(0..60); // Jitter up to 1 minute to prevent conflicts with other turners
                         let retry_delay = base_delay + jitter;
                         info!(
-                            ?self,
+                            ?self.task_key,
+                            ?self.task_time,
                             ?err,
                             ?retry_delay,
                             "task transaction failed, retrying"
