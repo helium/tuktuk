@@ -13,6 +13,7 @@ use solana_client::{
     tpu_client::TpuClientConfig,
 };
 use solana_sdk::{
+    hash::Hash,
     instruction::Instruction,
     message::{v0, VersionedMessage},
     signature::{Keypair, Signature},
@@ -54,6 +55,7 @@ struct TransactionData<T: Send + Clone> {
 #[derive(Clone, Debug, Copy)]
 pub struct BlockHashData {
     last_valid_block_height: u64,
+    blockhash: Hash,
 }
 
 pub struct TransactionSender<T: Send + Clone + Sync> {
@@ -80,12 +82,13 @@ pub async fn spawn_background_tasks(
                 return Ok(());
             }
             _ = interval.tick() => {
-                if let Ok((_, last_valid_block_height)) = rpc_client
+                if let Ok((blockhash, last_valid_block_height)) = rpc_client
                     .get_latest_blockhash_with_commitment(rpc_client.commitment())
                     .await
                 {
                     *blockhash_data.write().await = BlockHashData {
                         last_valid_block_height,
+                        blockhash,
                     };
                 }
                 if let Ok(block_height) = rpc_client.get_block_height().await {
@@ -104,12 +107,13 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         result_tx: Sender<CompletedTransactionTask<T>>,
     ) -> Result<Self, Error> {
         // Initialize blockhash data
-        let (_, last_valid_block_height) = rpc_client
+        let (blockhash, last_valid_block_height) = rpc_client
             .get_latest_blockhash_with_commitment(rpc_client.commitment())
             .await?;
 
         let blockhash_data = Arc::new(RwLock::new(BlockHashData {
             last_valid_block_height,
+            blockhash,
         }));
 
         // Initialize block height
@@ -141,7 +145,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         &self,
         packed: &PackedTransactionWithTasks<T>,
     ) -> Result<(), Error> {
-        let blockhash = self.rpc_client.get_latest_blockhash().await?;
+        let blockhash = self.blockhash_data.read().await.blockhash;
         let lookup_tables = packed
             .tasks
             .iter()
