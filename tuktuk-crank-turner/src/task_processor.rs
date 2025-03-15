@@ -391,7 +391,9 @@ impl TimedTask {
                             .inc();
                     }
                 }
-                _ => {}
+                _ => {
+                    info!(?self.task_key, ?err, "task failed");
+                }
             }
         } else {
             TASKS_COMPLETED

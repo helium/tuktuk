@@ -7,6 +7,7 @@ use std::{
 };
 
 use dashmap::DashMap;
+use itertools::Itertools;
 use solana_client::{
     nonblocking::{rpc_client::RpcClient, tpu_client::TpuClient},
     tpu_client::TpuClientConfig,
@@ -31,8 +32,8 @@ use crate::{
 };
 
 const SEND_TIMEOUT: Duration = Duration::from_secs(5);
-const CONFIRMATION_CHECK_INTERVAL: Duration = Duration::from_secs(1);
-const BLOCKHASH_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
+const CONFIRMATION_CHECK_INTERVAL: Duration = Duration::from_secs(5);
+const BLOCKHASH_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 const MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS: usize = 100;
 
 #[derive(Clone, Debug)]
@@ -141,10 +142,16 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         packed: &PackedTransactionWithTasks<T>,
     ) -> Result<(), Error> {
         let blockhash = self.rpc_client.get_latest_blockhash().await?;
+        let lookup_tables = packed
+            .tasks
+            .iter()
+            .flat_map(|t| t.lookup_tables.clone())
+            .flatten()
+            .collect_vec();
         let message = v0::Message::try_compile(
             &self.payer.pubkey(),
             &packed.instructions,
-            &[], // LUTs handled separately
+            &lookup_tables,
             blockhash,
         )?;
 
@@ -156,6 +163,9 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
             bincode::serialize(&tx).map_err(|e| Error::SerializationError(e.to_string()))?;
         let signature = tx.signatures[0];
 
+        // Initial send via RPC
+        self.send_transaction_with_rpc(&tx).await?;
+
         // Add to unconfirmed map
         self.unconfirmed_txs.insert(
             signature,
@@ -166,9 +176,6 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
                 sent_to_rpc: false,
             },
         );
-
-        // Initial send via RPC
-        self.send_transaction_with_rpc(&tx).await?;
 
         Ok(())
     }
