@@ -11,8 +11,9 @@ use solana_sdk::{
 
 use crate::error::Error;
 
-const MAX_TRANSACTION_SIZE: usize = 1232; // Maximum transaction size in bytes
+pub const MAX_TRANSACTION_SIZE: usize = 1232; // Maximum transaction size in bytes
 
+#[derive(Debug)]
 pub struct PackedTransaction {
     pub instructions: Vec<Instruction>,
     pub task_ids: Vec<usize>,
@@ -22,7 +23,8 @@ impl Default for PackedTransaction {
     fn default() -> Self {
         Self {
             instructions: vec![
-                ComputeBudgetInstruction::set_compute_unit_limit(200000),
+                // High compute unit limit for simulation, should be updated after simulation
+                ComputeBudgetInstruction::set_compute_unit_limit(1000000),
                 ComputeBudgetInstruction::set_compute_unit_price(1),
             ],
             task_ids: Default::default(),
