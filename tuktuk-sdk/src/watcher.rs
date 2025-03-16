@@ -38,6 +38,12 @@ fn account_from_ui_account(value: &UiAccount) -> Account {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum UpdateType {
+    Poll,
+    Websocket,
+}
+
 impl PubsubTracker {
     pub fn new(
         client: Arc<RpcClient>,
@@ -60,7 +66,7 @@ impl PubsubTracker {
         pubkey: Pubkey,
     ) -> Result<
         (
-            impl Stream<Item = Result<Account, Error>> + 'a,
+            impl Stream<Item = Result<(Account, UpdateType), Error>> + 'a,
             Box<dyn FnOnce() -> BoxFuture<'a, ()> + 'a>,
         ),
         Error,
@@ -99,11 +105,11 @@ impl PubsubTracker {
                                         Err(e) => return Some((Err(Error::from(e)), (subscription, publisher_receiver))),
                                     };
                                 }
-                                return Some((Ok(account), (subscription, publisher_receiver)));
+                                return Some((Ok((account, UpdateType::Poll)), (subscription, publisher_receiver)));
                             },
                             Ok((key, acc)) = publisher_receiver.recv() => {
                                 if key == pubkey {
-                                    return Some((Ok(acc), (subscription, publisher_receiver)));
+                                    return Some((Ok((acc, UpdateType::Websocket)), (subscription, publisher_receiver)));
                                 }
                             },
                             else => break,

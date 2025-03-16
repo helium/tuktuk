@@ -23,7 +23,7 @@ pub async fn track(
             .for_each(move |acc_result| {
                 let now_tx = now_tx.clone();
                 async move {
-                    if let Ok(acc) = acc_result {
+                    if let Ok((acc, _update_type)) = acc_result {
                         if let Ok(c) = bincode::deserialize::<solana_sdk::clock::Clock>(&acc.data) {
                             now_tx.send(c.unix_timestamp as u64).unwrap();
                         }

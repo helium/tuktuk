@@ -7,7 +7,10 @@ use solana_sdk::{hash::hash, instruction::Instruction};
 use tokio::sync::Mutex;
 use tuktuk_program::*;
 
-use crate::{error::Error, watcher::PubsubTracker};
+use crate::{
+    error::Error,
+    watcher::{PubsubTracker, UpdateType},
+};
 
 fn hash_name(name: &str) -> [u8; 32] {
     hash(name.as_bytes()).to_bytes()
@@ -33,6 +36,7 @@ pub fn task_queue_name_mapping_key(config_key: &Pubkey, name: &str) -> Pubkey {
 pub struct TaskQueueUpdate {
     pub task_queues: Vec<(Pubkey, Option<TaskQueueV0>)>,
     pub removed: Range<u32>,
+    pub update_type: UpdateType,
 }
 
 pub fn create_config(
@@ -548,16 +552,17 @@ pub mod task_queue {
 
         let last_id = Arc::new(Mutex::new(config.next_task_queue_id));
         let min_id = Arc::new(Mutex::new(0));
-        let result = stream.then(move |acc| {
+        let result = stream.then(move |res| {
             let last_id = Arc::clone(&last_id);
             let min_id = Arc::clone(&min_id);
             async move {
+                let (acc, update_type) = res?;
                 let mut last_id_value = last_id.lock().await;
                 let mut min_id_value = min_id.lock().await;
                 let last_id = *last_id_value;
                 let min_id = *min_id_value;
 
-                let new_config = TuktukConfigV0::try_deserialize(&mut acc?.data.as_ref())?;
+                let new_config = TuktukConfigV0::try_deserialize(&mut acc.data.as_ref())?;
                 *last_id_value = new_config.next_task_queue_id;
                 *min_id_value = 0;
                 let queue_ids = last_id..new_config.next_task_queue_id;
@@ -570,6 +575,7 @@ pub mod task_queue {
                 Ok(TaskQueueUpdate {
                     task_queues: queues,
                     removed: min_id..last_id,
+                    update_type,
                 })
             }
         });
@@ -583,6 +589,7 @@ pub struct TaskUpdate {
     pub tasks: Vec<(Pubkey, Option<TaskV0>)>,
     pub task_queue: TaskQueueV0,
     pub removed: Vec<Pubkey>,
+    pub update_type: UpdateType,
 }
 
 pub mod task {
@@ -689,13 +696,14 @@ pub mod task {
         let (stream, unsubscribe) = pubsub_tracker.watch_pubkey(*task_queue_key).await?;
 
         let last_tq = Arc::new(Mutex::new(task_queue.clone()));
-        let result = stream.then(move |acc| {
+        let result = stream.then(move |res| {
             let last_tq = last_tq.clone();
             async move {
+                let (acc, update_type) = res?;
                 let mut last_tq_guard = last_tq.lock().await;
                 let last_tq_clone = last_tq_guard.clone();
 
-                let new_task_queue = TaskQueueV0::try_deserialize(&mut acc?.data.as_ref())?;
+                let new_task_queue = TaskQueueV0::try_deserialize(&mut acc.data.as_ref())?;
                 *last_tq_guard = new_task_queue.clone();
 
                 let task_ids = 0..new_task_queue.capacity;
@@ -716,6 +724,7 @@ pub mod task {
                     tasks,
                     task_queue: new_task_queue,
                     removed: removed_task_keys,
+                    update_type,
                 })
             }
         });
