@@ -22,6 +22,12 @@ pub struct Settings {
     pub pubsub_repoll: Duration,
     #[serde(default = "default_metrics_port")]
     pub metrics_port: u16,
+    #[serde(default = "default_recent_attempts_window")]
+    pub recent_attempts_window: usize,
+}
+
+fn default_recent_attempts_window() -> usize {
+    5
 }
 
 fn default_metrics_port() -> u16 {

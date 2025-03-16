@@ -39,6 +39,21 @@ lazy_static! {
         &["task_queue", "error_type"]
     )
     .expect("metric can be created");
+    pub static ref TASK_QUEUE_PROFIT: IntGaugeVec = IntGaugeVec::new(
+        opts!("solana_tuktuk_task_queue_profit", "Task queue profit")
+            .const_label("version", env!("CARGO_PKG_VERSION")),
+        &["task_queue"]
+    )
+    .expect("metric can be created");
+    pub static ref TASK_ROLLING_PROFIT_PER_TASK: IntGaugeVec = IntGaugeVec::new(
+        opts!(
+            "solana_tuktuk_task_rolling_profit_per_task",
+            "Task rolling profit per task"
+        )
+        .const_label("version", env!("CARGO_PKG_VERSION")),
+        &["task_queue"]
+    )
+    .expect("metric can be created");
 }
 
 pub fn register_custom_metrics() {
@@ -59,5 +74,11 @@ pub fn register_custom_metrics() {
         .expect("collector can be registered");
     REGISTRY
         .register(Box::new(TASK_IDS_RESERVED.clone()))
+        .expect("collector can be registered");
+    REGISTRY
+        .register(Box::new(TASK_QUEUE_PROFIT.clone()))
+        .expect("collector can be registered");
+    REGISTRY
+        .register(Box::new(TASK_ROLLING_PROFIT_PER_TASK.clone()))
         .expect("collector can be registered");
 }

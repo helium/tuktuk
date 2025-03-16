@@ -54,7 +54,7 @@ impl TuktukConfigCmd {
                     client.rpc_client.clone(),
                     &client.payer,
                     client.opts.ws_url().as_str(),
-                    combined_ixs,
+                    &combined_ixs,
                     &extra_signers,
                 )
                 .await?;

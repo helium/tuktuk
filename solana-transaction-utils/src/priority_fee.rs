@@ -84,14 +84,14 @@ pub async fn compute_price_instruction_for_accounts<C: AsRef<RpcClient>>(
 
 pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>>(
     client: &C,
-    instructions: Vec<Instruction>,
+    instructions: &[Instruction],
     compute_multiplier: f32,
     payer: &Pubkey,
     blockhash: Option<solana_program::hash::Hash>,
     lookup_tables: Option<Vec<AddressLookupTableAccount>>,
 ) -> Result<(solana_sdk::instruction::Instruction, u32), crate::error::Error> {
     // Check for existing compute unit limit instruction and replace it if found
-    let mut updated_instructions = instructions.clone();
+    let mut updated_instructions = instructions.to_vec();
     let mut has_compute_budget = false;
     for ix in &mut updated_instructions {
         if ix.program_id == solana_sdk::compute_budget::id()
@@ -139,17 +139,13 @@ pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>>(
         .map(|_| NullSigner::new(payer))
         .collect::<Vec<_>>();
     let null_signers: Vec<&NullSigner> = signers.iter().collect();
-    let snub_tx = VersionedTransaction::try_new(message, null_signers.as_slice())?;
+    let snub_tx = VersionedTransaction::try_new(message, null_signers.as_slice())
+        .map_err(|e| Error::SignerError(e.to_string()))?;
 
     // Simulate the transaction to get the actual compute used
     let simulation_result = client.as_ref().simulate_transaction(&snub_tx).await?;
     if let Some(err) = simulation_result.value.err {
-        println!("Error: {}", err);
-        if let Some(logs) = simulation_result.value.logs {
-            for log in logs {
-                println!("Log: {}", log);
-            }
-        }
+        return Err(Error::SimulatedTransactionError(err));
     }
     let actual_compute_used = simulation_result.value.units_consumed.unwrap_or(200000);
 
@@ -163,18 +159,18 @@ pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>>(
 // Returns the instructions and the total fee in lamports
 pub async fn auto_compute_limit_and_price<C: AsRef<RpcClient>>(
     client: &C,
-    instructions: Vec<Instruction>,
+    instructions: &[Instruction],
     compute_multiplier: f32,
     payer: &Pubkey,
     blockhash: Option<solana_program::hash::Hash>,
     lookup_tables: Option<Vec<AddressLookupTableAccount>>,
 ) -> Result<(Vec<Instruction>, u64), Error> {
-    let mut updated_instructions = instructions.clone();
+    let mut updated_instructions = instructions.to_vec();
 
     // Compute budget instruction
     let (compute_budget_ix, compute_limit) = compute_budget_for_instructions(
         client,
-        instructions.clone(),
+        &updated_instructions,
         compute_multiplier,
         payer,
         blockhash,
@@ -211,9 +207,34 @@ pub async fn auto_compute_limit_and_price<C: AsRef<RpcClient>>(
         updated_instructions.insert(1, compute_price_ix); // Insert after compute budget
     }
 
+    // Count unique signers
+    let num_unique_signers = instructions
+        .iter()
+        .flat_map(|i| i.accounts.iter())
+        .filter(|a| a.is_signer)
+        .map(|a| a.pubkey)
+        .chain(std::iter::once(*payer)) // Include payer
+        .unique_by(|pubkey| *pubkey)
+        .count();
+
+    // Count ed25519 signatures
+    let num_ed25519_sigs = instructions
+        .iter()
+        .filter(|ix| ix.program_id == solana_sdk::ed25519_program::id())
+        .map(|ix| ix.data[0] as usize)
+        .sum::<usize>();
+
+    let num_secp_sigs = instructions
+        .iter()
+        .filter(|ix| ix.program_id == solana_sdk::secp256k1_program::id())
+        .map(|ix| ix.data[0] as usize)
+        .sum::<usize>();
     Ok((
         updated_instructions,
-        // Get the actual total fee in lamports
-        5000 + (priority_fee * (compute_limit as u64)) / 1000000,
+        // compute fee + signature fees + ed25519 signature fees
+        (priority_fee * (compute_limit as u64)).div_ceil(1_000_000)  // Ceiling div
+            + (num_unique_signers as u64 * 5000)
+            + (num_ed25519_sigs as u64 * 5000)
+            + (num_secp_sigs as u64 * 5000),
     ))
 }

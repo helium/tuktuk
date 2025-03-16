@@ -9,10 +9,7 @@ use std::{
 use bincode::serialize;
 use dashmap::DashMap;
 use futures_util::future::join_all;
-use solana_client::{
-    nonblocking::{rpc_client::RpcClient, tpu_client::TpuClient},
-    rpc_client::RpcClient as BlockingRpcClient,
-};
+use solana_client::nonblocking::{rpc_client::RpcClient, tpu_client::TpuClient};
 use solana_quic_client::{QuicConfig, QuicConnectionManager, QuicPool};
 use solana_rpc_client::spinner::{self, SendTransactionProgress};
 use solana_rpc_client_api::{
@@ -26,8 +23,10 @@ use solana_sdk::{
     signers::Signers,
     transaction::{TransactionError, VersionedTransaction},
 };
-use solana_tpu_client::tpu_client::{Result, TpuSenderError};
+use solana_tpu_client::tpu_client::TpuSenderError;
 use tokio::{sync::RwLock, task::JoinHandle};
+
+use crate::error::Error;
 
 const BLOCKHASH_REFRESH_RATE: Duration = Duration::from_secs(5);
 const SEND_INTERVAL: Duration = Duration::from_millis(10);
@@ -55,24 +54,6 @@ struct BlockHashData {
 pub struct SendAndConfirmConfig {
     pub with_spinner: bool,
     pub resign_txs_count: Option<usize>,
-}
-
-/// Sends and confirms transactions concurrently in a sync context
-pub fn send_and_confirm_transactions_in_parallel_blocking<T: Signers + ?Sized>(
-    rpc_client: Arc<BlockingRpcClient>,
-    tpu_client: Option<QuicTpuClient>,
-    messages: &[Message],
-    signers: &T,
-    config: SendAndConfirmConfig,
-) -> Result<Vec<Option<TransactionError>>> {
-    let fut = send_and_confirm_transactions_in_parallel(
-        rpc_client.get_inner_client().clone(),
-        tpu_client,
-        messages,
-        signers,
-        config,
-    );
-    tokio::task::block_in_place(|| rpc_client.runtime().block_on(fut))
 }
 
 fn create_blockhash_data_updating_task(
@@ -191,7 +172,7 @@ async fn send_transaction_with_rpc_fallback(
     serialized_transaction: Vec<u8>,
     context: &SendingContext,
     index: usize,
-) -> Result<()> {
+) -> Result<(), Error> {
     let send_over_rpc = if let Some(tpu_client) = tpu_client {
         !tokio::time::timeout(
             SEND_TIMEOUT_INTERVAL,
@@ -236,7 +217,7 @@ async fn send_transaction_with_rpc_fallback(
                     context.error_map.insert(index, transaction_error.clone());
                 }
                 _ => {
-                    return Err(TpuSenderError::from(e));
+                    return Err(TpuSenderError::from(e).into());
                 }
             }
         }
@@ -251,13 +232,14 @@ async fn sign_all_messages_and_send<T: Signers + ?Sized>(
     messages_with_index: Vec<(usize, Message)>,
     signers: &T,
     context: &SendingContext,
-) -> Result<()> {
+) -> Result<(), Error> {
     let current_transaction_count = messages_with_index.len();
     let mut futures = vec![];
     // send all the transaction messages
     for (counter, (index, message)) in messages_with_index.iter().enumerate() {
         let transaction =
-            VersionedTransaction::try_new(VersionedMessage::V0(message.clone()), signers)?;
+            VersionedTransaction::try_new(VersionedMessage::V0(message.clone()), signers)
+                .map_err(|e| Error::SignerError(e.to_string()))?;
         futures.push(async move {
             tokio::time::sleep(SEND_INTERVAL.saturating_mul(counter as u32)).await;
             let blockhashdata = *context.blockhash_data_rw.read().await;
@@ -302,7 +284,10 @@ async fn sign_all_messages_and_send<T: Signers + ?Sized>(
         });
     }
     // collect to convert Vec<Result<_>> to Result<Vec<_>>
-    join_all(futures).await.into_iter().collect::<Result<_>>()?;
+    join_all(futures)
+        .await
+        .into_iter()
+        .collect::<Result<(), Error>>()?;
     Ok(())
 }
 
@@ -422,7 +407,7 @@ pub async fn send_and_confirm_transactions_in_parallel<T: Signers + ?Sized>(
     messages: &[Message],
     signers: &T,
     config: SendAndConfirmConfig,
-) -> Result<Vec<Option<TransactionError>>> {
+) -> Result<Vec<Option<TransactionError>>, Error> {
     // get current blockhash and corresponding last valid block height
     let (_, last_valid_block_height) = rpc_client
         .get_latest_blockhash_with_commitment(rpc_client.commitment())
@@ -435,7 +420,8 @@ pub async fn send_and_confirm_transactions_in_parallel<T: Signers + ?Sized>(
     messages
         .iter()
         .map(|x| VersionedTransaction::try_new(VersionedMessage::V0(x.clone()), signers))
-        .collect::<std::result::Result<Vec<_>, SignerError>>()?;
+        .collect::<std::result::Result<Vec<_>, SignerError>>()
+        .map_err(|e| Error::SignerError(e.to_string()))?;
 
     // get current block height
     let block_height = rpc_client.get_block_height().await?;
@@ -535,6 +521,6 @@ pub async fn send_and_confirm_transactions_in_parallel<T: Signers + ?Sized>(
         }
         Ok(transaction_errors)
     } else {
-        Err(TpuSenderError::Custom("Max retries exceeded".into()))
+        Err(TpuSenderError::Custom("Max retries exceeded".into()).into())
     }
 }

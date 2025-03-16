@@ -188,7 +188,7 @@ impl TaskQueueCmd {
                     client.rpc_client.clone(),
                     &client.payer,
                     client.opts.ws_url().as_str(),
-                    vec![fund_ix, ix, add_queue_authority_ix],
+                    &[fund_ix, ix, add_queue_authority_ix],
                     &[],
                 )
                 .await?;
@@ -243,7 +243,7 @@ impl TaskQueueCmd {
                     client.rpc_client.clone(),
                     &client.payer,
                     client.opts.ws_url().as_str(),
-                    vec![ix],
+                    &[ix],
                     &[],
                 )
                 .await?;
@@ -287,7 +287,7 @@ impl TaskQueueCmd {
                     client.rpc_client.clone(),
                     &client.payer,
                     client.opts.ws_url().as_str(),
-                    vec![fund_ix],
+                    &[fund_ix],
                     &[],
                 )
                 .await?;
@@ -313,7 +313,7 @@ impl TaskQueueCmd {
                     client.rpc_client.clone(),
                     &client.payer,
                     client.opts.ws_url().as_str(),
-                    vec![ix],
+                    &[ix],
                     &[],
                 )
                 .await?;
@@ -339,7 +339,7 @@ impl TaskQueueCmd {
                     client.rpc_client.clone(),
                     &client.payer,
                     client.opts.ws_url().as_str(),
-                    vec![ix],
+                    &[ix],
                     &[],
                 )
                 .await?;
@@ -363,7 +363,7 @@ impl TaskQueueCmd {
                     client.rpc_client.clone(),
                     &client.payer,
                     client.opts.ws_url().as_str(),
-                    vec![ix],
+                    &[ix],
                     &[],
                 )
                 .await?;

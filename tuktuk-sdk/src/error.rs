@@ -12,7 +12,7 @@ pub enum Error {
     #[error("Anchor error: {0}")]
     AnchorError(#[from] anchor_lang::error::Error),
     #[error("Solana Pubsub error: {0}")]
-    SolanaPubsubError(#[from] PubsubClientError),
+    SolanaPubsubError(Box<PubsubClientError>),
     #[error("Program error: {0}")]
     ProgramError(#[from] ProgramError),
     #[error("Account required for the instruction was not found")]
@@ -26,7 +26,7 @@ pub enum Error {
     TooManyTasks,
     #[error("Price arithmetic error")]
     PriceArithmeticError,
-    #[error("Failed to fetch remote transaction")]
+    #[error("Failed to fetch remote transaction: {0}")]
     FetchRemoteTransactionError(#[from] reqwest::Error),
     #[error("Failed to decode base64")]
     DecodeBase64Error(#[from] base64::DecodeError),
@@ -43,5 +43,11 @@ pub enum Error {
 impl From<solana_client::client_error::ClientError> for Error {
     fn from(value: solana_client::client_error::ClientError) -> Self {
         Self::RpcError(Box::new(value))
+    }
+}
+
+impl From<PubsubClientError> for Error {
+    fn from(value: PubsubClientError) -> Self {
+        Self::SolanaPubsubError(Box::new(value))
     }
 }
