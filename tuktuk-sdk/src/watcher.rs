@@ -105,11 +105,11 @@ impl PubsubTracker {
                                         Err(e) => return Some((Err(Error::from(e)), (subscription, publisher_receiver))),
                                     };
                                 }
-                                return Some((Ok((account, UpdateType::Poll)), (subscription, publisher_receiver)));
+                                return Some((Ok((account, UpdateType::Websocket)), (subscription, publisher_receiver)));
                             },
                             Ok((key, acc)) = publisher_receiver.recv() => {
                                 if key == pubkey {
-                                    return Some((Ok((acc, UpdateType::Websocket)), (subscription, publisher_receiver)));
+                                    return Some((Ok((acc, UpdateType::Poll)), (subscription, publisher_receiver)));
                                 }
                             },
                             else => break,

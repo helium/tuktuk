@@ -11,7 +11,7 @@ use tuktuk_sdk::{prelude::*, watcher::UpdateType};
 
 use super::args::WatcherArgs;
 use crate::{
-    metrics::{UPDATES_VIA_POLL, UPDATES_VIA_WEBSOCKET, UPDATE_LAG},
+    metrics::{UPDATE_LAG, UPDATE_SOURCE},
     task_queue::TimedTask,
 };
 
@@ -105,22 +105,27 @@ pub async fn get_and_watch_tasks(
             let now = now.clone();
             let task_queue_account = update.task_queue;
             let task_queues = task_queues.clone();
+            let updated = !update.tasks.is_empty() || !update.removed.is_empty();
 
-            match update.update_type {
-                UpdateType::Poll => UPDATES_VIA_POLL
-                    .with_label_values(&[task_queue_account.name.as_str()])
-                    .inc(),
-                UpdateType::Websocket => UPDATES_VIA_WEBSOCKET
-                    .with_label_values(&[task_queue_account.name.as_str()])
-                    .inc(),
+            if updated {
+                match update.update_type {
+                    UpdateType::Poll => UPDATE_SOURCE
+                        .with_label_values(&[task_queue_account.name.as_str(), "poll"])
+                        .inc(),
+                    UpdateType::Websocket => UPDATE_SOURCE
+                        .with_label_values(&[task_queue_account.name.as_str(), "websocket"])
+                        .inc(),
+                }
             }
 
             async move {
                 save_task_queue(task_queue_key, task_queue_account.clone(), task_queues).await;
                 let now = *now.borrow();
-                UPDATE_LAG
-                    .with_label_values(&[task_queue_account.name.as_str()])
-                    .set(now as i64 - task_queue_account.updated_at);
+                if updated {
+                    UPDATE_LAG
+                        .with_label_values(&[task_queue_account.name.as_str()])
+                        .set(now as i64 - task_queue_account.updated_at);
+                }
 
                 for removed in update.removed {
                     task_queue
