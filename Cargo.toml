@@ -59,7 +59,7 @@ itertools = "0.13"
 tokio-graceful-shutdown = "0.15"
 solana-transaction-utils = { version = "0.3.0", path = "./solana-transaction-utils" }
 tuktuk-sdk = { version = "0.3.0", path = "./tuktuk-sdk" }
-tuktuk-program = { version = "0.2.1", path = "./tuktuk-program" }
+tuktuk-program = { version = "0.2.2", path = "./tuktuk-program" }
 # solana-transaction-utils = { version = "0.1.0" }
 # tuktuk-sdk = { version = "0.1.0" }
 # tuktuk-program = { version = "0.1.0" }
