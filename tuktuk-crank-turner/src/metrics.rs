@@ -57,7 +57,7 @@ lazy_static! {
     pub static ref UPDATE_LAG: IntGaugeVec = IntGaugeVec::new(
         opts!("solana_tuktuk_update_lag", "Update lag")
             .const_label("version", env!("CARGO_PKG_VERSION")),
-        &["task_queue"]
+        &["task_queue", "relative_to"]
     )
     .expect("metric can be created");
     pub static ref UPDATE_SOURCE: IntCounterVec = IntCounterVec::new(

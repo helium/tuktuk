@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use futures::TryStreamExt;
 use solana_sdk::pubkey::Pubkey;
@@ -123,8 +127,15 @@ pub async fn get_and_watch_tasks(
                 let now = *now.borrow();
                 if updated {
                     UPDATE_LAG
-                        .with_label_values(&[task_queue_account.name.as_str()])
+                        .with_label_values(&[task_queue_account.name.as_str(), "solana_clock"])
                         .set(now as i64 - task_queue_account.updated_at);
+                    let unix_now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs();
+                    UPDATE_LAG
+                        .with_label_values(&[task_queue_account.name.as_str(), "realtime_clock"])
+                        .set(unix_now as i64 - task_queue_account.updated_at);
                 }
 
                 for removed in update.removed {

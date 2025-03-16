@@ -148,39 +148,8 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
     // Main loop with shutdown handling
     loop {
         tokio::select! {
-            // If we have a bundle waiting to be packed further and the timer runs out, send it to the sender
-            _ = async { if let Some(timer) = &mut wait_timer { timer.tick().await } else { std::future::pending().await } } => {
-                if !bundle.is_empty() {
-                    simulation_queue.push(simulate_transaction(
-                        bundle,
-                        args.rpc_client.clone(),
-                        args.payer.clone(),
-                    ));
-                    bundle = TaskBundle::new();
-                    wait_timer = None;
-                }
-            }
-
-            // If we have a new task, try to add it to the bundle
-            Some(task) = receiver.recv() => {
-                match bundle.add_task(task.clone(), &args.payer) {
-                    // Task is small, we can pack it further. Set the timer to wait for the batch duration
-                    Ok((len, added)) if added && len <= MAX_PACKABLE_TX_SIZE => {
-                        if wait_timer.is_none() {
-                            wait_timer = Some(interval(args.batch_duration));
-                        }
-                    }
-                    Ok((_, added)) if added => {
-                        // Bundle full, simulate it
-                        simulation_queue.push(simulate_transaction(
-                            bundle,
-                            args.rpc_client.clone(),
-                            args.payer.clone(),
-                        ));
-                        bundle = TaskBundle::new();
-                    }
-                    Ok((_, added)) if !added => {
-                        // Current task won't fit, simulate current bundle first
+                    // If we have a bundle waiting to be packed further and the timer runs out, send it to the sender
+                    _ = async { if let Some(timer) = &mut wait_timer { timer.tick().await } else { std::future::pending().await } } => {
                         if !bundle.is_empty() {
                             simulation_queue.push(simulate_transaction(
                                 bundle,
@@ -188,119 +157,162 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                 args.payer.clone(),
                             ));
                             bundle = TaskBundle::new();
+                            wait_timer = None;
                         }
-                        // Try adding task to empty bundle
-                        if let Err(e) = bundle.add_task(task.clone(), &args.payer) {
-                            args.result_sender
-                                .send(CompletedTransactionTask {
+                    }
+
+                    // If we have a new task, try to add it to the bundle
+                    Some(task) = receiver.recv() => {
+                        match bundle.add_task(task.clone(), &args.payer) {
+                            // Task is small, we can pack it further. Set the timer to wait for the batch duration
+                            Ok((len, added)) if added && len <= MAX_PACKABLE_TX_SIZE => {
+                                if wait_timer.is_none() {
+                                    wait_timer = Some(interval(args.batch_duration));
+                                }
+                            }
+                            Ok((_, added)) if added => {
+                                // Bundle full, simulate it
+                                simulation_queue.push(simulate_transaction(
+                                    bundle,
+                                    args.rpc_client.clone(),
+                                    args.payer.clone(),
+                                ));
+                                bundle = TaskBundle::new();
+                            }
+                            Ok((_, added)) if !added => {
+                                // Current task won't fit, simulate current bundle first
+                                if !bundle.is_empty() {
+                                    simulation_queue.push(simulate_transaction(
+                                        bundle,
+                                        args.rpc_client.clone(),
+                                        args.payer.clone(),
+                                    ));
+                                    bundle = TaskBundle::new();
+                                }
+                                // Try adding task to empty bundle
+                                if let Err(e) = bundle.add_task(task.clone(), &args.payer) {
+                                    args.result_sender
+                                        .send(CompletedTransactionTask {
+                                            err: Some(e),
+                                            task,
+                                            fee: 0,
+                                        })
+                                        .await
+                                        .expect("send result");
+                                }
+                            }
+                            Err(e) => {
+                                args.result_sender.send(CompletedTransactionTask {
                                     err: Some(e),
                                     task,
                                     fee: 0,
-                                })
-                                .await
-                                .expect("send result");
+                                }).await.expect("send result");
+                            },
+                            _ => {
+                                // We should never get here
+                                panic!("Invalid return value from bundle.add_task");
+                            }
                         }
                     }
-                    Err(e) => {
-                        args.result_sender.send(CompletedTransactionTask {
-                            err: Some(e),
-                            task,
-                            fee: 0,
-                        }).await.expect("send result");
-                    },
-                    _ => {
-                        // We should never get here
-                        panic!("Invalid return value from bundle.add_task");
-                    }
-                }
-            }
 
-            Some((tasks, result)) = simulation_queue.next() => {
-                match result {
-                    Ok((instructions, error, fee)) => {
-                        // Notify tasks they failed
-                        if let Some(e) = error {
-                            match e {
-                                TransactionError::InstructionError(failed_ix, _) => {
-                                    let failed_task_idx = {
-                                        let mut current_task: usize = 0;
-                                        let mut current_ix: usize = 2; // Skip compute budget instructions
+                    Some((tasks, result)) = simulation_queue.next() => {
+                        match result {
+                            Ok((instructions, error, fee)) => {
+                                // Notify tasks they failed
+                                if let Some(e) = error {
+                                    match e {
+                                        TransactionError::InstructionError(failed_ix, _) => {
+                                            let failed_task_idx = {
+                                                let mut current_task: usize = 0;
+                                                let mut current_ix: usize = 2; // Skip compute budget instructions
 
-                                        // Find which task contains the failed instruction
-                                        while current_ix < failed_ix as usize {
-                                            if current_task >= tasks.len() {
-                                                break;
+                                                // Find which task contains the failed instruction
+                                                while current_ix < failed_ix as usize {
+                                                    if current_task >= tasks.len() {
+                                                        break;
+                                                    }
+                                                    current_ix += tasks[current_task].instructions.len();
+                                                    current_task += 1;
+                                                }
+                                                current_task
+                                            };
+
+                                            if failed_task_idx >= tasks.len() {
+                                                for task in tasks {
+                                                    args.result_sender.send(CompletedTransactionTask {
+                                                        err: Some(Error::SimulatedTransactionError(e.clone())),
+                                                        task,
+                                                        fee: 0,
+                                                    })
+                                                    .await
+                                                    .expect("send result");
+                                                }
+                                            } else {
+                                                // Handle failed task
+                                                args.result_sender.send(CompletedTransactionTask {
+                                                    err: Some(Error::SimulatedTransactionError(e)),
+                                                    task: tasks[failed_task_idx].clone(),
+                                                fee: 0,
+                                                }).await.expect("send result");
+
+                                                // Requeue remaining tasks
+                                                let mut new_bundle = TaskBundle::new();
+                                                for (i, task) in tasks.iter().enumerate() {
+                                                    if i != failed_task_idx {
+                                                        new_bundle.add_task(task.clone(), &args.payer).expect("add task");
+                                                    }
+                                                }
+                                                if !new_bundle.is_empty() {
+                                                    simulation_queue.push(simulate_transaction(
+                                                        new_bundle,
+                                                        args.rpc_client.clone(),
+                                                        args.payer.clone(),
+                                                    ));
+                                                }
                                             }
-                                            current_ix += tasks[current_task].instructions.len();
-                                            current_task += 1;
                                         }
-                                        current_task
-                                    };
-
-                                    // Handle failed task
-                                    args.result_sender.send(CompletedTransactionTask {
-                                        err: Some(Error::SimulatedTransactionError(e)),
-                                        task: tasks[failed_task_idx].clone(),
-                                        fee: 0,
-                                    }).await.expect("send result");
-
-                                    // Requeue remaining tasks
-                                    let mut new_bundle = TaskBundle::new();
-                                    for (i, task) in tasks.iter().enumerate() {
-                                        if i != failed_task_idx {
-                                            new_bundle.add_task(task.clone(), &args.payer).expect("add task");
+                                        _ => {
+                                            // Other errors affect all tasks
+                                            for task in tasks {
+                                                args.result_sender.send(CompletedTransactionTask {
+                                                    err: Some(Error::SimulatedTransactionError(e.clone())),
+                                                    task,
+                                                    fee: 0,
+                                                }).await.expect("send result");
+                                            }
                                         }
                                     }
-                                    if !new_bundle.is_empty() {
-                                        simulation_queue.push(simulate_transaction(
-                                            new_bundle,
-                                            args.rpc_client.clone(),
-                                            args.payer.clone(),
-                                        ));
-                                    }
-                                }
-                                _ => {
-                                    // Other errors affect all tasks
+                                } else if fee > args.max_sol_fee || fee > tasks.iter().map(|t| t.worth).sum::<u64>() {
+                                    // Fee too high, notify tasks
                                     for task in tasks {
                                         args.result_sender.send(CompletedTransactionTask {
-                                            err: Some(Error::SimulatedTransactionError(e.clone())),
+                                            err: Some(Error::FeeTooHigh),
                                             task,
                                             fee: 0,
                                         }).await.expect("send result");
                                     }
+                                } else {
+                                    // Simulation successful, send to transaction sender
+                                    args.packed_tx_sender.send(PackedTransactionWithTasks {
+                                        instructions,
+                                        tasks,
+                                        fee,
+                                    }).await.expect("send to tx sender");
                                 }
                             }
-                        } else if fee > args.max_sol_fee || fee > tasks.iter().map(|t| t.worth).sum::<u64>() {
-                            // Fee too high, notify tasks
-                            for task in tasks {
-                                args.result_sender.send(CompletedTransactionTask {
-                                    err: Some(Error::FeeTooHigh),
-                                    task,
-                                    fee: 0,
-                                }).await.expect("send result");
+                            Err(e) => {
+                                // Simulation failed, notify tasks
+                                for task in tasks.iter() {
+                                    args.result_sender.send(CompletedTransactionTask {
+                                        err: Some(Error::RawSimulatedTransactionError(e.to_string())),
+                                        task: task.clone(),
+                                        fee: 0,
+                                    }).await.expect("send result");
+                                }
                             }
-                        } else {
-                            // Simulation successful, send to transaction sender
-                            args.packed_tx_sender.send(PackedTransactionWithTasks {
-                                instructions,
-                                tasks,
-                                fee,
-                            }).await.expect("send to tx sender");
-                        }
-                    }
-                    Err(e) => {
-                        // Simulation failed, notify tasks
-                        for task in tasks.iter() {
-                            args.result_sender.send(CompletedTransactionTask {
-                                err: Some(Error::RawSimulatedTransactionError(e.to_string())),
-                                task: task.clone(),
-                                fee: 0,
-                            }).await.expect("send result");
                         }
                     }
                 }
-            }
-        }
     }
 }
 
