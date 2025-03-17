@@ -631,9 +631,7 @@ impl PubsubClient {
                 },
                 // Send `Message::Ping` each 10s if no any other communication
                 _ = ping_interval.tick() => {
-                    println!("Ping!");
                     ws.send(Message::Ping(Vec::new())).await?;
-                    println!("Pinged!");
 
                     elapsed_pings += 1;
 
