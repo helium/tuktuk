@@ -5,7 +5,7 @@ use clap::Parser;
 use metrics::{register_custom_metrics, REGISTRY};
 use profitability::TaskQueueProfitability;
 use settings::Settings;
-use solana_client::nonblocking::{pubsub_client::PubsubClient, rpc_client::RpcClient};
+use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{commitment_config::CommitmentConfig, signature::Keypair, signer::EncodableKey};
 use solana_transaction_utils::{
     queue::{create_transaction_queue_handles, TransactionQueueArgs},
@@ -22,7 +22,7 @@ use tokio::{
 use tokio_graceful_shutdown::{SubsystemBuilder, Toplevel};
 use tracing_subscriber::{fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt};
 use transaction::TransactionSenderSubsystem;
-use tuktuk_sdk::{prelude::*, watcher::PubsubTracker};
+use tuktuk_sdk::{prelude::*, pubsub_client::PubsubClient, watcher::PubsubTracker};
 use warp::{reject::Rejection, reply::Reply, Filter};
 use watchers::{args::WatcherArgs, task_queues::get_and_watch_task_queues};
 

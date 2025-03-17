@@ -3,6 +3,7 @@ pub mod clock;
 pub mod compiled_transaction;
 pub mod error;
 pub mod instruction;
+pub mod pubsub_client;
 pub mod tuktuk;
 pub mod watcher;
 

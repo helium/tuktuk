@@ -1,6 +1,6 @@
 [package]
 name = "tuktuk-sdk"
-version = "0.3.0"
+version = "0.3.1"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -20,7 +20,8 @@ solana-sdk = { workspace = true }
 thiserror = "1"
 serde = { workspace = true }
 solana-client = { workspace = true }
-solana-account-decoder = { version = "1.18.22" }
+solana-account-decoder = { version = "2.2.3" }
+solana-clock = { workspace = true }
 futures-core = { version = "0.3.30" }
 futures = { version = "0.3.30" }
 tokio = { workspace = true }
@@ -34,6 +35,18 @@ base64 = "0.22.1"
 serde_json = "1.0.135"
 bytemuck = "1.21.0"
 rand = "0.9"
+# For pubsub client
+futures-util = { version = "0.3.31" }
+log = "0.4.20"
+tungstenite = "0.21.0"
+solana-rpc-client-api = { version = "2.2.3" }
+solana-pubkey = { version = "2.2.1" }
+tokio-stream = { version = "0.1.16" }
+solana-signature = { version = "2.2.1" }
+tokio-tungstenite = { version = "0.21.0" }
+url = { version = "2.4.1" }
+solana-account-decoder-client-types = { version = "2.2.3" }
+semver = { version = "1.0.26" }
 
 [features]
 default = []

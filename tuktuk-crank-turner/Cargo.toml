@@ -1,6 +1,6 @@
 [package]
 name = "tuktuk-crank-turner"
-version = "0.2.6"
+version = "0.2.7"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -24,7 +24,7 @@ futures = "0.3.30"
 clap = { workspace = true }
 spl-associated-token-account = { workspace = true }
 spl-token = "5.0.2"
-solana-transaction-status = "1.18.22"
+solana-transaction-status = { workspace = true }
 solana-transaction-utils = { workspace = true }
 tuktuk-sdk = { workspace = true }
 tuktuk-program = { workspace = true }

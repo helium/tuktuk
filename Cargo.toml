@@ -17,10 +17,10 @@ members = [
 ]
 
 [workspace.dependencies]
-solana-sdk = "1.18.22"
-solana-quic-client = "1.18"
-solana-program = "1.18"
-solana-client = "1.18"
+solana-sdk = "2.2.1"
+solana-quic-client = "2.2.3"
+solana-program = "2.2.1"
+solana-client = "2.2.3"
 anyhow = { version = "1", features = ["backtrace"] }
 thiserror = "1"
 bs58 = "0.5"
@@ -51,19 +51,21 @@ tracing-subscriber = { version = "0", default-features = false, features = [
   "registry",
   "fmt",
 ] }
-anchor-lang = "0.30.1"
-anchor-client = "0.30.1"
-spl-associated-token-account = "2.3.0"
+anchor-lang = "0.31.0"
+anchor-client = "0.31.0"
+spl-associated-token-account = "6.0.0"
 spl-token = "4.0.0"
 itertools = "0.13"
 tokio-graceful-shutdown = "0.15"
 solana-transaction-utils = { version = "0.3.0", path = "./solana-transaction-utils" }
-tuktuk-sdk = { version = "0.3.0", path = "./tuktuk-sdk" }
+tuktuk-sdk = { version = "0.3.1", path = "./tuktuk-sdk" }
 tuktuk-program = { version = "0.2.2", path = "./tuktuk-program" }
 # solana-transaction-utils = { version = "0.1.0" }
 # tuktuk-sdk = { version = "0.1.0" }
 # tuktuk-program = { version = "0.1.0" }
-
+solana-account-decoder = { version = "2.2.3" }
+solana-clock = { version = "2.2.1" }
+solana-transaction-status = "2.2.3"
 
 [profile.release]
 debug = true
