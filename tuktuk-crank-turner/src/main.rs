@@ -120,10 +120,11 @@ impl Cli {
         );
 
         // Create a non-blocking PubSub client
-        let pubsub_client = Arc::new(PubsubClient::new(&solana_ws_url).await?);
+        let (pubsub_client_raw, pubsub_handle) = PubsubClient::new(&solana_ws_url).await?;
+        let pubsub_client = Arc::new(pubsub_client_raw);
         let pubsub_tracker = Arc::new(PubsubTracker::new(
             Arc::clone(&rpc_client),
-            pubsub_client,
+            pubsub_client.clone(),
             Duration::from_secs(60),
             commitment,
         ));
@@ -234,6 +235,15 @@ impl Cli {
                             }
                         }
                     }
+                    anyhow::Ok(())
+                }
+            }));
+            top_level.start(SubsystemBuilder::new("pubsub-client", {
+                move |_| async move {
+                    pubsub_handle
+                        .await
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                     anyhow::Ok(())
                 }
             }));
