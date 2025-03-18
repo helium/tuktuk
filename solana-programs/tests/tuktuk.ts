@@ -1,5 +1,5 @@
 import * as anchor from "@coral-xyz/anchor";
-import { Program } from "@coral-xyz/anchor";
+import { BN, Program } from "@coral-xyz/anchor";
 import { Tuktuk } from "../target/types/tuktuk";
 import { CpiExample } from "../target/types/cpi_example";
 import {
@@ -422,7 +422,7 @@ describe("tuktuk", () => {
       await program.methods
         .initializeTaskQueueV0({
           name,
-          minCrankReward: new anchor.BN(10),
+          minCrankReward: new BN(10000),
           capacity: 100,
           lookupTables: [],
           staleTaskAge: 100,

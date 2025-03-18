@@ -156,28 +156,13 @@ pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>>(
     ))
 }
 
-// Returns the instructions and the total fee in lamports
-pub async fn auto_compute_limit_and_price<C: AsRef<RpcClient>>(
+pub async fn auto_compute_price<C: AsRef<RpcClient>>(
     client: &C,
     instructions: &[Instruction],
-    compute_multiplier: f32,
     payer: &Pubkey,
-    blockhash: Option<solana_program::hash::Hash>,
-    lookup_tables: Option<Vec<AddressLookupTableAccount>>,
+    compute_limit: u32,
 ) -> Result<(Vec<Instruction>, u64), Error> {
     let mut updated_instructions = instructions.to_vec();
-
-    // Compute budget instruction
-    let (compute_budget_ix, compute_limit) = compute_budget_for_instructions(
-        client,
-        &updated_instructions,
-        compute_multiplier,
-        payer,
-        blockhash,
-        lookup_tables,
-    )
-    .await?;
-
     // Compute price instruction
     let accounts: Vec<Pubkey> = instructions
         .iter()
@@ -186,16 +171,6 @@ pub async fn auto_compute_limit_and_price<C: AsRef<RpcClient>>(
         .collect();
     let (compute_price_ix, priority_fee) =
         compute_price_instruction_for_accounts(client, &accounts).await?;
-
-    // Replace or insert compute budget instruction
-    if let Some(pos) = updated_instructions
-        .iter()
-        .position(|ix| ix.program_id == solana_sdk::compute_budget::id())
-    {
-        updated_instructions[pos] = compute_budget_ix; // Replace existing
-    } else {
-        updated_instructions.insert(0, compute_budget_ix); // Insert at the beginning
-    }
 
     // Replace or insert compute price instruction
     if let Some(pos) = instructions
@@ -237,4 +212,39 @@ pub async fn auto_compute_limit_and_price<C: AsRef<RpcClient>>(
             + (num_ed25519_sigs as u64 * 5000)
             + (num_secp_sigs as u64 * 5000),
     ))
+}
+
+// Returns the instructions and the total fee in lamports
+pub async fn auto_compute_limit_and_price<C: AsRef<RpcClient>>(
+    client: &C,
+    instructions: &[Instruction],
+    compute_multiplier: f32,
+    payer: &Pubkey,
+    blockhash: Option<solana_program::hash::Hash>,
+    lookup_tables: Option<Vec<AddressLookupTableAccount>>,
+) -> Result<(Vec<Instruction>, u64), Error> {
+    let mut updated_instructions = instructions.to_vec();
+
+    // Compute budget instruction
+    let (compute_budget_ix, compute_limit) = compute_budget_for_instructions(
+        client,
+        &updated_instructions,
+        compute_multiplier,
+        payer,
+        blockhash,
+        lookup_tables,
+    )
+    .await?;
+
+    // Replace or insert compute budget instruction
+    if let Some(pos) = updated_instructions
+        .iter()
+        .position(|ix| ix.program_id == solana_sdk::compute_budget::id())
+    {
+        updated_instructions[pos] = compute_budget_ix; // Replace existing
+    } else {
+        updated_instructions.insert(0, compute_budget_ix); // Insert at the beginning
+    }
+
+    auto_compute_price(client, &updated_instructions, payer, compute_limit).await
 }

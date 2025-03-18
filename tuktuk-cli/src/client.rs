@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use solana_client::{
     nonblocking::{rpc_client::RpcClient, tpu_client::TpuClient},
+    rpc_config::RpcSendTransactionConfig,
     send_and_confirm_transactions_in_parallel::{
-        send_and_confirm_transactions_in_parallel, SendAndConfirmConfig,
+        send_and_confirm_transactions_in_parallel_v2, SendAndConfirmConfigV2,
     },
     tpu_client::TpuClientConfig,
 };
@@ -89,14 +90,18 @@ pub async fn send_instructions(
     )
     .await?;
 
-    let results = send_and_confirm_transactions_in_parallel(
+    let results = send_and_confirm_transactions_in_parallel_v2(
         rpc_client.clone(),
         Some(tpu_client),
         &with_auto_compute,
         &keys,
-        SendAndConfirmConfig {
+        SendAndConfirmConfigV2 {
             with_spinner: true,
             resign_txs_count: Some(5),
+            rpc_send_transaction_config: RpcSendTransactionConfig {
+                skip_preflight: true,
+                ..Default::default()
+            },
         },
     )
     .await?;

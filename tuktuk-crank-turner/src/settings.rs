@@ -35,7 +35,7 @@ fn default_metrics_port() -> u16 {
 }
 
 fn default_batch_duration() -> Duration {
-    Duration::from_secs(2)
+    Duration::from_millis(500)
 }
 
 fn default_pubsub_repoll() -> Duration {
