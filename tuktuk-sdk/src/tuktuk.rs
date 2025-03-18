@@ -593,13 +593,12 @@ pub struct TaskUpdate {
 }
 
 pub mod task {
-    use std::sync::Arc;
+    use std::time::Duration;
 
     use anchor_lang::{AccountDeserialize, InstructionData, ToAccountMetas};
-    use futures::{future::BoxFuture, Stream, StreamExt};
+    use futures::{future::BoxFuture, stream::unfold, Stream, StreamExt};
     use itertools::Itertools;
     use solana_sdk::{instruction::Instruction, pubkey::Pubkey};
-    use tokio::sync::Mutex;
     use tuktuk_program::TaskV0;
 
     use super::{
@@ -608,7 +607,11 @@ pub mod task {
         types::QueueTaskArgsV0,
         TaskUpdate,
     };
-    use crate::{client::GetAnchorAccount, error::Error, watcher::PubsubTracker};
+    use crate::{
+        client::GetAnchorAccount,
+        error::Error,
+        watcher::{PubsubTracker, UpdateType},
+    };
 
     pub fn key(queue_key: &Pubkey, task_id: u16) -> Pubkey {
         Pubkey::find_program_address(
@@ -681,7 +684,7 @@ pub mod task {
         self::queue_ix(task_queue_key, &task_queue, payer, queue_authority, args)
     }
 
-    pub async fn on_new<'a, C: GetAnchorAccount>(
+    pub async fn on_new<'a, C: GetAnchorAccount + Send + Sync>(
         client: &'a C,
         pubsub_tracker: &'a PubsubTracker,
         task_queue_key: &'a Pubkey,
@@ -694,42 +697,81 @@ pub mod task {
         Error,
     > {
         let (stream, unsubscribe) = pubsub_tracker.watch_pubkey(*task_queue_key).await?;
+        let stream = Box::pin(stream);
+        let retry_interval = tokio::time::interval(Duration::from_secs(10));
+        let task_queue = task_queue.clone();
 
-        let last_tq = Arc::new(Mutex::new(task_queue.clone()));
-        let result = stream.then(move |res| {
-            let last_tq = last_tq.clone();
-            async move {
-                let (acc, update_type) = res?;
-                let mut last_tq_guard = last_tq.lock().await;
-                let last_tq_clone = last_tq_guard.clone();
+        let ret = unfold(
+            (stream, task_queue, vec![], retry_interval),
+            move |(mut stream, mut last_tq, mut missing_tasks, mut retry_interval)| async move {
+                loop {
+                    tokio::select! {
+                        // Handle pubsub updates
+                        next = stream.next() => {
+                            match next {
+                                Some(res) => {
+                                    let to_send: Result<TaskUpdate, Error> = async {
+                                        let (acc, update_type) = res?;
+                                        let last_tq_clone = last_tq.clone();
 
-                let new_task_queue = TaskQueueV0::try_deserialize(&mut acc.data.as_ref())?;
-                *last_tq_guard = new_task_queue.clone();
+                                        let new_task_queue = TaskQueueV0::try_deserialize(&mut acc.data.as_ref())?;
+                                        last_tq = new_task_queue.clone();
 
-                let task_ids = 0..new_task_queue.capacity;
-                let new_task_keys = task_ids
-                    .clone()
-                    .filter(|id| new_task_queue.task_exists(*id) && !last_tq_clone.task_exists(*id))
-                    .map(|id| self::key(task_queue_key, id))
-                    .collect_vec();
+                                        let task_ids = 0..new_task_queue.capacity;
+                                        let new_task_keys = task_ids
+                                            .clone()
+                                            .filter(|id| new_task_queue.task_exists(*id) && !last_tq_clone.task_exists(*id))
+                                            .map(|id| self::key(task_queue_key, id))
+                                            .collect_vec();
 
-                let removed_task_keys = task_ids
-                    .clone()
-                    .filter(|id| !new_task_queue.task_exists(*id) && last_tq_clone.task_exists(*id))
-                    .map(|id| self::key(task_queue_key, id))
-                    .collect_vec();
+                                        let removed_task_keys = task_ids
+                                            .clone()
+                                            .filter(|id| !new_task_queue.task_exists(*id) && last_tq_clone.task_exists(*id))
+                                            .map(|id| self::key(task_queue_key, id))
+                                            .collect_vec();
 
-                let tasks = client.anchor_accounts(&new_task_keys).await?;
-                Ok(TaskUpdate {
-                    tasks,
-                    task_queue: new_task_queue,
-                    removed: removed_task_keys,
-                    update_type,
-                })
-            }
-        });
+                                        let tasks = client.anchor_accounts(&new_task_keys).await?;
+                                        Ok(TaskUpdate {
+                                            tasks,
+                                            task_queue: new_task_queue,
+                                            removed: removed_task_keys,
+                                            update_type,
+                                        })
+                                    }.await;
 
-        Ok((result, unsubscribe))
+                                    return Some((to_send, (stream, last_tq, missing_tasks, retry_interval)));
+                                }
+                                None => {
+                                    return None;
+                                }
+                            }
+                        }
+                        _ = retry_interval.tick() => {
+                            let searchable_missing_tasks = missing_tasks.clone();
+                            missing_tasks.clear();
+                            match client.anchor_accounts(&searchable_missing_tasks).await {
+                                Ok(tasks) => {
+                                    let found_tasks = tasks.into_iter().filter(|(_, task)| task.is_some()).collect_vec();
+                                    if !found_tasks.is_empty() {
+                                        return Some((Ok(TaskUpdate {
+                                            tasks: found_tasks,
+                                            task_queue: last_tq.clone(),
+                                            removed: vec![],
+                                            update_type: UpdateType::Poll,
+                                        }), (stream, last_tq, missing_tasks, retry_interval)));
+                                    }
+                                },
+                                Err(e) => {
+                                    return Some((Err(e), (stream, last_tq, missing_tasks, retry_interval)));
+                                }
+                            };
+                        }
+                    }
+                }
+            },
+        );
+
+        Ok((ret, unsubscribe))
     }
 
     pub fn dequeue_ix(

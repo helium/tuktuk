@@ -284,11 +284,12 @@ type RequestMsg = (
 pub struct PubsubClient {
     subscribe_sender: mpsc::UnboundedSender<SubscribeRequestMsg>,
     _request_sender: mpsc::UnboundedSender<RequestMsg>,
-    pub shutdown_sender: oneshot::Sender<()>,
 }
 
 impl PubsubClient {
-    pub async fn new(url: &str) -> PubsubClientResult<(Self, JoinHandle<PubsubClientResult>)> {
+    pub async fn new(
+        url: &str,
+    ) -> PubsubClientResult<(Self, JoinHandle<PubsubClientResult>, oneshot::Sender<()>)> {
         let url = Url::parse(url)?;
 
         let (ws, _response) = connect_async(url)
@@ -304,7 +305,6 @@ impl PubsubClient {
             Self {
                 subscribe_sender,
                 _request_sender,
-                shutdown_sender,
             },
             tokio::spawn(PubsubClient::run_ws(
                 ws,
@@ -312,6 +312,7 @@ impl PubsubClient {
                 request_receiver,
                 shutdown_receiver,
             )),
+            shutdown_sender,
         ))
     }
 

@@ -1,14 +1,11 @@
 use std::{cmp::max, collections::HashSet, sync::Arc};
 
 use futures::{Stream, StreamExt, TryStreamExt};
-use solana_client::rpc_config::RpcSimulateTransactionConfig;
 use solana_sdk::{
     address_lookup_table::{state::AddressLookupTable, AddressLookupTableAccount},
-    commitment_config::CommitmentConfig,
     instruction::InstructionError,
-    message::{v0, VersionedMessage},
     signer::Signer,
-    transaction::{TransactionError, VersionedTransaction},
+    transaction::TransactionError,
 };
 use solana_transaction_utils::{error::Error as TransactionQueueError, queue::TransactionTask};
 use tokio_graceful_shutdown::SubsystemHandle;
@@ -132,7 +129,6 @@ impl TimedTask {
 
     pub async fn process(&mut self, ctx: Arc<TaskContext>) -> anyhow::Result<()> {
         let TaskContext {
-            rpc_client,
             payer,
             tx_sender,
             task_queue,
@@ -183,71 +179,6 @@ impl TimedTask {
             return self.handle_ix_err(ctx.clone(), err).await;
         }
         let run_ix = maybe_run_ix.unwrap();
-
-        let ctx = ctx.clone();
-        let (recent_blockhash, _) = rpc_client
-            .get_latest_blockhash_with_commitment(CommitmentConfig::finalized())
-            .await?;
-        let mut updated_instructions = vec![
-            solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(1900000),
-        ];
-        updated_instructions.extend(run_ix.instructions.clone());
-
-        let message = VersionedMessage::V0(v0::Message::try_compile(
-            &payer.pubkey(),
-            &updated_instructions,
-            &run_ix.lookup_tables,
-            recent_blockhash,
-        )?);
-        let tx = VersionedTransaction::try_new(message, &[payer])?;
-        let simulated = rpc_client
-            .simulate_transaction_with_config(
-                &tx,
-                RpcSimulateTransactionConfig {
-                    commitment: Some(solana_sdk::commitment_config::CommitmentConfig::processed()),
-                    sig_verify: true,
-                    ..Default::default()
-                },
-            )
-            .await;
-        // info!(?simulated, "simulated");
-        match simulated {
-            Ok(simulated) => {
-                if let Some(err) = simulated.value.err {
-                    info!(
-                                ?self.task_key,
-                        ?err,
-                        ?simulated.value.logs,
-                        "task simulation failed",
-                    );
-                    return self
-                        .handle_completion(
-                            ctx,
-                            Some(TransactionQueueError::SimulatedTransactionError(err)),
-                            0,
-                        )
-                        .await;
-                }
-            }
-            Err(err) => {
-                info!(
-                    ?self.task_key,
-                    ?self.task_time,
-                    ?err,
-                    "task simulation failed"
-                );
-                return self
-                    .handle_completion(
-                        ctx,
-                        Some(TransactionQueueError::RawSimulatedTransactionError(
-                            err.to_string(),
-                        )),
-                        0,
-                    )
-                    .await;
-            }
-        }
-
         tx_sender
             .send(TransactionTask {
                 worth: self.task.crank_reward,

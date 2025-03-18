@@ -107,10 +107,14 @@ impl Stream for TaskStream {
         if let Ok(mut queue) = this.task_queue.try_lock() {
             if let Some(task) = queue.peek() {
                 if task.task_time <= now {
+                    let removed_tasks_res = this.removed_tasks.try_lock();
+                    if removed_tasks_res.is_err() {
+                        return Poll::Pending;
+                    }
                     let task = queue.pop().unwrap();
 
                     // Check if task was removed
-                    let removed_tasks = this.removed_tasks.try_lock().unwrap();
+                    let removed_tasks = removed_tasks_res.unwrap();
                     let key = RemovedTaskKey {
                         task_key: task.task_key,
                         queued_at: task.task.queued_at,

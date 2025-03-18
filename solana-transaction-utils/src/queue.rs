@@ -233,7 +233,9 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                                 break;
                                             }
                                             current_ix += tasks[current_task].instructions.len();
-                                            current_task += 1;
+                                            if current_ix < failed_ix as usize {
+                                                current_task += 1;
+                                            }
                                         }
                                         current_task
                                     };

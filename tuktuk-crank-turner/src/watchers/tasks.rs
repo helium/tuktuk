@@ -8,7 +8,7 @@ use futures::TryStreamExt;
 use solana_sdk::pubkey::Pubkey;
 use tokio::sync::Mutex;
 use tokio_graceful_shutdown::SubsystemHandle;
-use tracing::info;
+use tracing::{debug, info};
 use tuktuk::task;
 use tuktuk_program::{types::TriggerV0, TaskQueueV0, TaskV0};
 use tuktuk_sdk::{prelude::*, watcher::UpdateType};
@@ -139,12 +139,14 @@ pub async fn get_and_watch_tasks(
                 }
 
                 for removed in update.removed {
+                    debug!(?removed, "removing task");
                     task_queue
                         .remove_task(removed)
                         .await
                         .map_err(|e| anyhow::anyhow!("Failed to remove task: {}", e))?;
                 }
                 for (task_key, account) in update.tasks {
+                    debug!(?task_key, "received task, is_some: {}", account.is_some());
                     match &account {
                         Some(t) if t.crank_reward >= args.min_crank_fee => {
                             let task = match t.trigger {
