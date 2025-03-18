@@ -6918,6 +6918,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-tungstenite 0.20.1",
+ "tracing",
  "tuktuk-program",
  "tungstenite 0.20.1",
  "url",

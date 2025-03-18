@@ -47,6 +47,7 @@ tungstenite = { version = "0.20.1", features = ["rustls-tls-webpki-roots"] }
 url = { version = "2.4.1" }
 solana-account-decoder-client-types = { version = "2.2.3" }
 semver = { version = "1.0.26" }
+tracing = { workspace = true }
 
 [features]
 default = []

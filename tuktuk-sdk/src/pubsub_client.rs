@@ -1,5 +1,4 @@
 // COPIED FROM https://raw.githubusercontent.com/anza-xyz/agave/7d797515eed5bdcd4fdf5ad668866c887c18043c/pubsub-client/src/nonblocking/pubsub_client.rs
-// Then edited to make it reconnect and not swallow errors
 
 //! A client for subscribing to messages from the RPC server.
 //!
@@ -172,7 +171,7 @@
 #![allow(clippy::all)]
 #[allow(clippy::all)]
 use std::collections::BTreeMap;
-use std::collections::HashMap;
+use std::sync::Arc;
 
 use futures_util::{
     future::{ready, BoxFuture, FutureExt},
@@ -289,31 +288,27 @@ pub struct PubsubClient {
     pub shutdown_sender: oneshot::Sender<()>,
 }
 
-#[derive(Clone)]
-struct ActiveSubscription {
-    operation: String,
-    params: Value,
-    notifications_sender: mpsc::UnboundedSender<Value>,
-}
-
-const MAX_RECONNECT_ATTEMPTS: usize = 10;
-const MAX_BACKOFF: Duration = Duration::from_secs(30);
-
 impl PubsubClient {
     pub async fn new(url: &str) -> PubsubClientResult<(Self, JoinHandle<PubsubClientResult>)> {
-        let url = url.to_string();
+        let url = Url::parse(url)?;
+
+        let (ws, _response) = connect_async(url)
+            .await
+            .map_err(PubsubClientError::ConnectionError)?;
+
         let (subscribe_sender, subscribe_receiver) = mpsc::unbounded_channel();
         let (_request_sender, request_receiver) = mpsc::unbounded_channel();
         let (shutdown_sender, shutdown_receiver) = oneshot::channel();
 
+        #[allow(clippy::used_underscore_binding)]
         Ok((
             Self {
                 subscribe_sender,
                 _request_sender,
                 shutdown_sender,
             },
-            tokio::spawn(PubsubClient::run_with_reconnect(
-                url,
+            tokio::spawn(PubsubClient::run_ws(
+                ws,
                 subscribe_receiver,
                 request_receiver,
                 shutdown_receiver,
@@ -506,115 +501,19 @@ impl PubsubClient {
         self.subscribe("slotsUpdates", json!([])).await
     }
 
-    async fn run_with_reconnect(
-        url: String,
-        subscribe_receiver: mpsc::UnboundedReceiver<SubscribeRequestMsg>,
-        request_receiver: mpsc::UnboundedReceiver<RequestMsg>,
-        shutdown_receiver: oneshot::Receiver<()>,
-    ) -> PubsubClientResult {
-        let mut backoff = Duration::from_secs(1);
-        let mut attempts = MAX_RECONNECT_ATTEMPTS;
-        let mut active_subscriptions: HashMap<u64, ActiveSubscription> = HashMap::new();
-        let mut subscribe_receiver = subscribe_receiver;
-        let mut request_receiver = request_receiver;
-        let mut shutdown_receiver = shutdown_receiver;
-
-        loop {
-            match Self::connect_and_run(
-                &url,
-                &mut subscribe_receiver,
-                &mut request_receiver,
-                &mut shutdown_receiver,
-                &mut active_subscriptions,
-            )
-            .await
-            {
-                Ok(_) => {
-                    // Clean shutdown
-                    return Ok(());
-                }
-                Err(e) => {
-                    if matches!(e, PubsubClientError::ConnectionClosed(_)) {
-                        // Clean shutdown requested
-                        return Ok(());
-                    }
-
-                    if attempts == 0 {
-                        return Err(e);
-                    }
-
-                    attempts -= 1;
-
-                    error!("WebSocket connection failed: {}", e);
-                    info!("Attempting to reconnect in {:?}...", backoff);
-
-                    tokio::select! {
-                        _ = tokio::time::sleep(backoff) => {
-                            // Double backoff time for next attempt, up to max
-                            backoff = std::cmp::min(backoff * 2, MAX_BACKOFF);
-                        }
-                        _ = &mut shutdown_receiver => {
-                            return Ok(());
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    async fn connect_and_run(
-        url: &str,
-        subscribe_receiver: &mut mpsc::UnboundedReceiver<SubscribeRequestMsg>,
-        request_receiver: &mut mpsc::UnboundedReceiver<RequestMsg>,
-        shutdown_receiver: &mut oneshot::Receiver<()>,
-        active_subscriptions: &mut HashMap<u64, ActiveSubscription>,
-    ) -> PubsubClientResult {
-        let url = Url::parse(url)?;
-        let (ws, _response) = connect_async(url)
-            .await
-            .map_err(PubsubClientError::ConnectionError)?;
-
-        info!("WebSocket connection established");
-
-        Self::run_ws(
-            ws,
-            subscribe_receiver,
-            request_receiver,
-            shutdown_receiver,
-            active_subscriptions,
-        )
-        .await
-    }
-
     async fn run_ws(
         mut ws: WebSocketStream<MaybeTlsStream<TcpStream>>,
-        subscribe_receiver: &mut mpsc::UnboundedReceiver<SubscribeRequestMsg>,
-        request_receiver: &mut mpsc::UnboundedReceiver<RequestMsg>,
-        shutdown_receiver: &mut oneshot::Receiver<()>,
-        active_subscriptions: &mut HashMap<u64, ActiveSubscription>,
+        mut subscribe_receiver: mpsc::UnboundedReceiver<SubscribeRequestMsg>,
+        mut request_receiver: mpsc::UnboundedReceiver<RequestMsg>,
+        mut shutdown_receiver: oneshot::Receiver<()>,
     ) -> PubsubClientResult {
+        let mut request_id: u64 = 0;
+
         let mut requests_subscribe = BTreeMap::new();
         let mut requests_unsubscribe = BTreeMap::<u64, oneshot::Sender<()>>::new();
         let mut other_requests = BTreeMap::new();
         let mut subscriptions = BTreeMap::new();
         let (unsubscribe_sender, mut unsubscribe_receiver) = mpsc::unbounded_channel();
-        // Resubscribe to all active subscriptions
-        let mut request_id: u64 = 0;
-        for (sid, subscription) in active_subscriptions.iter_mut() {
-            request_id += 1;
-            let method = format!("{}Subscribe", subscription.operation);
-            let text = json!({
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "method": method,
-                "params": subscription.params
-            })
-            .to_string();
-
-            ws.send(Message::Text(text)).await?;
-            subscriptions.insert(*sid, subscription.notifications_sender.clone());
-            info!("Resubscribed to {} with id {}", subscription.operation, sid);
-        }
 
         let mut ping_interval: Interval =
             interval(Duration::from_secs(DEFAULT_PING_DURATION_SECONDS));
@@ -623,7 +522,7 @@ impl PubsubClient {
         loop {
             tokio::select! {
                 // Send close on shutdown signal
-                _ = &mut *shutdown_receiver => {
+                _ = (&mut shutdown_receiver) => {
                     let frame = CloseFrame { code: CloseCode::Normal, reason: "".into() };
                     ws.send(Message::Close(Some(frame))).await?;
                     ws.flush().await?;
@@ -647,20 +546,10 @@ impl PubsubClient {
                     let method = format!("{operation}Subscribe");
                     let text = json!({"jsonrpc":"2.0","id":request_id,"method":method,"params":params}).to_string();
                     ws.send(Message::Text(text)).await?;
-
-                    let (notifications_sender, _notifications_receiver) = mpsc::unbounded_channel();
-                    active_subscriptions.insert(request_id, ActiveSubscription {
-                        operation: operation.clone(),
-                        params: params.clone(),
-                        notifications_sender: notifications_sender.clone(),
-                    });
-
                     requests_subscribe.insert(request_id, (operation, response_sender));
-                    subscriptions.insert(request_id, notifications_sender);
                 },
                 // Read message for unsubscribe
                 Some((operation, sid, response_sender)) = unsubscribe_receiver.recv() => {
-                    active_subscriptions.remove(&sid);
                     subscriptions.remove(&sid);
                     request_id += 1;
                     let method = format!("{operation}Unsubscribe");
