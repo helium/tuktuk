@@ -12,6 +12,41 @@ Tuktuk's architecture allows for crankers to run a simple rust util that require
 
 Creators of Task Queues set their payment per-crank turn in SOL. Crankers that run the tasks are paid out in SOL for each crank they complete. There is a minimum deposit of 1 SOL to create a task queue to discourage spam. This deposit is refunded when the task queue is closed. The intent is to minimize the number of task queues that crank turners need to watch. You should try to reuse task queues as much as possible. It is an antipattern to create a new task queue for each user, for example.
 
+## Running a Crank Turner
+
+Install the crank turner:
+
+```
+cargo install tuktuk-crank-turner
+```
+
+If you want to run a crank turner, create a config.toml file with the following:
+
+```
+rpc_url = "https://api.mainnet-beta.solana.com"
+key_path = "/path/to/your/keypair.json"
+min_crank_fee = 10000
+```
+
+Then run the crank turner:
+
+```
+tuktuk-crank-turner -c config.toml
+```
+
+You can also provider configuration via environment variables
+
+```
+export TUKTUK__RPC_URL="https://api.mainnet-beta.solana.com"
+export TUKTUK__KEY_PATH="/path/to/your/keypair.json"
+export TUKTUK__MIN_CRANK_FEE=10000
+tuktuk-crank-turner
+```
+
+### Requirements
+
+You will need a good Solana RPC that doesn't have heavy rate limits (for when there are a lot of tasks queued). You should also handle restarting the process if it crashes, as this can happen if your RPC disconnects the websocket without a proper handshake.
+
 ## Usage
 
 Install the tuktuk cli by running `cargo install tuktuk-cli`.

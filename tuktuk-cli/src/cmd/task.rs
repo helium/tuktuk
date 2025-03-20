@@ -76,49 +76,60 @@ pub enum Cmd {
 
 async fn simulate_task(client: &CliClient, task_key: Pubkey) -> Result<Option<SimulationResult>> {
     // Get the run instruction
-    let run_ix = tuktuk_sdk::compiled_transaction::run_ix(
+    let run_ix_res = tuktuk_sdk::compiled_transaction::run_ix(
         client.as_ref(),
         task_key,
         client.payer.pubkey(),
         &HashSet::new(),
     )
-    .await?;
+    .await;
 
-    // Create and simulate the transaction
-    let mut updated_instructions =
-        vec![solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(1900000)];
-    updated_instructions.extend(run_ix.instructions.clone());
-    let recent_blockhash = client.rpc_client.get_latest_blockhash().await?;
-    let message = VersionedMessage::V0(v0::Message::try_compile(
-        &client.payer.pubkey(),
-        &updated_instructions,
-        &run_ix.lookup_tables,
-        recent_blockhash,
-    )?);
-    let tx = VersionedTransaction::try_new(message, &[&client.payer])?;
-    let sim_result = client
-        .rpc_client
-        .simulate_transaction_with_config(
-            &tx,
-            RpcSimulateTransactionConfig {
-                commitment: Some(solana_sdk::commitment_config::CommitmentConfig::confirmed()),
-                sig_verify: true,
-                ..Default::default()
-            },
-        )
-        .await;
+    match run_ix_res {
+        Ok(run_ix) => {
+            // Create and simulate the transaction
+            let mut updated_instructions = vec![
+                solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(
+                    1900000,
+                ),
+            ];
+            updated_instructions.extend(run_ix.instructions.clone());
+            let recent_blockhash = client.rpc_client.get_latest_blockhash().await?;
+            let message = VersionedMessage::V0(v0::Message::try_compile(
+                &client.payer.pubkey(),
+                &updated_instructions,
+                &run_ix.lookup_tables,
+                recent_blockhash,
+            )?);
+            let tx = VersionedTransaction::try_new(message, &[&client.payer])?;
+            let sim_result = client
+                .rpc_client
+                .simulate_transaction_with_config(
+                    &tx,
+                    RpcSimulateTransactionConfig {
+                        commitment: Some(
+                            solana_sdk::commitment_config::CommitmentConfig::confirmed(),
+                        ),
+                        sig_verify: true,
+                        ..Default::default()
+                    },
+                )
+                .await;
 
-    match sim_result {
-        Ok(simulated) => Ok(Some(SimulationResult {
-            error: simulated.value.err.map(|e| e.to_string()),
-            logs: Some(simulated.value.logs.unwrap_or_default()),
-            compute_units: simulated.value.units_consumed,
-        })),
-        Err(err) => Ok(Some(SimulationResult {
-            error: Some(err.to_string()),
-            logs: None,
-            compute_units: None,
-        })),
+            match sim_result {
+                Ok(simulated) => Ok(Some(SimulationResult {
+                    error: simulated.value.err.map(|e| e.to_string()),
+                    logs: Some(simulated.value.logs.unwrap_or_default()),
+                    compute_units: simulated.value.units_consumed,
+                })),
+                Err(err) => Ok(Some(SimulationResult {
+                    error: Some(err.to_string()),
+                    logs: None,
+                    compute_units: None,
+                })),
+            }
+        }
+        Err(tuktuk_sdk::error::Error::AccountNotFound) => Ok(None),
+        Err(e) => Err(e.into()),
     }
 }
 
