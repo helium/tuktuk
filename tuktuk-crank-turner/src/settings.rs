@@ -10,6 +10,7 @@ pub struct Settings {
     #[serde(default = "default_log")]
     pub log: String,
 
+    #[serde(default = "default_max_retries")]
     pub max_retries: u8,
     pub rpc_url: String,
     pub key_path: String,
@@ -24,6 +25,10 @@ pub struct Settings {
     pub metrics_port: u16,
     #[serde(default = "default_recent_attempts_window")]
     pub recent_attempts_window: usize,
+}
+
+fn default_max_retries() -> u8 {
+    5
 }
 
 fn default_recent_attempts_window() -> usize {
@@ -47,7 +52,7 @@ fn default_max_sol_fee() -> u64 {
 }
 
 fn default_log() -> String {
-    "queue_node=debug".to_string()
+    "info".to_string()
 }
 
 impl Settings {
