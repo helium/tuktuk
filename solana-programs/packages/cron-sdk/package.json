@@ -5,7 +5,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "license": "Apache-2.0",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Interface to the cron smart contract",
   "repository": {
     "type": "git",
@@ -33,7 +33,7 @@
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.0",
     "@helium/anchor-resolvers": "^0.10.1",
-    "@helium/tuktuk-idls": "^0.0.5",
+    "@helium/tuktuk-idls": "^0.0.6",
     "js-sha256": "^0.11.0"
   },
   "devDependencies": {

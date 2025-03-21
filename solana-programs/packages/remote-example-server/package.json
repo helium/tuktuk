@@ -6,7 +6,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "license": "Apache-2.0",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Remote example server for Tuktuk",
   "repository": {
     "type": "git",
@@ -36,8 +36,8 @@
     "@coral-xyz/anchor": "^0.31.0",
     "@fastify/cors": "^8.1.1",
     "@helium/spl-utils": "^0.10.1",
-    "@helium/tuktuk-idls": "^0.0.5",
-    "@helium/tuktuk-sdk": "^0.0.5",
+    "@helium/tuktuk-idls": "^0.0.6",
+    "@helium/tuktuk-sdk": "^0.0.6",
     "@solana/spl-token": "^0.3.8",
     "@solana/web3.js": "^1.95.2",
     "bn.js": "^5.2.0",
