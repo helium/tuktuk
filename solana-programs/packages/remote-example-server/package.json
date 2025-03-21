@@ -33,9 +33,9 @@
     "seed-db": "npx ts-node --project tsconfig.cjs.json src/seed-db.ts"
   },
   "dependencies": {
-    "@coral-xyz/anchor": "^0.30.1",
+    "@coral-xyz/anchor": "^0.31.0",
     "@fastify/cors": "^8.1.1",
-    "@helium/spl-utils": "^0.9.19",
+    "@helium/spl-utils": "^0.10.1",
     "@helium/tuktuk-idls": "^0.0.5",
     "@helium/tuktuk-sdk": "^0.0.5",
     "@solana/spl-token": "^0.3.8",

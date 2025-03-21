@@ -31,8 +31,8 @@
     "prebuild": "npm run clean && npm run package"
   },
   "dependencies": {
-    "@coral-xyz/anchor": "^0.30.1",
-    "@helium/anchor-resolvers": "^0.10.0-alpha.4",
+    "@coral-xyz/anchor": "^0.31.0",
+    "@helium/anchor-resolvers": "^0.10.1",
     "@helium/tuktuk-idls": "^0.0.5",
     "js-sha256": "^0.11.0"
   },
