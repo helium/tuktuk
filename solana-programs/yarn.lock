@@ -272,6 +272,18 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@helium/anchor-resolvers@npm:^0.10.1":
+  version: 0.10.3
+  resolution: "@helium/anchor-resolvers@npm:0.10.3"
+  dependencies:
+    "@solana/spl-token": ^0.3.8
+    "@solana/web3.js": ^1.91.1
+  peerDependencies:
+    "@coral-xyz/anchor": ^0.31.0
+  checksum: c0aa296692d9f2cd3d427dc9e87df61510ca7753510d333b44f3fe4144aa37f63574042c662613c236bf7f945610a4f521798ca902694948020bd72f11b6a545
+  languageName: node
+  linkType: hard
+
 "@helium/anchor-resolvers@npm:^0.9.18":
   version: 0.9.18
   resolution: "@helium/anchor-resolvers@npm:0.9.18"
@@ -293,6 +305,18 @@ __metadata:
   peerDependencies:
     "@coral-xyz/anchor": ^0.28.0
   checksum: f394396c3c446455856f5efe7a1d21c67cd5002c3d2d9d1e363e7fc4a659eae684c3e06e1fcd9c616823e3880796f65fe1c1272471deae78a278223642a313f4
+  languageName: node
+  linkType: hard
+
+"@helium/cron-sdk@npm:^0.0.6":
+  version: 0.0.6
+  resolution: "@helium/cron-sdk@npm:0.0.6"
+  dependencies:
+    "@coral-xyz/anchor": ^0.31.0
+    "@helium/anchor-resolvers": ^0.10.1
+    "@helium/tuktuk-idls": ^0.0.6
+    js-sha256: ^0.11.0
+  checksum: 807e3b33e5c407f42f476570f1d2e9008b4d9f01fbe34041bc84b46e54235ca7f247ccf5b85dd461eccc3f2f1337647666a0a1978e8e54fa3fc379174495bd0f
   languageName: node
   linkType: hard
 
@@ -387,6 +411,16 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@helium/tuktuk-idls@npm:^0.0.6":
+  version: 0.0.6
+  resolution: "@helium/tuktuk-idls@npm:0.0.6"
+  dependencies:
+    "@coral-xyz/anchor": ^0.31.0
+    "@solana/web3.js": ^1.95.2
+  checksum: 0fe305ca56808a0be1ccdc40fbd138e1fecf1d0bf6eaf67d974690f53d7b23e8b4dd7797a903566ca582ead13adf3d4e9ef968047f09abab94579960660c3af7
+  languageName: node
+  linkType: hard
+
 "@helium/tuktuk-sdk@^0.0.4, @helium/tuktuk-sdk@workspace:packages/tuktuk-sdk":
   version: 0.0.0-use.local
   resolution: "@helium/tuktuk-sdk@workspace:packages/tuktuk-sdk"
@@ -402,6 +436,18 @@ __metadata:
     typescript: ^5.2.2
   languageName: unknown
   linkType: soft
+
+"@helium/tuktuk-sdk@npm:^0.0.6":
+  version: 0.0.6
+  resolution: "@helium/tuktuk-sdk@npm:0.0.6"
+  dependencies:
+    "@coral-xyz/anchor": ^0.31.0
+    "@helium/anchor-resolvers": ^0.10.1
+    "@helium/tuktuk-idls": ^0.0.6
+    js-sha256: ^0.11.0
+  checksum: 32b6097215f82cb846faa0549e11d8d50bfe5679375b5e43da15a12c649c3561b4c3633f233ac3e241e6137d887f50ba2d821fe86b49f8800774fd89ab9e53a4
+  languageName: node
+  linkType: hard
 
 "@hutson/parse-repository-url@npm:^3.0.0":
   version: 3.0.2
@@ -7474,7 +7520,9 @@ __metadata:
   resolution: "root-workspace-0b6124@workspace:."
   dependencies:
     "@coral-xyz/anchor": ^0.31.0
+    "@helium/cron-sdk": ^0.0.6
     "@helium/spl-utils": ^0.9.18
+    "@helium/tuktuk-sdk": ^0.0.6
     "@solana/spl-token": ^0.4.8
     "@solana/web3.js": ^1.95.2
     "@types/bn.js": ^5.1.0

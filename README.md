@@ -57,7 +57,7 @@ First, you'll need to get some SOL to fund the task queue. You can get SOL from 
 
 Next, create a task queue. A task queue has a default crank reward that will be used for all tasks in the queue, but each task can override this reward. Since crankers pay sol (and possibly priority fees) for each crank, the crank reward should be higher than the cost of a crank or crankers will not be incentivized to run your task.
 
-Note that the `funding-amount` you specify is not inclusive of the 1 SOL minimum deposit. The funding amount will be used to pay the fees for tasks queued recursively (ie, by other tasks). 
+Note that the `funding-amount` you specify is not inclusive of the 1 SOL minimum deposit. The funding amount will be used to pay the fees for tasks queued recursively (ie, by other tasks).
 
 ```
 tuktuk -u <your-solana-url> task-queue create --name <your-queue-name> --capacity 10 --funding-amount 100000000 --queue-authority <the-authority-to-queue-tasks> --crank-reward 1000000
@@ -317,7 +317,7 @@ tuktuk -u <your-solana-url> task run --task-queue-name <your-queue-name> --descr
 
 ### Closing Tasks
 
-A task queue has a limited capacity. Therefore, you will want to close tasks that have failed and will never be able to succeed. When you close these tasks, you will be refunded the SOL fees. 
+A task queue has a limited capacity. Therefore, you will want to close tasks that have failed and will never be able to succeed. When you close these tasks, you will be refunded the SOL fees.
 
 ```
 tuktuk -u <your-solana-url> task close --task-queue-name <your-queue-name> --task-id <task-id>
@@ -328,3 +328,36 @@ You can also close tasks by prefix using the `--description` flag. This can be u
 ```
 tuktuk -u <your-solana-url> task close --task-queue-name <your-queue-name> --description <prefix>
 ```
+
+## Development Setup
+
+### Local Testing
+
+1. In your Anchor.toml, make sure you have a test keypair defined:
+
+```toml
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"  # Your local keypair. Find address using `solana address`
+```
+
+2. Update the APPROVER key in `solana-programs/programs/tuktuk/src/instructions/initialize_tuktuk_config_v0.rs` to match your local test keypair's public key:
+
+```rust
+// Replace this with your local test keypair's public key for testing
+pub static APPROVER: Pubkey = pubkey!("YOUR_LOCAL_KEYPAIR_PUBKEY_HERE");
+```
+
+3. Install dependencies:
+
+```bash
+yarn install
+```
+
+4. Run the tests:
+
+```bash
+anchor test
+```
+
+Note: Make sure to not commit your local APPROVER key change - this should only be used for local testing.

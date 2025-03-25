@@ -234,7 +234,7 @@ describe("tuktuk", () => {
 
       it("allows running a task", async () => {
         const taskAcc = await program.account.taskV0.fetch(task);
-        
+
         const ixs = await runTask({
           program,
           task,
@@ -256,10 +256,7 @@ describe("tuktuk", () => {
               remoteTaskTransaction: serialized,
               remainingAccounts: remainingAccounts,
               signature: Buffer.from(
-                sign.detached(
-                  Uint8Array.from(serialized),
-                  signer.secretKey
-                )
+                sign.detached(Uint8Array.from(serialized), signer.secretKey)
               ),
             };
           },
@@ -364,13 +361,15 @@ describe("tuktuk", () => {
 
         // Calculate expected balance change
         const expectedBalanceChange = expectedReward - txFee;
-        const actualBalanceChange = crankTurnerBalanceAfter - crankTurnerBalanceBefore;
+        const actualBalanceChange =
+          crankTurnerBalanceAfter - crankTurnerBalanceBefore;
 
-        expect(actualBalanceChange).to.equal(expectedBalanceChange, 
+        expect(actualBalanceChange).to.equal(
+          expectedBalanceChange,
           `Crank turner balance change incorrect. Expected change: ${expectedBalanceChange}, ` +
-          `Actual change: ${actualBalanceChange}, ` +
-          `Reward: ${expectedReward}, ` +
-          `TX fee: ${txFee}`
+            `Actual change: ${actualBalanceChange}, ` +
+            `Reward: ${expectedReward}, ` +
+            `TX fee: ${txFee}`
         );
       });
 
@@ -435,14 +434,14 @@ describe("tuktuk", () => {
           taskQueueNameMapping: taskQueueNameMappingKey(tuktukConfig, name)[0],
         })
         .rpc();
-        await program.methods
-          .addQueueAuthorityV0()
-          .accounts({
-            payer: me,
-            queueAuthority,
-            taskQueue,
-          })
-          .rpc();
+      await program.methods
+        .addQueueAuthorityV0()
+        .accounts({
+          payer: me,
+          queueAuthority,
+          taskQueue,
+        })
+        .rpc();
     });
     it("allows scheduling a task", async () => {
       const freeTask1 = taskKey(taskQueue, 0)[0];
