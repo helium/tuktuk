@@ -1,10 +1,11 @@
 # Build stage
-FROM rust:1.82-slim-bullseye as builder
+FROM rust:1.85-slim-bullseye as builder
 
 # Install system dependencies and clean up in the same layer
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     pkg-config \
+    libssl-dev \
     build-essential \
     libudev-dev \
     protobuf-compiler && \

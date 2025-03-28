@@ -5,18 +5,24 @@ use clap::Parser;
 use metrics::{register_custom_metrics, REGISTRY};
 use profitability::TaskQueueProfitability;
 use settings::Settings;
-use solana_client::nonblocking::{pubsub_client::PubsubClient, rpc_client::RpcClient};
+use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{commitment_config::CommitmentConfig, signature::Keypair, signer::EncodableKey};
-use solana_transaction_utils::queue::{create_transaction_queue_handles, TransactionQueueArgs};
+use solana_transaction_utils::{
+    queue::{create_transaction_queue_handles, TransactionQueueArgs},
+    sender::TransactionSender,
+};
 use task_completion_processor::process_task_completions;
 use task_context::TaskContext;
 use task_processor::process_tasks;
 use task_queue::{create_task_queue, TaskQueueArgs};
-use tokio::{sync::Mutex, time::interval};
+use tokio::{
+    sync::{mpsc::channel, Mutex},
+    time::interval,
+};
 use tokio_graceful_shutdown::{SubsystemBuilder, Toplevel};
 use tracing_subscriber::{fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt};
 use transaction::TransactionSenderSubsystem;
-use tuktuk_sdk::{prelude::*, watcher::PubsubTracker};
+use tuktuk_sdk::{prelude::*, pubsub_client::PubsubClient, watcher::PubsubTracker};
 use warp::{reject::Rejection, reply::Reply, Filter};
 use watchers::{args::WatcherArgs, task_queues::get_and_watch_task_queues};
 
@@ -74,6 +80,8 @@ async fn metrics_handler() -> Result<impl Reply, Rejection> {
     Ok(res)
 }
 
+const PACKED_TX_CHANNEL_CAPACITY: usize = 32;
+
 impl Cli {
     pub async fn run(&self) -> Result<()> {
         register_custom_metrics();
@@ -87,7 +95,10 @@ impl Cli {
         tokio::spawn(warp::serve(metrics_route).run(([0, 0, 0, 0], settings.metrics_port)));
 
         let solana_url = settings.rpc_url.clone();
-        let solana_ws_url = solana_url.replace("http", "ws").replace("https", "wss");
+        let solana_ws_url = solana_url
+            .replace("http", "ws")
+            .replace("https", "wss")
+            .replace("127.0.0.1:8899", "127.0.0.1:8900");
 
         // Create a non-blocking RPC client
         // We can work off of processed accounts because we simulate the next tx before actually
@@ -109,10 +120,12 @@ impl Cli {
         );
 
         // Create a non-blocking PubSub client
-        let pubsub_client = Arc::new(PubsubClient::new(&solana_ws_url).await?);
+        let (pubsub_client_raw, pubsub_handle, shutdown_sender) =
+            PubsubClient::new(&solana_ws_url).await?;
+        let pubsub_client = Arc::new(pubsub_client_raw);
         let pubsub_tracker = Arc::new(PubsubTracker::new(
             Arc::clone(&rpc_client),
-            pubsub_client,
+            pubsub_client.clone(),
             Duration::from_secs(60),
             commitment,
         ));
@@ -151,8 +164,24 @@ impl Cli {
             profitability: Arc::new(TaskQueueProfitability::new(settings.recent_attempts_window)),
         });
 
+        let (packed_tx_sender, packed_tx_receiver) = channel(PACKED_TX_CHANNEL_CAPACITY);
+        let sender = TransactionSender::new(
+            tx_sender_rpc_client.clone(),
+            solana_ws_url.clone(),
+            payer.clone(),
+            handles.result_sender.clone(),
+        )
+        .await
+        .expect("create sender");
+
         let pubsub_repoll = settings.pubsub_repoll;
         Toplevel::new(move |top_level| async move {
+            top_level.start(SubsystemBuilder::new("transaction-sender", {
+                move |handle| {
+                    // Spawn the sender task with shutdown signal
+                    sender.run(packed_tx_receiver, handle)
+                }
+            }));
             let watcher_args_clone = watcher_args.clone();
             top_level.start(SubsystemBuilder::new("task-queue-watcher", {
                 let task_context = task_context.clone();
@@ -176,6 +205,7 @@ impl Cli {
                         result_sender: handles.result_sender,
                         max_sol_fee: settings.max_sol_fee,
                         send_in_parallel: true,
+                        packed_tx_sender,
                     })
                     .run(handle)
                 }
@@ -207,6 +237,22 @@ impl Cli {
                         }
                     }
                     anyhow::Ok(())
+                }
+            }));
+            top_level.start(SubsystemBuilder::new("pubsub-client", {
+                move |handle| async move {
+                    tokio::select! {
+                        _ = handle.on_shutdown_requested() => {
+                            tracing::info!("Shutdown requested, exiting pubsub-client");
+                            shutdown_sender.send(()).unwrap();
+                            anyhow::Ok(())
+                        },
+                        res = pubsub_handle => {
+                            tracing::info!("Received pubsub message");
+                            res.map_err(|e| anyhow::anyhow!(e.to_string()))?
+                                  .map_err(|e| anyhow::anyhow!(e.to_string()))
+                        }
+                    }
                 }
             }));
         })

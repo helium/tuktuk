@@ -1,18 +1,15 @@
 use std::{cmp::max, collections::HashSet, sync::Arc};
 
 use futures::{Stream, StreamExt, TryStreamExt};
-use solana_client::rpc_config::RpcSimulateTransactionConfig;
 use solana_sdk::{
     address_lookup_table::{state::AddressLookupTable, AddressLookupTableAccount},
-    commitment_config::CommitmentConfig,
     instruction::InstructionError,
-    message::{v0, VersionedMessage},
     signer::Signer,
-    transaction::{TransactionError, VersionedTransaction},
+    transaction::TransactionError,
 };
 use solana_transaction_utils::{error::Error as TransactionQueueError, queue::TransactionTask};
 use tokio_graceful_shutdown::SubsystemHandle;
-use tracing::info;
+use tracing::{debug, info};
 use tuktuk_program::TaskQueueV0;
 use tuktuk_sdk::compiled_transaction::{
     next_available_task_ids_excluding_in_progress, run_ix_with_free_tasks,
@@ -110,7 +107,7 @@ impl TimedTask {
         ctx: Arc<TaskContext>,
         err: tuktuk_sdk::error::Error,
     ) -> anyhow::Result<()> {
-        info!(?self, ?err, "getting instructions failed");
+        info!(?self.task_key, ?self.task_time, ?err, "getting instructions failed");
         let ctx = ctx.clone();
         match err {
             tuktuk_sdk::error::Error::AccountNotFound => {
@@ -132,7 +129,6 @@ impl TimedTask {
 
     pub async fn process(&mut self, ctx: Arc<TaskContext>) -> anyhow::Result<()> {
         let TaskContext {
-            rpc_client,
             payer,
             tx_sender,
             task_queue,
@@ -145,8 +141,8 @@ impl TimedTask {
             let now = *ctx.now_rx.borrow();
             let should_delay = profitability.should_delay(&self.task_queue_name).await;
             if should_delay {
-                let delay = rand::random_range(5..10);
-                info!(?self.task_key, ?delay, "task is from unprofitable queue, delaying");
+                let delay = rand::random_range(5..15);
+                debug!(?self.task_key, ?delay, "task is from unprofitable queue, delaying");
                 task_queue
                     .add_task(TimedTask {
                         profitability_delayed: true,
@@ -166,96 +162,34 @@ impl TimedTask {
         let next_available = self.get_available_task_ids(ctx.clone()).await?;
         self.in_flight_task_ids = next_available.clone();
 
-        let maybe_run_ix = run_ix_with_free_tasks(
-            self.task_key,
-            &self.task,
-            payer.pubkey(),
-            next_available,
-            lookup_tables,
-        )
-        .await;
+        let maybe_run_ix = if let Some(cached_result) = self.cached_result.clone() {
+            Ok(cached_result)
+        } else {
+            run_ix_with_free_tasks(
+                self.task_key,
+                &self.task,
+                payer.pubkey(),
+                next_available,
+                lookup_tables,
+            )
+            .await
+        };
 
         if let Err(err) = maybe_run_ix {
             return self.handle_ix_err(ctx.clone(), err).await;
         }
         let run_ix = maybe_run_ix.unwrap();
-
-        let ctx = ctx.clone();
-        if let Some(run_ix) = run_ix {
-            let (recent_blockhash, _) = rpc_client
-                .get_latest_blockhash_with_commitment(CommitmentConfig::finalized())
-                .await?;
-            let mut updated_instructions = vec![
-                solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(
-                    1900000,
-                ),
-            ];
-            updated_instructions.extend(run_ix.instructions.clone());
-
-            let message = VersionedMessage::V0(v0::Message::try_compile(
-                &payer.pubkey(),
-                &updated_instructions,
-                &run_ix.lookup_tables,
-                recent_blockhash,
-            )?);
-            let tx = VersionedTransaction::try_new(message, &[payer])?;
-            let simulated = rpc_client
-                .simulate_transaction_with_config(
-                    &tx,
-                    RpcSimulateTransactionConfig {
-                        commitment: Some(
-                            solana_sdk::commitment_config::CommitmentConfig::processed(),
-                        ),
-                        sig_verify: true,
-                        ..Default::default()
-                    },
-                )
-                .await;
-            // info!(?simulated, "simulated");
-            match simulated {
-                Ok(simulated) => {
-                    if let Some(err) = simulated.value.err {
-                        info!(
-                                    ?self.task_key,
-                            ?err,
-                            ?simulated.value.logs,
-                            "task simulation failed",
-                        );
-                        return self
-                            .handle_completion(
-                                ctx,
-                                Some(TransactionQueueError::SimulatedTransactionError(err)),
-                                0,
-                            )
-                            .await;
-                    }
-                }
-                Err(err) => {
-                    info!(?self, ?err, "task simulation failed");
-                    return self
-                        .handle_completion(
-                            ctx,
-                            Some(TransactionQueueError::RawSimulatedTransactionError(
-                                err.to_string(),
-                            )),
-                            0,
-                        )
-                        .await;
-                }
-            }
-
-            tx_sender
-                .send(TransactionTask {
-                    worth: self.task.crank_reward,
-                    task: TimedTask {
-                        in_flight_task_ids: run_ix.free_task_ids,
-                        ..self.clone()
-                    },
-                    instructions: run_ix.instructions,
-                    lookup_tables: Some(run_ix.lookup_tables),
-                })
-                .await?;
-        }
+        tx_sender
+            .send(TransactionTask {
+                worth: self.task.crank_reward,
+                task: TimedTask {
+                    in_flight_task_ids: run_ix.free_task_ids,
+                    ..self.clone()
+                },
+                instructions: run_ix.instructions,
+                lookup_tables: Some(run_ix.lookup_tables),
+            })
+            .await?;
 
         Ok(())
     }
@@ -343,13 +277,15 @@ impl TimedTask {
                 TransactionQueueError::RawTransactionError(_)
                 | TransactionQueueError::SimulatedTransactionError(_)
                 | TransactionQueueError::TransactionError(_)
-                | TransactionQueueError::TpuSenderError(_) => {
+                | TransactionQueueError::TpuSenderError(_)
+                | TransactionQueueError::RpcError(_) => {
                     if self.total_retries < self.max_retries && !self.is_cleanup_task {
                         let base_delay = 30 * (1 << self.total_retries);
                         let jitter = rand::random_range(0..60); // Jitter up to 1 minute to prevent conflicts with other turners
                         let retry_delay = base_delay + jitter;
                         info!(
-                            ?self,
+                            ?self.task_key,
+                            ?self.task_time,
                             ?err,
                             ?retry_delay,
                             "task transaction failed, retrying"
@@ -378,6 +314,7 @@ impl TimedTask {
                                 task_time: self.task_time + task_queue.stale_task_age as u64,
                                 in_flight_task_ids: vec![],
                                 is_cleanup_task: true,
+                                cached_result: None,
                                 ..self.clone()
                             })
                             .await?;
@@ -386,7 +323,9 @@ impl TimedTask {
                             .inc();
                     }
                 }
-                _ => {}
+                _ => {
+                    info!(?self.task_key, ?err, "task failed");
+                }
             }
         } else {
             TASKS_COMPLETED

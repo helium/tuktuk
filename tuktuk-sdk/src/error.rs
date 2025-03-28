@@ -1,7 +1,9 @@
-use solana_client::{client_error::reqwest, pubsub_client::PubsubClientError};
+use solana_client::client_error::reqwest;
 use solana_sdk::{
     instruction::InstructionError, program_error::ProgramError, pubkey::ParsePubkeyError,
 };
+
+use crate::pubsub_client::PubsubClientError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

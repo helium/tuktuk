@@ -56,6 +56,7 @@ pub fn next_available_task_ids_excluding_in_progress(
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct RunTaskResult {
     pub instructions: Vec<Instruction>,
     pub free_task_ids: Vec<u16>,
@@ -68,7 +69,7 @@ pub async fn run_ix_with_free_tasks(
     payer: Pubkey,
     next_available: Vec<u16>,
     lookup_tables: Vec<AddressLookupTableAccount>,
-) -> Result<Option<RunTaskResult>, Error> {
+) -> Result<RunTaskResult, Error> {
     let transaction = &task.transaction;
 
     let free_tasks = next_available
@@ -124,7 +125,7 @@ pub async fn run_ix_with_free_tasks(
             ]
             .concat();
 
-            Ok(Some(RunTaskResult {
+            Ok(RunTaskResult {
                 instructions: vec![Instruction {
                     program_id: tuktuk_program::tuktuk::ID,
                     accounts: all_accounts,
@@ -137,7 +138,7 @@ pub async fn run_ix_with_free_tasks(
                 }],
                 lookup_tables,
                 free_task_ids: next_available,
-            }))
+            })
         }
         TransactionSourceV0::RemoteV0 { signer, url } => {
             // Fetch the remote transaction
@@ -175,7 +176,7 @@ pub async fn run_ix_with_free_tasks(
             instruction_data.extend_from_slice(&signature);
             instruction_data.extend_from_slice(&message);
 
-            Ok(Some(RunTaskResult {
+            Ok(RunTaskResult {
                 lookup_tables,
                 instructions: vec![
                     Instruction {
@@ -208,7 +209,7 @@ pub async fn run_ix_with_free_tasks(
                     },
                 ],
                 free_task_ids: next_available,
-            }))
+            })
         }
     }
 }
@@ -218,7 +219,7 @@ pub async fn run_ix(
     task_key: Pubkey,
     payer: Pubkey,
     in_progress_task_ids: &HashSet<u16>,
-) -> Result<Option<RunTaskResult>, Error> {
+) -> Result<RunTaskResult, Error> {
     let task: TaskV0 = client
         .anchor_account(&task_key)
         .await?

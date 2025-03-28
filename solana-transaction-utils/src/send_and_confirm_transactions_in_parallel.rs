@@ -35,7 +35,7 @@ const SEND_INTERVAL: Duration = Duration::from_millis(10);
 // `solana_tpu_client::nonblocking::tpu_client::send_wire_transaction_futures`
 const SEND_TIMEOUT_INTERVAL: Duration = Duration::from_secs(5);
 
-type QuicTpuClient = TpuClient<QuicPool, QuicConnectionManager, QuicConfig>;
+pub type QuicTpuClient = TpuClient<QuicPool, QuicConnectionManager, QuicConfig>;
 
 #[derive(Clone, Debug)]
 struct TransactionData {

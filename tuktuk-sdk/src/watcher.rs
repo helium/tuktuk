@@ -6,18 +6,16 @@ use futures::{
     future::{BoxFuture, Future},
     stream::{unfold, Stream, StreamExt},
 };
-use solana_account_decoder::{UiAccount, UiAccountEncoding};
-use solana_client::{
-    nonblocking::{pubsub_client::PubsubClient, rpc_client::RpcClient},
-    rpc_config::RpcAccountInfoConfig,
-};
+use solana_account_decoder_client_types::{UiAccount, UiAccountEncoding};
+use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_rpc_client_api::config::RpcAccountInfoConfig;
 use solana_sdk::{account::Account, commitment_config::CommitmentConfig, pubkey::Pubkey};
 use tokio::{
     sync::{broadcast, Mutex},
     time::interval,
 };
 
-use crate::{client::GetAccount, error::Error};
+use crate::{client::GetAccount, error::Error, pubsub_client::PubsubClient};
 
 pub struct PubsubTracker {
     client: Arc<RpcClient>,
@@ -36,6 +34,12 @@ fn account_from_ui_account(value: &UiAccount) -> Account {
         executable: value.executable,
         rent_epoch: value.rent_epoch,
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum UpdateType {
+    Poll,
+    Websocket,
 }
 
 impl PubsubTracker {
@@ -60,7 +64,7 @@ impl PubsubTracker {
         pubkey: Pubkey,
     ) -> Result<
         (
-            impl Stream<Item = Result<Account, Error>> + 'a,
+            impl Stream<Item = Result<(Account, UpdateType), Error>> + 'a,
             Box<dyn FnOnce() -> BoxFuture<'a, ()> + 'a>,
         ),
         Error,
@@ -69,7 +73,7 @@ impl PubsubTracker {
         let (subscription, unsub) = self
             .pubsub
             .account_subscribe(
-                &pubkey,
+                &solana_pubkey::Pubkey::from_str(&pubkey.to_string()).unwrap(),
                 Some(RpcAccountInfoConfig {
                     commitment: Some(self.commitment),
                     encoding: Some(UiAccountEncoding::Base64Zstd),
@@ -99,11 +103,11 @@ impl PubsubTracker {
                                         Err(e) => return Some((Err(Error::from(e)), (subscription, publisher_receiver))),
                                     };
                                 }
-                                return Some((Ok(account), (subscription, publisher_receiver)));
+                                return Some((Ok((account, UpdateType::Websocket)), (subscription, publisher_receiver)));
                             },
                             Ok((key, acc)) = publisher_receiver.recv() => {
                                 if key == pubkey {
-                                    return Some((Ok(acc), (subscription, publisher_receiver)));
+                                    return Some((Ok((acc, UpdateType::Poll)), (subscription, publisher_receiver)));
                                 }
                             },
                             else => break,
