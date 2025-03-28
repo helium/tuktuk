@@ -23,6 +23,12 @@ Run your permissionless cranks on Solana
   - [Running a Task](#running-a-task)
   - [Closing Tasks](#closing-tasks)
 - [Development Setup](#development-setup)
+- [Troubleshooting](#troubleshooting)
+  - [Common Issues and Solutions](#common-issues-and-solutions)
+    - [Account Not Initialized Error](#account-not-initialized-error)
+    - [Task Not Running](#task-not-running)
+    - [Cron Job Stopped Running](#cron-job-stopped-running)
+    - [Task Fixed But Not Running](#task-fixed-but-not-running)
 
 ## Introduction
 
@@ -266,7 +272,7 @@ tuktuk -u <your-solana-url> task list --task-queue-name <your-queue-name> --desc
 
 ### Running a Task
 
-Occasionally, a task could be missed by the tuktuk-crank-turner due to running out of retries. This can happen in cases where the task had a bug, which you later fixed. In this case, when you run `task list` you will see a successful simulation result for the task, but it will not have been run.
+Occasionally, a task could be missed by the tuktuk-crank-turner due to running out of retries. This can happen in cases where the task had a bug, which you later fixed. In this case, when you run `task list` you will see a successful simulation result for the task, but it will not have been run. If task list is taking too long to run, you can use the --skip-simulate flag.
 
 You can run a task by using the `task run` command. This will run the task and mark it as run.
 
@@ -317,3 +323,45 @@ yarn install
 ```bash
 env TESTING=true anchor test
 ```
+
+## Troubleshooting
+
+### Common Issues and Solutions
+
+#### Account Not Initialized Error
+```
+Program log: AnchorError caused by account: task. Error Code: AccountNotInitialized. Error Number: 3012. Error Message: The program expected this account to be already initialized.
+```
+This error is normal and can be safely ignored. It occurs when multiple crank turners attempt to execute the same task simultaneously. When the second crank turner tries to run the task, it fails because the first one already completed and closed the task account.
+
+#### Task Not Running
+If your task isn't being executed:
+
+1. First, locate your task ID using the task list command:
+   ```bash
+   tuktuk -u <your-solana-url> task list --task-queue-name <your-queue-name>
+   ```
+
+2. If the task simulation looks successful but isn't running, try running it manually:
+   ```bash
+   tuktuk -u <your-solana-url> task run --task-queue-name <your-queue-name> --task-id <task-id>
+   ```
+
+3. To see the failed transaction in Solana Explorer (even for failing transactions), use the `--skip-preflight` flag:
+   ```bash
+   tuktuk -u <your-solana-url> task run --task-queue-name <your-queue-name> --task-id <task-id> --skip-preflight
+   ```
+
+#### Cron Job Stopped Running
+If your cron job has stopped executing, it may have been removed from the queue due to insufficient funding or other issues. See the [Cron Task Requeuing](#cron-task-requeuing) section for instructions on how to requeue your cron job.
+
+#### Task Fixed But Not Running
+If you had a failing task that you've fixed, but crank turners are no longer attempting to run it, this is because crank turners ignore tasks after running out of retries. To resolve this:
+
+1. Run the task manually using the task run command:
+   ```bash
+   tuktuk -u <your-solana-url> task run --task-queue-name <your-queue-name> --task-id <task-id>
+   ```
+
+2. If the task succeeds, it will be marked as complete and removed from the queue.
+
