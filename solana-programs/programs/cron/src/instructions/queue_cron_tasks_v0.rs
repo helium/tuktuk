@@ -46,6 +46,14 @@ pub struct QueueCronTasksV0<'info> {
 }
 
 pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
+    let stale_task_age = ctx.accounts.task_queue.stale_task_age;
+    let now = Clock::get()?.unix_timestamp;
+    if now - ctx.accounts.cron_job.current_exec_ts > stale_task_age as i64 {
+        msg!("Cron job is stale, resetting");
+        ctx.accounts.cron_job.current_exec_ts = now;
+        ctx.accounts.cron_job.current_transaction_id = 0;
+    }
+
     let max_num_tasks_remaining =
         ctx.accounts.cron_job.next_transaction_id - ctx.accounts.cron_job.current_transaction_id;
     let num_tasks_to_queue =

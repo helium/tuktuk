@@ -1,29 +1,6 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { Tuktuk } from "../target/types/tuktuk";
-import { Cron } from "../target/types/cron";
-import { CpiExample } from "../target/types/cpi_example";
-import {
-  init as initTuktuk,
-  taskQueueKey,
-  taskQueueNameMappingKey,
-  tuktukConfigKey,
-  compileTransaction,
-  CompiledTransactionV0,
-  taskKey,
-  runTask,
-  customSignerKey,
-} from "@helium/tuktuk-sdk";
-import { cronJobKey, cronJobNameMappingKey, cronJobTransactionKey, init as initCron, userCronJobsKey } from "@helium/cron-sdk";
-import {
-  AccountMeta,
-  ComputeBudgetProgram,
-  Keypair,
-  PublicKey,
-  SystemProgram,
-  TransactionInstruction,
-} from "@solana/web3.js";
-import chai from "chai";
+import { cronJobKey, cronJobNameMappingKey, cronJobTransactionKey, init as initCron, userCronJobsKey, createCronJob } from "@helium/cron-sdk";
 import {
   createAtaAndMint,
   createMint,
@@ -33,14 +10,34 @@ import {
   toVersionedTx,
   withPriorityFees,
 } from "@helium/spl-utils";
-import { ensureIdls, makeid } from "./utils";
+import {
+  CompiledTransactionV0,
+  compileTransaction,
+  customSignerKey,
+  init as initTuktuk,
+  runTask,
+  taskKey,
+  taskQueueKey,
+  taskQueueNameMappingKey,
+  tuktukConfigKey,
+} from "@helium/tuktuk-sdk";
 import {
   createAssociatedTokenAccountIdempotentInstruction,
-  createAssociatedTokenAccountInstruction,
   createTransferInstruction,
-  getAssociatedTokenAddressSync,
+  getAssociatedTokenAddressSync
 } from "@solana/spl-token";
-import { sign } from "tweetnacl";
+import {
+  AccountMeta,
+  ComputeBudgetProgram,
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  TransactionInstruction,
+} from "@solana/web3.js";
+import chai from "chai";
+import { Cron } from "../target/types/cron";
+import { Tuktuk } from "../target/types/tuktuk";
+import { ensureIdls, makeid } from "./utils";
 const { expect } = chai;
 
 describe("cron", () => {

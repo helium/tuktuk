@@ -99,7 +99,7 @@ describe("tuktuk", () => {
         .initializeTaskQueueV0({
           name,
           minCrankReward: crankReward,
-          capacity: 100,
+          capacity: 65528,
           lookupTables: [],
           staleTaskAge: 100,
         })

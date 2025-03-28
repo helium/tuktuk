@@ -29,7 +29,15 @@ use crate::{
 pub struct InitializeCronJobArgsV0 {
     pub schedule: String,
     pub name: String,
+    /// The number of free tasks each transaction will be executed with.
+    /// This allows transactions scheduled via cron to themselves schedule more transactions.
+    /// If none of your transactions need to schedule more transactions, set this to 0.
     pub free_tasks_per_transaction: u8,
+    /// The number of tasks to queue per queue call.
+    /// Cron job works by queueing a single task that runs at the appropriate time. This tasks job
+    /// is to recursively queue all transactions in this cron. The higher you set this number, the more
+    /// tasks will be queued per queue call, making the tasks execute faster/more parallelized.
+    /// Setting this too high without proper lookup tables will result in the queue call being too large
     pub num_tasks_per_queue_call: u8,
 }
 
