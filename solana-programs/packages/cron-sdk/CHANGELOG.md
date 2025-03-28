@@ -3,6 +3,30 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## 0.0.8 (2025-03-28)
+
+**Note:** Version bump only for package @helium/cron-sdk
+
+
+
+
+
+## 0.0.7 (2025-03-28)
+
+**Note:** Version bump only for package @helium/cron-sdk
+
+
+
+
+
+## 0.0.5 (2025-03-28)
+
+**Note:** Version bump only for package @helium/cron-sdk
+
+
+
+
+
 ## 0.0.4 (2025-03-05)
 
 **Note:** Version bump only for package @helium/cron-sdk
