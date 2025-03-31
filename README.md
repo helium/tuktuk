@@ -114,6 +114,7 @@ Note that the `funding-amount` you specify is not inclusive of the 1 SOL minimum
 
 ```bash
 tuktuk -u <your-solana-url> task-queue create --name <your-queue-name> --capacity 10 --funding-amount 100000000 --queue-authority <the-authority-to-queue-tasks> --crank-reward 1000000
+tuktuk -u <your-solana-url> task-queue create --name <your-queue-name> --capacity 10 --funding-amount 1000000000 --queue-authority <the-authority-to-queue-tasks> --min-crank-reward 1000000 --stale-task-age <stake_task_age>
 ```
 
 The queue capacity is the maximum number of tasks that can be queued at once. Higher capacity means more tasks can be queued, but it also costs more rent in SOL.
