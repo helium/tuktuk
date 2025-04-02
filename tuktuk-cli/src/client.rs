@@ -55,7 +55,7 @@ pub async fn send_instructions(
         .get_latest_blockhash_with_commitment(CommitmentConfig::finalized())
         .await
         .expect("Failed to get latest blockhash");
-    let txs = pack_instructions_into_transactions(&[ixs], payer, None)?;
+    let txs = pack_instructions_into_transactions(&[ixs], None)?;
     let mut with_auto_compute: Vec<Message> = Vec::new();
     let keys: Vec<&dyn Signer> = std::iter::once(&payer as &dyn Signer)
         .chain(extra_signers.iter().map(|k| k as &dyn Signer))

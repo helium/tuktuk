@@ -164,7 +164,7 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
 
             // If we have a new task, try to add it to the bundle
             Some(task) = receiver.recv() => {
-                match bundle.add_task(task.clone(), &args.payer) {
+                match bundle.add_task(task.clone()) {
                     // Task is small, we can pack it further. Set the timer to wait for the batch duration
                     Ok((len, added)) if added && len <= MAX_PACKABLE_TX_SIZE => {
                         if wait_timer.is_none() {
@@ -191,7 +191,7 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                             bundle = TaskBundle::new();
                         }
                         // Try adding task to empty bundle
-                        if let Err(e) = bundle.add_task(task.clone(), &args.payer) {
+                        if let Err(e) = bundle.add_task(task.clone()) {
                             args.result_sender
                                 .send(CompletedTransactionTask {
                                     err: Some(e),
@@ -263,7 +263,7 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                         let mut new_bundle = TaskBundle::new();
                                         for (i, task) in tasks.iter().enumerate() {
                                             if i != failed_task_idx {
-                                                new_bundle.add_task(task.clone(), &args.payer).expect("add task");
+                                                new_bundle.add_task(task.clone()).expect("add task");
                                             }
                                         }
                                         if !new_bundle.is_empty() {
@@ -340,11 +340,7 @@ impl<T: Send + Clone> TaskBundle<T> {
     }
 
     // Returns the length of the transaction and a boolean indicating if the task was added
-    fn add_task(
-        &mut self,
-        task: TransactionTask<T>,
-        payer: &Keypair,
-    ) -> Result<(usize, bool), Error> {
+    fn add_task(&mut self, task: TransactionTask<T>) -> Result<(usize, bool), Error> {
         let task_instructions = task.instructions.as_slice();
         let mut test_luts = self.lookup_tables.clone();
         if let Some(luts) = task.lookup_tables.clone() {
@@ -352,9 +348,7 @@ impl<T: Send + Clone> TaskBundle<T> {
         }
 
         // Test if we can fit this task
-        let len = self
-            .tx
-            .transaction_len(task_instructions, &test_luts, payer)?;
+        let len = self.tx.transaction_len(task_instructions, &test_luts)?;
 
         let mut added = false;
         // Only add the task if it fits

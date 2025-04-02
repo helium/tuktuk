@@ -274,7 +274,6 @@ impl TaskCmd {
                 let ix_groups = ixs.into_iter().map(|ix| vec![ix]).collect_vec();
                 let groups = pack_instructions_into_transactions(
                     &ix_groups.iter().map(|ix| ix.as_slice()).collect_vec(),
-                    &client.payer,
                     None,
                 )?;
 
