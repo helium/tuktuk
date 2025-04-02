@@ -4,8 +4,8 @@ use solana_sdk::{
     hash::Hash,
     instruction::Instruction,
     message::{v0, VersionedMessage},
-    signature::{Keypair, NullSigner},
-    signer::Signer,
+    pubkey::Pubkey,
+    signature::NullSigner,
     transaction::VersionedTransaction,
 };
 
@@ -46,14 +46,14 @@ impl PackedTransaction {
         &self,
         extra_ixs: &[Instruction],
         lookup_tables: &[AddressLookupTableAccount],
-        payer: &Keypair,
+        payer: &Pubkey,
     ) -> Result<VersionedTransaction, Error> {
         let ixs = &[&self.instructions, extra_ixs].concat();
-        v0::Message::try_compile(&payer.pubkey(), ixs, lookup_tables, Hash::default())
+        v0::Message::try_compile(payer, ixs, lookup_tables, Hash::default())
             .map_err(Error::from)
             .map(VersionedMessage::V0)
             .and_then(|message| {
-                VersionedTransaction::try_new(message, &[&NullSigner::new(&payer.pubkey())])
+                VersionedTransaction::try_new(message, &[&NullSigner::new(payer)])
                     .map_err(|e| Error::SignerError(e.to_string()))
             })
     }
@@ -62,9 +62,8 @@ impl PackedTransaction {
         &self,
         extra_ixs: &[Instruction],
         lookup_tables: &[AddressLookupTableAccount],
-        payer: &Keypair,
     ) -> Result<usize, Error> {
-        let tx = self.mk_transaction(extra_ixs, lookup_tables, payer)?;
+        let tx = self.mk_transaction(extra_ixs, lookup_tables, &Pubkey::default())?;
         bincode::serialize(&tx)
             .map(|data| data.len())
             .map_err(|e| Error::SerializationError(e.to_string()))
@@ -74,7 +73,6 @@ impl PackedTransaction {
 // Returns packed txs with the indices in instructions that were used in that tx.
 pub fn pack_instructions_into_transactions(
     instructions: &[&[Instruction]],
-    payer: &Keypair,
     lookup_tables: Option<Vec<AddressLookupTableAccount>>,
 ) -> Result<Vec<PackedTransaction>, Error> {
     let mut transactions = Vec::new();
@@ -86,7 +84,7 @@ pub fn pack_instructions_into_transactions(
         // Create a test transaction with current instructions + entire new group.
         // If adding the entire group would exceed size limit, start a new transaction
         // (but only if we already have instructions in the current batch)
-        if curr_transaction.transaction_len(group, &lookup_tables, payer)? > MAX_TRANSACTION_SIZE
+        if curr_transaction.transaction_len(group, &lookup_tables)? > MAX_TRANSACTION_SIZE
             && !curr_transaction.is_empty()
         {
             transactions.push(curr_transaction);
@@ -96,7 +94,7 @@ pub fn pack_instructions_into_transactions(
         // Add the entire group to current transaction
         curr_transaction.push(group, group_idx);
 
-        if curr_transaction.transaction_len(&[], &lookup_tables, payer)? > MAX_TRANSACTION_SIZE {
+        if curr_transaction.transaction_len(&[], &lookup_tables)? > MAX_TRANSACTION_SIZE {
             return Err(Error::IxGroupTooLarge);
         }
     }
