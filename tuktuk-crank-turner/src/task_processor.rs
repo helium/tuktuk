@@ -242,6 +242,7 @@ impl TimedTask {
                 TransactionQueueError::SerializationError(_) => "SerializationError",
                 TransactionQueueError::CompileError(_) => "CompileError",
                 TransactionQueueError::SignerError(_) => "SignerError",
+                TransactionQueueError::StaleTransaction => "StaleTransaction",
             };
             TASKS_FAILED
                 .with_label_values(&[self.task_queue_name.as_str(), label])
@@ -322,6 +323,21 @@ impl TimedTask {
                             .with_label_values(&[self.task_queue_name.as_str(), "RetriesExceeded"])
                             .inc();
                     }
+                }
+                TransactionQueueError::StaleTransaction => {
+                    info!(?self.task_key, ?err, "task stale, trying again");
+                    let now = *ctx.now_rx.borrow();
+                    ctx.task_queue
+                        .add_task(TimedTask {
+                            task: self.task.clone(),
+                            total_retries: self.total_retries,
+                            in_flight_task_ids: vec![],
+                            profitability_delayed: self.profitability_delayed,
+                            // Try again immediately
+                            task_time: now,
+                            ..self.clone()
+                        })
+                        .await?;
                 }
                 _ => {
                     info!(?self.task_key, ?err, "task failed");

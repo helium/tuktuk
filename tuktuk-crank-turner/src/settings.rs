@@ -25,6 +25,12 @@ pub struct Settings {
     pub metrics_port: u16,
     #[serde(default = "default_recent_attempts_window")]
     pub recent_attempts_window: usize,
+    #[serde(default = "default_sender_max_resign_count")]
+    pub sender_max_resign_count: u32,
+}
+
+fn default_sender_max_resign_count() -> u32 {
+    2
 }
 
 fn default_max_retries() -> u8 {

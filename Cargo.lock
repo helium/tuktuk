@@ -5862,7 +5862,7 @@ dependencies = [
 
 [[package]]
 name = "solana-transaction-utils"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "bincode",
  "dashmap",
@@ -6848,7 +6848,7 @@ dependencies = [
 
 [[package]]
 name = "tuktuk-crank-turner"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "anchor-client",
  "anchor-lang",

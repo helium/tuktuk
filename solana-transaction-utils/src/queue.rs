@@ -301,6 +301,7 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                 instructions,
                                 tasks,
                                 fee,
+                                resign_count: 0,
                             }).await.expect("send to tx sender");
                         }
                     }

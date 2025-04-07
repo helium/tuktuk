@@ -42,9 +42,10 @@ pub struct PackedTransactionWithTasks<T: Send + Clone> {
     pub instructions: Vec<Instruction>,
     pub tasks: Vec<TransactionTask<T>>,
     pub fee: u64,
+    pub resign_count: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct TransactionData<T: Send + Clone> {
     packed_tx: PackedTransactionWithTasks<T>,
     last_valid_block_height: u64,
@@ -66,6 +67,7 @@ pub struct TransactionSender<T: Send + Clone + Sync> {
     tpu_client: Option<QuicTpuClient>,
     result_tx: Sender<CompletedTransactionTask<T>>,
     payer: Arc<Keypair>,
+    max_resign_count: u32,
 }
 
 pub async fn spawn_background_tasks(
@@ -105,6 +107,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         ws_url: String,
         payer: Arc<Keypair>,
         result_tx: Sender<CompletedTransactionTask<T>>,
+        max_resign_count: u32,
     ) -> Result<Self, Error> {
         // Initialize blockhash data
         let (blockhash, last_valid_block_height) = rpc_client
@@ -138,6 +141,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
             tpu_client,
             result_tx,
             payer,
+            max_resign_count,
         })
     }
 
@@ -145,6 +149,11 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         &self,
         packed: &PackedTransactionWithTasks<T>,
     ) -> Result<(), Error> {
+        // Check if transaction has been resigned too many times
+        if packed.resign_count >= self.max_resign_count {
+            return Err(Error::StaleTransaction);
+        }
+
         let blockhash = self.blockhash_data.read().await.blockhash;
         let lookup_tables = packed
             .tasks
@@ -251,11 +260,16 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
                     .await;
                 }
             } else {
-                // Blockhash expired, resign and send via RPC
+                // Blockhash expired, increment resign count and retry via rpc
                 self.unconfirmed_txs.remove(&signature);
-                if let Err(e) = self.process_packed_tx(&data.packed_tx).await {
+
+                // Create new packed transaction with incremented resign count
+                let mut new_packed = data.packed_tx.clone();
+                new_packed.resign_count += 1;
+
+                if let Err(e) = self.process_packed_tx(&new_packed).await {
                     // Handle processing error by notifying all tasks
-                    for task in data.packed_tx.tasks.clone() {
+                    for task in new_packed.tasks {
                         self.result_tx
                             .send(CompletedTransactionTask {
                                 err: Some(e.clone()),
