@@ -170,7 +170,7 @@ impl Cli {
             solana_ws_url.clone(),
             payer.clone(),
             handles.result_sender.clone(),
-            settings.sender_max_resign_count,
+            settings.sender_max_re_sign_count,
         )
         .await
         .expect("create sender");

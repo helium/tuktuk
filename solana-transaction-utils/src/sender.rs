@@ -42,7 +42,7 @@ pub struct PackedTransactionWithTasks<T: Send + Clone> {
     pub instructions: Vec<Instruction>,
     pub tasks: Vec<TransactionTask<T>>,
     pub fee: u64,
-    pub resign_count: u32,
+    pub re_sign_count: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -67,7 +67,7 @@ pub struct TransactionSender<T: Send + Clone + Sync> {
     tpu_client: Option<QuicTpuClient>,
     result_tx: Sender<CompletedTransactionTask<T>>,
     payer: Arc<Keypair>,
-    max_resign_count: u32,
+    max_re_sign_count: u32,
 }
 
 pub async fn spawn_background_tasks(
@@ -107,7 +107,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         ws_url: String,
         payer: Arc<Keypair>,
         result_tx: Sender<CompletedTransactionTask<T>>,
-        max_resign_count: u32,
+        max_re_sign_count: u32,
     ) -> Result<Self, Error> {
         // Initialize blockhash data
         let (blockhash, last_valid_block_height) = rpc_client
@@ -141,7 +141,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
             tpu_client,
             result_tx,
             payer,
-            max_resign_count,
+            max_re_sign_count,
         })
     }
 
@@ -150,7 +150,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         packed: &PackedTransactionWithTasks<T>,
     ) -> Result<(), Error> {
         // Check if transaction has been resigned too many times
-        if packed.resign_count >= self.max_resign_count {
+        if packed.re_sign_count >= self.max_re_sign_count {
             return Err(Error::StaleTransaction);
         }
 
@@ -265,7 +265,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
 
                 // Create new packed transaction with incremented resign count
                 let mut new_packed = data.packed_tx.clone();
-                new_packed.resign_count += 1;
+                new_packed.re_sign_count += 1;
 
                 if let Err(e) = self.process_packed_tx(&new_packed).await {
                     // Handle processing error by notifying all tasks
