@@ -27,6 +27,8 @@ pub enum Error {
     RawTransactionError(String),
     #[error("Fee too high")]
     FeeTooHigh,
+    #[error("Transaction has failed too many retries and gone stale")]
+    StaleTransaction,
 }
 
 impl From<solana_client::client_error::ClientError> for Error {
