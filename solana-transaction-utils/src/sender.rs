@@ -70,7 +70,7 @@ pub struct TransactionSender<T: Send + Clone + Sync> {
     result_tx: Sender<CompletedTransactionTask<T>>,
     payer: Arc<Keypair>,
     max_re_sign_count: u32,
-    last_tpu_use: Arc<AtomicU64>,
+    last_tpu_use: u64,
 }
 
 pub async fn spawn_background_tasks(
@@ -136,7 +136,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
             result_tx,
             payer,
             max_re_sign_count,
-            last_tpu_use: Arc::new(AtomicU64::new(0)),
+            last_tpu_use: 0,
         })
     }
 
@@ -245,8 +245,9 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         };
 
         // Check if we should shutdown TPU client due to inactivity
-        let last_use = self.last_tpu_use.load(Ordering::Relaxed);
-        if last_use > 0 && current_time.saturating_sub(last_use) > Self::TPU_SHUTDOWN_THRESHOLD {
+        if self.last_tpu_use > 0
+            && current_time.saturating_sub(self.last_tpu_use) > Self::TPU_SHUTDOWN_THRESHOLD
+        {
             self.shutdown_tpu_client();
         }
 
@@ -295,11 +296,38 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
 
                 if current_height < data.last_valid_block_height {
                     if let Some(tpu) = &self.tpu_client {
-                        let _ = tokio::time::timeout(
+                        match tokio::time::timeout(
                             SEND_TIMEOUT,
                             tpu.send_wire_transaction(data.serialized_tx.clone()),
                         )
-                        .await;
+                        .await
+                        {
+                            Ok(true) => {
+                                self.last_tpu_use = current_time;
+                            }
+                            _ => {
+                                // Blockhash expired, increment resign count and retry via rpc
+                                self.unconfirmed_txs.remove(&signature);
+
+                                // Create new packed transaction with incremented resign count
+                                let mut new_packed = data.packed_tx.clone();
+                                new_packed.re_sign_count += 1;
+
+                                if let Err(e) = self.process_packed_tx(&new_packed).await {
+                                    // Handle processing error by notifying all tasks
+                                    for task in new_packed.tasks {
+                                        self.result_tx
+                                            .send(CompletedTransactionTask {
+                                                err: Some(e.clone()),
+                                                task,
+                                                fee: 0,
+                                            })
+                                            .await
+                                            .expect("send result");
+                                    }
+                                }
+                            }
+                        }
                     }
                 } else {
                     // Blockhash expired, increment resign count and retry via rpc
