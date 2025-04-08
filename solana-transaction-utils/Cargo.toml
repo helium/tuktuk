@@ -1,6 +1,6 @@
 [package]
 name = "solana-transaction-utils"
-version = "0.3.3"
+version = "0.3.4"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true

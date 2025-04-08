@@ -164,10 +164,9 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
     }
 
     async fn shutdown_tpu_client(&mut self) {
-        if self.tpu_client.is_some() {
+        if let Some(tpu) = &mut self.tpu_client {
             info!("Shutting down TPU client due to inactivity");
-            let tpu_client = self.tpu_client.as_mut().unwrap();
-            tpu_client.shutdown().await;
+            tpu.shutdown().await;
             self.tpu_client = None;
         }
     }
@@ -376,6 +375,9 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         loop {
             tokio::select! {
                 _ = handle.on_shutdown_requested() => {
+                    if let Some(tpu) = &mut self.tpu_client {
+                        tpu.shutdown().await;
+                    }
                     return Ok(());
                 }
                 Some(packed_tx) = rx.recv() => {
