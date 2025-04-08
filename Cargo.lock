@@ -5862,7 +5862,7 @@ dependencies = [
 
 [[package]]
 name = "solana-transaction-utils"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "bincode",
  "dashmap",
@@ -5882,6 +5882,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tokio-graceful-shutdown",
+ "tracing",
 ]
 
 [[package]]
@@ -6848,7 +6849,7 @@ dependencies = [
 
 [[package]]
 name = "tuktuk-crank-turner"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "anchor-client",
  "anchor-lang",

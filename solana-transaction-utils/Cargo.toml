@@ -1,6 +1,6 @@
 [package]
 name = "solana-transaction-utils"
-version = "0.3.1"
+version = "0.3.2"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -32,6 +32,7 @@ solana-rpc-client-api = { version = "2.2.3" }
 solana-tpu-client = { version = "2.2.3" }
 indicatif = "0.17.11"
 tokio-graceful-shutdown = { workspace = true }
+tracing = { workspace = true }
 
 [features]
 default = []
