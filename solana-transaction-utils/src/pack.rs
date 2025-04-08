@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use solana_sdk::{
     address_lookup_table::AddressLookupTableAccount,
     compute_budget::ComputeBudgetInstruction,
@@ -46,15 +47,18 @@ impl PackedTransaction {
         &self,
         extra_ixs: &[Instruction],
         lookup_tables: &[AddressLookupTableAccount],
-        payer: &Pubkey,
+        signers: &[Pubkey],
     ) -> Result<VersionedTransaction, Error> {
         let ixs = &[&self.instructions, extra_ixs].concat();
-        v0::Message::try_compile(payer, ixs, lookup_tables, Hash::default())
+        v0::Message::try_compile(&signers[0], ixs, lookup_tables, Hash::default())
             .map_err(Error::from)
             .map(VersionedMessage::V0)
             .and_then(|message| {
-                VersionedTransaction::try_new(message, &[&NullSigner::new(payer)])
-                    .map_err(|e| Error::SignerError(e.to_string()))
+                VersionedTransaction::try_new(
+                    message,
+                    &signers.iter().map(NullSigner::new).collect_vec(),
+                )
+                .map_err(|e| Error::SignerError(e.to_string()))
             })
     }
 
@@ -63,7 +67,22 @@ impl PackedTransaction {
         extra_ixs: &[Instruction],
         lookup_tables: &[AddressLookupTableAccount],
     ) -> Result<usize, Error> {
-        let tx = self.mk_transaction(extra_ixs, lookup_tables, &Pubkey::default())?;
+        let mut signers = self
+            .instructions
+            .iter()
+            .chain(extra_ixs.iter())
+            .flat_map(|ix| {
+                ix.accounts
+                    .iter()
+                    .filter(|a| a.is_signer)
+                    .map(|a| a.pubkey)
+                    .collect_vec()
+            })
+            .collect_vec();
+        if signers.is_empty() {
+            signers.push(Pubkey::default());
+        }
+        let tx = self.mk_transaction(extra_ixs, lookup_tables, &signers)?;
         bincode::serialize(&tx)
             .map(|data| data.len())
             .map_err(|e| Error::SerializationError(e.to_string()))
