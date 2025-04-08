@@ -163,9 +163,11 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         Ok(())
     }
 
-    fn shutdown_tpu_client(&mut self) {
+    async fn shutdown_tpu_client(&mut self) {
         if self.tpu_client.is_some() {
             info!("Shutting down TPU client due to inactivity");
+            let tpu_client = self.tpu_client.as_mut().unwrap();
+            tpu_client.shutdown().await;
             self.tpu_client = None;
         }
     }
@@ -248,7 +250,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         if self.last_tpu_use > 0
             && current_time.saturating_sub(self.last_tpu_use) > Self::TPU_SHUTDOWN_THRESHOLD
         {
-            self.shutdown_tpu_client();
+            self.shutdown_tpu_client().await;
         }
 
         // Check confirmations
