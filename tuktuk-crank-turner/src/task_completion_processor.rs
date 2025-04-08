@@ -16,21 +16,22 @@ pub async fn process_task_completions(
     loop {
         tokio::select! {
             _ = handle.on_shutdown_requested() => {
-                    info!("shutdown requested, stopping transaction queue");
-                    break;
+                info!("shutdown requested, stopping transaction queue");
+                break;
+            }
+            Some(result) = completion_receiver.recv() => {
+                match result.task.task.handle_completion(ctx.clone(), result.err, result.fee).await {
+                    Ok(_) => (),
+                    Err(e) => {
+                        tracing::error!("Failed to handle completion: {:?}", e);
+                        return Err(e);
+                    }
                 }
-                Some(result) = completion_receiver.recv() => {
-            result
-                .task
-                .task
-                .handle_completion(ctx.clone(), result.err, result.fee)
-                .await
-                .expect("Failed to handle completion");
-        }
-         else => {
-                    info!("all senders have been dropped, stopping transaction queue");
-                    break;
-                }
+            }
+            else => {
+                info!("all senders have been dropped, stopping transaction queue");
+                break;
+            }
         }
     }
     info!("shutting down transaction completion queue");

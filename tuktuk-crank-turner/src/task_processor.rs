@@ -22,10 +22,14 @@ use crate::{
 };
 
 impl TimedTask {
-    pub async fn get_task_queue(&self, ctx: Arc<TaskContext>) -> TaskQueueV0 {
+    pub async fn get_task_queue(
+        &self,
+        ctx: Arc<TaskContext>,
+    ) -> Result<TaskQueueV0, tuktuk_sdk::error::Error> {
         let lock = ctx.task_queues.lock().await;
-
-        lock.get(&self.task_queue_key).unwrap().clone()
+        lock.get(&self.task_queue_key)
+            .cloned()
+            .ok_or_else(|| tuktuk_sdk::error::Error::AccountNotFound)
     }
 
     pub async fn get_or_populate_luts(
@@ -35,7 +39,7 @@ impl TimedTask {
         let mut lookup_tables = ctx.lookup_tables.lock().await;
         let mut result: Vec<AddressLookupTableAccount> = Vec::new();
         let mut missing_addresses = Vec::new();
-        let task_queue = self.get_task_queue(ctx.clone()).await;
+        let task_queue = self.get_task_queue(ctx.clone()).await?;
 
         // Try to get LUTs from existing map
         for addr in &task_queue.lookup_tables {
@@ -78,7 +82,7 @@ impl TimedTask {
     }
 
     pub async fn get_available_task_ids(&self, ctx: Arc<TaskContext>) -> anyhow::Result<Vec<u16>> {
-        let task_queue = self.get_task_queue(ctx.clone()).await;
+        let task_queue = self.get_task_queue(ctx.clone()).await?;
         let mut in_progress = ctx.in_progress_tasks.lock().await;
         let mut task_ids = in_progress
             .entry(self.task_queue_key)
@@ -179,6 +183,7 @@ impl TimedTask {
             return self.handle_ix_err(ctx.clone(), err).await;
         }
         let run_ix = maybe_run_ix.unwrap();
+
         tx_sender
             .send(TransactionTask {
                 worth: self.task.crank_reward,
@@ -307,7 +312,7 @@ impl TimedTask {
                             "task {:?} failed after {} retries",
                             self.task_key, self.max_retries
                         );
-                        let task_queue = self.get_task_queue(ctx.clone()).await;
+                        let task_queue = self.get_task_queue(ctx.clone()).await?;
                         ctx.task_queue
                             .add_task(TimedTask {
                                 task: self.task.clone(),
