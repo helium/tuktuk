@@ -291,7 +291,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         }
 
         // Retry unconfirmed via TPU or resign if blockhash expired
-        if self.unconfirmed_txs.len() > 0 && self.ensure_tpu_client().await.is_ok() {
+        if !self.unconfirmed_txs.is_empty() && self.ensure_tpu_client().await.is_ok() {
             for entry in self.unconfirmed_txs.iter() {
                 let signature = *entry.key();
                 let data = entry.value();
