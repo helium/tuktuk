@@ -32,7 +32,7 @@ export async function initializeTaskQueue(program: Program<Tuktuk>, name: string
   const queueAuthorityAccount = await program.account.taskQueueAuthorityV0.fetchNullable(queueAuthority);
   if (!queueAuthorityAccount) {
     console.log("Queue authority not found, creating...");
-    program.methods
+    await program.methods
       .addQueueAuthorityV0()
       .accounts({
         payer: program.provider.wallet!.publicKey,
