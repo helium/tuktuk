@@ -1,6 +1,6 @@
 [package]
 name = "tuktuk-program"
-version = "0.3.0"
+version = "0.3.1"
 description = "Raw rust sdk for interacting with the tuktuk program"
 
 authors.workspace = true

@@ -11,8 +11,6 @@ pub struct CloseCronJobV0<'info> {
     /// CHECK: Just getting sol
     #[account(mut)]
     pub rent_refund: AccountInfo<'info>,
-    #[account(mut)]
-    pub payer: Signer<'info>,
     pub authority: Signer<'info>,
     #[account(mut)]
     pub user_cron_jobs: Box<Account<'info, UserCronJobsV0>>,
