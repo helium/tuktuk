@@ -78,6 +78,8 @@ impl PackedTransaction {
                     .map(|a| a.pubkey)
                     .collect_vec()
             })
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
             .collect_vec();
         if signers.is_empty() {
             signers.push(Pubkey::default());

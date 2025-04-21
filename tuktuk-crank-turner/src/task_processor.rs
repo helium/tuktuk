@@ -81,7 +81,10 @@ impl TimedTask {
         Ok(result)
     }
 
-    pub async fn get_available_task_ids(&self, ctx: Arc<TaskContext>) -> anyhow::Result<Vec<u16>> {
+    pub async fn get_available_task_ids(
+        &self,
+        ctx: Arc<TaskContext>,
+    ) -> Result<Vec<u16>, tuktuk_sdk::error::Error> {
         let task_queue = self.get_task_queue(ctx.clone()).await?;
         let mut in_progress = ctx.in_progress_tasks.lock().await;
         let mut task_ids = in_progress
