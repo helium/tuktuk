@@ -8,6 +8,7 @@ use solana_sdk::{
     signature::NullSigner,
     transaction::VersionedTransaction,
 };
+use tracing::info;
 
 use crate::error::Error;
 
@@ -145,6 +146,7 @@ pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>>(
     // Simulate the transaction to get the actual compute used
     let simulation_result = client.as_ref().simulate_transaction(&snub_tx).await?;
     if let Some(err) = simulation_result.value.err {
+        info!(?simulation_result.value.logs, "simulation error");
         return Err(Error::SimulatedTransactionError(err));
     }
     let actual_compute_used = simulation_result.value.units_consumed.unwrap_or(200000);

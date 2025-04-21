@@ -81,7 +81,10 @@ impl TimedTask {
         Ok(result)
     }
 
-    pub async fn get_available_task_ids(&self, ctx: Arc<TaskContext>) -> anyhow::Result<Vec<u16>> {
+    pub async fn get_available_task_ids(
+        &self,
+        ctx: Arc<TaskContext>,
+    ) -> Result<Vec<u16>, tuktuk_sdk::error::Error> {
         let task_queue = self.get_task_queue(ctx.clone()).await?;
         let mut in_progress = ctx.in_progress_tasks.lock().await;
         let mut task_ids = in_progress
@@ -163,7 +166,11 @@ impl TimedTask {
             return self.handle_ix_err(ctx.clone(), err).await;
         }
         let lookup_tables = maybe_lookup_tables.unwrap();
-        let next_available = self.get_available_task_ids(ctx.clone()).await?;
+        let maybe_next_available = self.get_available_task_ids(ctx.clone()).await;
+        if let Err(err) = maybe_next_available {
+            return self.handle_ix_err(ctx.clone(), err).await;
+        }
+        let next_available = maybe_next_available.unwrap();
         self.in_flight_task_ids = next_available.clone();
 
         let maybe_run_ix = if let Some(cached_result) = self.cached_result.clone() {
