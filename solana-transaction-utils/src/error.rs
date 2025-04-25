@@ -42,3 +42,9 @@ impl From<TpuSenderError> for Error {
         Self::TpuSenderError(value.to_string())
     }
 }
+
+impl Error {
+    pub fn signer<S: ToString>(str: S) -> Self {
+        Self::SignerError(str.to_string())
+    }
+}
