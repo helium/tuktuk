@@ -239,7 +239,7 @@ async fn sign_all_messages_and_send<T: Signers + ?Sized>(
     for (counter, (index, message)) in messages_with_index.iter().enumerate() {
         let transaction =
             VersionedTransaction::try_new(VersionedMessage::V0(message.clone()), signers)
-                .map_err(|e| Error::SignerError(e.to_string()))?;
+                .map_err(Error::signer)?;
         futures.push(async move {
             tokio::time::sleep(SEND_INTERVAL.saturating_mul(counter as u32)).await;
             let blockhashdata = *context.blockhash_data_rw.read().await;
@@ -421,7 +421,7 @@ pub async fn send_and_confirm_transactions_in_parallel<T: Signers + ?Sized>(
         .iter()
         .map(|x| VersionedTransaction::try_new(VersionedMessage::V0(x.clone()), signers))
         .collect::<std::result::Result<Vec<_>, SignerError>>()
-        .map_err(|e| Error::SignerError(e.to_string()))?;
+        .map_err(Error::signer)?;
 
     // get current block height
     let block_height = rpc_client.get_block_height().await?;

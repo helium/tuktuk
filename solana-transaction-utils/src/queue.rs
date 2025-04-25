@@ -107,11 +107,11 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
             let sim_result = rpc_client
                 .simulate_transaction(
                     &VersionedTransaction::try_new(VersionedMessage::V0(message), &[&*payer])
-                        .map_err(|e| Error::SignerError(e.to_string()))?,
+                        .map_err(Error::signer)?,
                 )
                 .await?;
 
-            if let Some(err) = sim_result.value.err.clone() {
+            if let Some(ref err) = sim_result.value.err {
                 info!(?err, ?sim_result.value.logs, "simulation error");
             }
 

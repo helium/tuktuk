@@ -46,6 +46,14 @@ pub struct PackedTransactionWithTasks<T: Send + Clone> {
     pub re_sign_count: u32,
 }
 
+impl<T: Send + Clone> PackedTransactionWithTasks<T> {
+    pub fn with_incremented_re_sign_count(&self) -> Self {
+        let mut result = self.clone();
+        result.re_sign_count += 1;
+        result
+    }
+}
+
 #[derive(Debug, Clone)]
 struct TransactionData<T: Send + Clone> {
     packed_tx: PackedTransactionWithTasks<T>,
@@ -196,9 +204,8 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
             blockhash,
         )?;
 
-        let tx =
-            VersionedTransaction::try_new(VersionedMessage::V0(message.clone()), &[&*self.payer])
-                .map_err(|e| Error::SignerError(e.to_string()))?;
+        let tx = VersionedTransaction::try_new(VersionedMessage::V0(message), &[&*self.payer])
+            .map_err(Error::signer)?;
 
         let serialized =
             bincode::serialize(&tx).map_err(|e| Error::SerializationError(e.to_string()))?;
@@ -213,7 +220,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
             TransactionData {
                 packed_tx: packed.clone(),
                 last_valid_block_height: self.blockhash_data.read().await.last_valid_block_height,
-                serialized_tx: serialized.clone(),
+                serialized_tx: serialized,
                 sent_to_rpc: false,
             },
         );
@@ -311,8 +318,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
                                 self.unconfirmed_txs.remove(&signature);
 
                                 // Create new packed transaction with incremented resign count
-                                let mut new_packed = data.packed_tx.clone();
-                                new_packed.re_sign_count += 1;
+                                let new_packed = data.packed_tx.with_incremented_re_sign_count();
 
                                 if let Err(e) = self.process_packed_tx(&new_packed).await {
                                     // Handle processing error by notifying all tasks
@@ -335,8 +341,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
                     self.unconfirmed_txs.remove(&signature);
 
                     // Create new packed transaction with incremented resign count
-                    let mut new_packed = data.packed_tx.clone();
-                    new_packed.re_sign_count += 1;
+                    let new_packed = data.packed_tx.with_incremented_re_sign_count();
 
                     if let Err(e) = self.process_packed_tx(&new_packed).await {
                         // Handle processing error by notifying all tasks

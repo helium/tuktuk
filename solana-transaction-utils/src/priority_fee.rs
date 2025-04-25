@@ -140,8 +140,8 @@ pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>>(
         .map(|_| NullSigner::new(payer))
         .collect::<Vec<_>>();
     let null_signers: Vec<&NullSigner> = signers.iter().collect();
-    let snub_tx = VersionedTransaction::try_new(message, null_signers.as_slice())
-        .map_err(|e| Error::SignerError(e.to_string()))?;
+    let snub_tx =
+        VersionedTransaction::try_new(message, null_signers.as_slice()).map_err(Error::signer)?;
 
     // Simulate the transaction to get the actual compute used
     let simulation_result = client.as_ref().simulate_transaction(&snub_tx).await?;
