@@ -208,6 +208,8 @@ pub mod cron {
                 cron_job: cron_job_key,
                 cron_job_name_mapping: self::name_mapping_key(&authority, &name),
                 system_program: solana_sdk::system_program::ID,
+                task_return_account_1: self::task_return_account_1_key(&cron_job_key),
+                task_return_account_2: self::task_return_account_2_key(&cron_job_key),
             }
             .to_account_metas(None),
             data: cron::client::args::CloseCronJobV0 {}.data(),

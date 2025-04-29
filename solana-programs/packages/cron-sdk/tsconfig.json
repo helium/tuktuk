@@ -5,6 +5,9 @@
       "path": "../tuktuk-idls"
     },
     {
+      "path": "../tuktuk-sdk"
+    },
+    {
       "path": "./tsconfig.cjs.json"
     },
     {

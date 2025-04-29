@@ -27,6 +27,8 @@ pub enum Error {
     RawTransactionError(String),
     #[error("Fee too high")]
     FeeTooHigh,
+    #[error("Transaction has failed too many retries and gone stale")]
+    StaleTransaction,
 }
 
 impl From<solana_client::client_error::ClientError> for Error {
@@ -38,5 +40,11 @@ impl From<solana_client::client_error::ClientError> for Error {
 impl From<TpuSenderError> for Error {
     fn from(value: TpuSenderError) -> Self {
         Self::TpuSenderError(value.to_string())
+    }
+}
+
+impl Error {
+    pub fn signer<S: ToString>(str: S) -> Self {
+        Self::SignerError(str.to_string())
     }
 }

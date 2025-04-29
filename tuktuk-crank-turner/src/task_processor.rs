@@ -22,10 +22,14 @@ use crate::{
 };
 
 impl TimedTask {
-    pub async fn get_task_queue(&self, ctx: Arc<TaskContext>) -> TaskQueueV0 {
+    pub async fn get_task_queue(
+        &self,
+        ctx: Arc<TaskContext>,
+    ) -> Result<TaskQueueV0, tuktuk_sdk::error::Error> {
         let lock = ctx.task_queues.lock().await;
-
-        lock.get(&self.task_queue_key).unwrap().clone()
+        lock.get(&self.task_queue_key)
+            .cloned()
+            .ok_or_else(|| tuktuk_sdk::error::Error::AccountNotFound)
     }
 
     pub async fn get_or_populate_luts(
@@ -35,7 +39,7 @@ impl TimedTask {
         let mut lookup_tables = ctx.lookup_tables.lock().await;
         let mut result: Vec<AddressLookupTableAccount> = Vec::new();
         let mut missing_addresses = Vec::new();
-        let task_queue = self.get_task_queue(ctx.clone()).await;
+        let task_queue = self.get_task_queue(ctx.clone()).await?;
 
         // Try to get LUTs from existing map
         for addr in &task_queue.lookup_tables {
@@ -77,8 +81,11 @@ impl TimedTask {
         Ok(result)
     }
 
-    pub async fn get_available_task_ids(&self, ctx: Arc<TaskContext>) -> anyhow::Result<Vec<u16>> {
-        let task_queue = self.get_task_queue(ctx.clone()).await;
+    pub async fn get_available_task_ids(
+        &self,
+        ctx: Arc<TaskContext>,
+    ) -> Result<Vec<u16>, tuktuk_sdk::error::Error> {
+        let task_queue = self.get_task_queue(ctx.clone()).await?;
         let mut in_progress = ctx.in_progress_tasks.lock().await;
         let mut task_ids = in_progress
             .entry(self.task_queue_key)
@@ -159,7 +166,11 @@ impl TimedTask {
             return self.handle_ix_err(ctx.clone(), err).await;
         }
         let lookup_tables = maybe_lookup_tables.unwrap();
-        let next_available = self.get_available_task_ids(ctx.clone()).await?;
+        let maybe_next_available = self.get_available_task_ids(ctx.clone()).await;
+        if let Err(err) = maybe_next_available {
+            return self.handle_ix_err(ctx.clone(), err).await;
+        }
+        let next_available = maybe_next_available.unwrap();
         self.in_flight_task_ids = next_available.clone();
 
         let maybe_run_ix = if let Some(cached_result) = self.cached_result.clone() {
@@ -179,6 +190,7 @@ impl TimedTask {
             return self.handle_ix_err(ctx.clone(), err).await;
         }
         let run_ix = maybe_run_ix.unwrap();
+
         tx_sender
             .send(TransactionTask {
                 worth: self.task.crank_reward,
@@ -242,6 +254,7 @@ impl TimedTask {
                 TransactionQueueError::SerializationError(_) => "SerializationError",
                 TransactionQueueError::CompileError(_) => "CompileError",
                 TransactionQueueError::SignerError(_) => "SignerError",
+                TransactionQueueError::StaleTransaction => "StaleTransaction",
             };
             TASKS_FAILED
                 .with_label_values(&[self.task_queue_name.as_str(), label])
@@ -306,7 +319,7 @@ impl TimedTask {
                             "task {:?} failed after {} retries",
                             self.task_key, self.max_retries
                         );
-                        let task_queue = self.get_task_queue(ctx.clone()).await;
+                        let task_queue = self.get_task_queue(ctx.clone()).await?;
                         ctx.task_queue
                             .add_task(TimedTask {
                                 task: self.task.clone(),
@@ -322,6 +335,21 @@ impl TimedTask {
                             .with_label_values(&[self.task_queue_name.as_str(), "RetriesExceeded"])
                             .inc();
                     }
+                }
+                TransactionQueueError::StaleTransaction => {
+                    info!(?self.task_key, ?err, "task stale, trying again");
+                    let now = *ctx.now_rx.borrow();
+                    ctx.task_queue
+                        .add_task(TimedTask {
+                            task: self.task.clone(),
+                            total_retries: self.total_retries,
+                            in_flight_task_ids: vec![],
+                            profitability_delayed: self.profitability_delayed,
+                            // Try again immediately
+                            task_time: now,
+                            ..self.clone()
+                        })
+                        .await?;
                 }
                 _ => {
                     info!(?self.task_key, ?err, "task failed");

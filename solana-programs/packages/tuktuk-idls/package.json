@@ -1,6 +1,6 @@
 {
   "name": "@helium/tuktuk-idls",
-  "version": "0.0.4",
+  "version": "0.0.8",
   "description": "Exported idls",
   "publishConfig": {
     "access": "public",
@@ -26,7 +26,7 @@
     "prebuild": "npm run clean && npm run package"
   },
   "dependencies": {
-    "@coral-xyz/anchor": "^0.30.1",
+    "@coral-xyz/anchor": "^0.31.0",
     "@solana/web3.js": "^1.95.2"
   },
   "devDependencies": {

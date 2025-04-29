@@ -99,7 +99,7 @@ impl PubsubTracker {
                                 let mut account = account_from_ui_account(&s.value);
                                 if account.data.is_empty() {
                                     account = match client.get_account_with_commitment(&pubkey, self.commitment).await {
-                                        Ok(acc) => acc.value.unwrap(),
+                                        Ok(acc) => acc.value.unwrap_or(account),
                                         Err(e) => return Some((Err(Error::from(e)), (subscription, publisher_receiver))),
                                     };
                                 }
