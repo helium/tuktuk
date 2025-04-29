@@ -13,7 +13,7 @@ use solana_client::{
 use solana_sdk::{
     hash::Hash,
     instruction::Instruction,
-    message::{v0, VersionedMessage},
+    message::{v0, AddressLookupTableAccount, VersionedMessage},
     signature::{Keypair, Signature},
     signer::Signer,
     transaction::VersionedTransaction,
@@ -50,6 +50,14 @@ impl<T: Send + Clone> PackedTransactionWithTasks<T> {
         let mut result = self.clone();
         result.re_sign_count += 1;
         result
+    }
+
+    pub fn lookup_tables(&self) -> Vec<AddressLookupTableAccount> {
+        self.tasks
+            .iter()
+            .flat_map(|t| t.lookup_tables.clone())
+            .flatten()
+            .collect_vec()
     }
 }
 
@@ -206,16 +214,10 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         }
 
         let blockhash = self.blockhash_data.read().await.blockhash;
-        let lookup_tables = packed
-            .tasks
-            .iter()
-            .flat_map(|t| t.lookup_tables.clone())
-            .flatten()
-            .collect_vec();
         let message = v0::Message::try_compile(
             &self.payer.pubkey(),
             &packed.instructions,
-            &lookup_tables,
+            &packed.lookup_tables(),
             blockhash,
         )?;
 
