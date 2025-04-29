@@ -1,12 +1,10 @@
-use std::{
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-    time::Duration,
+use crate::{
+    error::Error,
+    queue::{CompletedTransactionTask, TransactionTask},
+    send_and_confirm_transactions_in_parallel::QuicTpuClient,
 };
-
 use dashmap::DashMap;
+use futures::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use solana_client::{
     nonblocking::{rpc_client::RpcClient, tpu_client::TpuClient},
@@ -20,18 +18,19 @@ use solana_sdk::{
     signer::Signer,
     transaction::VersionedTransaction,
 };
+use std::{
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 use tokio::sync::{
     mpsc::{Receiver, Sender},
     RwLock,
 };
 use tokio_graceful_shutdown::{SubsystemBuilder, SubsystemHandle};
 use tracing::{error, info};
-
-use crate::{
-    error::Error,
-    queue::{CompletedTransactionTask, TransactionTask},
-    send_and_confirm_transactions_in_parallel::QuicTpuClient,
-};
 
 const SEND_TIMEOUT: Duration = Duration::from_secs(5);
 const CONFIRMATION_CHECK_INTERVAL: Duration = Duration::from_secs(5);
@@ -181,6 +180,22 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
 
     const TPU_SHUTDOWN_THRESHOLD: u64 = 60; // Shutdown TPU client after 60 seconds of inactivity
 
+    pub async fn handle_packed_tx(&self, packed_tx: PackedTransactionWithTasks<T>) {
+        if let Err(e) = self.process_packed_tx(&packed_tx).await {
+            // Handle processing error by notifying all tasks
+            stream::iter(packed_tx.tasks)
+                .map(|task| Ok((task, Some(e.clone()))))
+                .try_for_each(|(task, err)| async move {
+                    self.result_tx
+                        .send(CompletedTransactionTask { err, task, fee: 0 })
+                        .await
+                })
+                .await
+                // TODO: This should really return an error to avoid pacnis on full channels
+                .expect("send result");
+        }
+    }
+
     pub async fn process_packed_tx(
         &self,
         packed: &PackedTransactionWithTasks<T>,
@@ -316,46 +331,18 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
                             _ => {
                                 // Blockhash expired, increment resign count and retry via rpc
                                 self.unconfirmed_txs.remove(&signature);
-
                                 // Create new packed transaction with incremented resign count
                                 let new_packed = data.packed_tx.with_incremented_re_sign_count();
-
-                                if let Err(e) = self.process_packed_tx(&new_packed).await {
-                                    // Handle processing error by notifying all tasks
-                                    for task in new_packed.tasks {
-                                        self.result_tx
-                                            .send(CompletedTransactionTask {
-                                                err: Some(e.clone()),
-                                                task,
-                                                fee: 0,
-                                            })
-                                            .await
-                                            .expect("send result");
-                                    }
-                                }
+                                self.handle_packed_tx(new_packed).await;
                             }
                         }
                     }
                 } else {
                     // Blockhash expired, increment resign count and retry via rpc
                     self.unconfirmed_txs.remove(&signature);
-
                     // Create new packed transaction with incremented resign count
                     let new_packed = data.packed_tx.with_incremented_re_sign_count();
-
-                    if let Err(e) = self.process_packed_tx(&new_packed).await {
-                        // Handle processing error by notifying all tasks
-                        for task in new_packed.tasks {
-                            self.result_tx
-                                .send(CompletedTransactionTask {
-                                    err: Some(e.clone()),
-                                    task,
-                                    fee: 0,
-                                })
-                                .await
-                                .expect("send result");
-                        }
-                    }
+                    self.handle_packed_tx(new_packed).await;
                 }
             }
         }
@@ -386,19 +373,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
                     return Ok(());
                 }
                 Some(packed_tx) = rx.recv() => {
-                    if let Err(e) = self.process_packed_tx(&packed_tx).await {
-                        // Handle processing error by notifying all tasks
-                        for task in packed_tx.tasks {
-                            self.result_tx
-                                .send(CompletedTransactionTask {
-                                    err: Some(e.clone()),
-                                    task,
-                                    fee: 0,
-                                })
-                                .await
-                                .expect("send result");
-                        }
-                    }
+                    self.handle_packed_tx(packed_tx).await;
                 }
                 _ = check_interval.tick() => {
                     self.check_and_retry().await;
