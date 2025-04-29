@@ -90,7 +90,7 @@ impl PackedTransaction {
         let tx = self.mk_transaction(extra_ixs, lookup_tables, &signers)?;
         bincode::serialize(&tx)
             .map(|data| data.len())
-            .map_err(|e| Error::SerializationError(e.to_string()))
+            .map_err(Error::serialization)
     }
 }
 

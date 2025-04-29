@@ -222,8 +222,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         let tx = VersionedTransaction::try_new(VersionedMessage::V0(message), &[&*self.payer])
             .map_err(Error::signer)?;
 
-        let serialized =
-            bincode::serialize(&tx).map_err(|e| Error::SerializationError(e.to_string()))?;
+        let serialized = bincode::serialize(&tx).map_err(Error::serialization)?;
         let signature = tx.signatures[0];
 
         // Initial send via RPC
