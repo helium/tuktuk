@@ -61,7 +61,7 @@ pub fn handler(ctx: Context<CloseCronJobV0>) -> Result<()> {
         ctx.accounts.user_cron_jobs.next_cron_job_id -= 1;
     }
 
-    let mut task_return_account_1_lamports = ctx.accounts.task_return_account_1.lamports();
+    let task_return_account_1_lamports = ctx.accounts.task_return_account_1.lamports();
     if task_return_account_1_lamports > 0 && *ctx.accounts.task_return_account_1.owner == crate::ID
     {
         ctx.accounts
