@@ -47,4 +47,8 @@ impl Error {
     pub fn signer<S: ToString>(str: S) -> Self {
         Self::SignerError(str.to_string())
     }
+
+    pub fn serialization<S: ToString>(str: S) -> Self {
+        Self::SerializationError(str.to_string())
+    }
 }
