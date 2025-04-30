@@ -2,7 +2,7 @@
   "address": "cronAjRZnJn3MTP3B9kE62NWDrjSuAPVXf9c4hu4grM",
   "metadata": {
     "name": "cron",
-    "version": "0.1.4",
+    "version": "0.2.0",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },
@@ -74,6 +74,44 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "task_return_account_1",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116, 97, 115, 107, 95, 114, 101, 116, 117, 114, 110, 95, 97,
+                  99, 99, 111, 117, 110, 116, 95, 49
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "cron_job"
+              }
+            ]
+          }
+        },
+        {
+          "name": "task_return_account_2",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116, 97, 115, 107, 95, 114, 101, 116, 117, 114, 110, 95, 97,
+                  99, 99, 111, 117, 110, 116, 95, 50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "cron_job"
+              }
+            ]
+          }
         }
       ],
       "args": []

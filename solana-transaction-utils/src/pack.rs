@@ -1,3 +1,4 @@
+use crate::error::Error;
 use itertools::Itertools;
 use solana_sdk::{
     address_lookup_table::AddressLookupTableAccount,
@@ -9,8 +10,6 @@ use solana_sdk::{
     signature::NullSigner,
     transaction::VersionedTransaction,
 };
-
-use crate::error::Error;
 
 pub const MAX_TRANSACTION_SIZE: usize = 1232; // Maximum transaction size in bytes
 
@@ -50,16 +49,23 @@ impl PackedTransaction {
         signers: &[Pubkey],
     ) -> Result<VersionedTransaction, Error> {
         let ixs = &[&self.instructions, extra_ixs].concat();
-        v0::Message::try_compile(&signers[0], ixs, lookup_tables, Hash::default())
-            .map_err(Error::from)
-            .map(VersionedMessage::V0)
-            .and_then(|message| {
-                VersionedTransaction::try_new(
-                    message,
-                    &signers.iter().map(NullSigner::new).collect_vec(),
-                )
-                .map_err(|e| Error::SignerError(e.to_string()))
-            })
+        v0::Message::try_compile(
+            signers
+                .first()
+                .ok_or_else(|| Error::signer("missing payer"))?,
+            ixs,
+            lookup_tables,
+            Hash::default(),
+        )
+        .map_err(Error::from)
+        .map(VersionedMessage::V0)
+        .and_then(|message| {
+            VersionedTransaction::try_new(
+                message,
+                &signers.iter().map(NullSigner::new).collect_vec(),
+            )
+            .map_err(Error::signer)
+        })
     }
 
     pub fn transaction_len(
@@ -74,10 +80,9 @@ impl PackedTransaction {
             .flat_map(|ix| {
                 ix.accounts
                     .iter()
-                    .filter(|a| a.is_signer)
-                    .map(|a| a.pubkey)
-                    .collect_vec()
+                    .filter_map(|a| a.is_signer.then_some(a.pubkey))
             })
+            .unique()
             .collect_vec();
         if signers.is_empty() {
             signers.push(Pubkey::default());

@@ -15,6 +15,7 @@ use tokio::{
     sync::mpsc::{channel, Receiver, Sender},
     time::{interval, Interval},
 };
+use tracing::info;
 
 use crate::{
     error::Error,
@@ -106,9 +107,13 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
             let sim_result = rpc_client
                 .simulate_transaction(
                     &VersionedTransaction::try_new(VersionedMessage::V0(message), &[&*payer])
-                        .map_err(|e| Error::SignerError(e.to_string()))?,
+                        .map_err(Error::signer)?,
                 )
                 .await?;
+
+            if let Some(ref err) = sim_result.value.err {
+                info!(?err, ?sim_result.value.logs, "simulation error");
+            }
 
             // Scale up by 1.2 just to be sure it'll succeed.
             let compute_units =

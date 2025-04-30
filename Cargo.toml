@@ -51,14 +51,14 @@ tracing-subscriber = { version = "0", default-features = false, features = [
   "registry",
   "fmt",
 ] }
-anchor-lang = "0.31.0"
-anchor-client = "0.31.0"
+anchor-lang = "0.31.1"
+anchor-client = "0.31.1"
 spl-associated-token-account = "6.0.0"
 spl-token = "4.0.0"
 itertools = "0.13"
 tokio-graceful-shutdown = "0.15"
 solana-transaction-utils = { version = "0.3.4", path = "./solana-transaction-utils" }
-tuktuk-sdk = { version = "0.3.1", path = "./tuktuk-sdk" }
+tuktuk-sdk = { version = "0.3.2", path = "./tuktuk-sdk" }
 tuktuk-program = { version = "0.3.1", path = "./tuktuk-program" }
 solana-account-decoder = { version = "2.2.3" }
 solana-clock = { version = "2.2.1" }
