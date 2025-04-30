@@ -2,7 +2,7 @@
   "address": "cronAjRZnJn3MTP3B9kE62NWDrjSuAPVXf9c4hu4grM",
   "metadata": {
     "name": "cron",
-    "version": "0.1.4",
+    "version": "0.2.0",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },
@@ -52,11 +52,6 @@
         {
           "name": "rent_refund",
           "writable": true
-        },
-        {
-          "name": "payer",
-          "writable": true,
-          "signer": true
         },
         {
           "name": "authority",
