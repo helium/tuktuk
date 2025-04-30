@@ -192,7 +192,6 @@ pub mod cron {
 
     pub fn close_ix(
         cron_job_key: Pubkey,
-        payer: Pubkey,
         authority: Pubkey,
         rent_refund: Pubkey,
         user_crons_key: Pubkey,
@@ -202,8 +201,7 @@ pub mod cron {
             program_id: cron::ID,
             accounts: cron::client::accounts::CloseCronJobV0 {
                 rent_refund,
-                payer,
-                authority: payer,
+                authority,
                 user_cron_jobs: user_crons_key,
                 cron_job: cron_job_key,
                 cron_job_name_mapping: self::name_mapping_key(&authority, &name),
@@ -233,7 +231,6 @@ pub mod cron {
 
         close_ix(
             cron_job_key,
-            payer,
             authority,
             rent_refund,
             user_crons_key,
