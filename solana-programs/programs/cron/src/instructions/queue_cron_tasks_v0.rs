@@ -12,7 +12,10 @@ use tuktuk_program::{
     RunTaskReturnV0, TaskQueueV0, TaskReturnV0, TransactionSourceV0, TriggerV0,
 };
 
-use crate::state::{CronJobTransactionV0, CronJobV0};
+use crate::{
+    error::ErrorCode,
+    state::{CronJobTransactionV0, CronJobV0},
+};
 
 pub const QUEUED_TASKS_PER_QUEUE: u8 = 3;
 // Queue tasks 5 minutes before the cron job is scheduled to run
