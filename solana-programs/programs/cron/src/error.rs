@@ -16,4 +16,6 @@ pub enum ErrorCode {
     CronJobHasTransactions,
     #[msg("Invalid number of tasks per queue call")]
     InvalidNumTasksPerQueueCall,
+    #[msg("Too early to queue tasks")]
+    TooEarly,
 }

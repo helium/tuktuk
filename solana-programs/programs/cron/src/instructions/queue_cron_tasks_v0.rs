@@ -48,6 +48,14 @@ pub struct QueueCronTasksV0<'info> {
 pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
     let stale_task_age = ctx.accounts.task_queue.stale_task_age;
     let now = Clock::get()?.unix_timestamp;
+
+    // Only proceed if we're within the queue window of the next execution
+    if (now + QUEUE_TASK_DELAY) < ctx.accounts.cron_job.current_exec_ts {
+        msg!("Too early to queue tasks, current time {} is not within {} seconds of next execution {}", 
+            now, QUEUE_TASK_DELAY, ctx.accounts.cron_job.current_exec_ts);
+        return Err(error!(ErrorCode::TooEarly));
+    }
+
     if now - ctx.accounts.cron_job.current_exec_ts > stale_task_age as i64 {
         msg!("Cron job is stale, resetting");
         ctx.accounts.cron_job.current_exec_ts = now;
