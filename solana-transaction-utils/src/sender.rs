@@ -1,8 +1,11 @@
-use crate::{
-    error::Error,
-    queue::{CompletedTransactionTask, TransactionTask},
-    send_and_confirm_transactions_in_parallel::QuicTpuClient,
+use std::{
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::Duration,
 };
+
 use dashmap::DashMap;
 use futures::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
@@ -18,19 +21,18 @@ use solana_sdk::{
     signer::Signer,
     transaction::VersionedTransaction,
 };
-use std::{
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
 use tokio::sync::{
     mpsc::{Receiver, Sender},
     RwLock,
 };
 use tokio_graceful_shutdown::{SubsystemBuilder, SubsystemHandle};
 use tracing::{error, info};
+
+use crate::{
+    error::Error,
+    queue::{CompletedTransactionTask, TransactionTask},
+    send_and_confirm_transactions_in_parallel::QuicTpuClient,
+};
 
 const SEND_TIMEOUT: Duration = Duration::from_secs(5);
 const CONFIRMATION_CHECK_INTERVAL: Duration = Duration::from_secs(5);
@@ -188,7 +190,10 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
 
     const TPU_SHUTDOWN_THRESHOLD: u64 = 60; // Shutdown TPU client after 60 seconds of inactivity
 
-    pub async fn handle_packed_tx(&self, packed_tx: PackedTransactionWithTasks<T>) {
+    pub async fn handle_packed_tx(
+        &self,
+        packed_tx: PackedTransactionWithTasks<T>,
+    ) -> Result<(), Error> {
         if let Err(e) = self.process_packed_tx(&packed_tx).await {
             // Handle processing error by notifying all tasks
             stream::iter(packed_tx.tasks)
@@ -198,10 +203,10 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
                         .send(CompletedTransactionTask { err, task, fee: 0 })
                         .await
                 })
-                .await
-                // TODO: This should really return an error to avoid pacnis on full channels
-                .expect("send result");
+                .await?
         }
+
+        Ok(())
     }
 
     pub async fn process_packed_tx(
@@ -257,14 +262,13 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         }
     }
 
-    async fn check_and_retry(&mut self) {
+    async fn check_and_retry(&mut self) -> Result<(), Error> {
         let current_height = self.current_block_height.load(Ordering::Relaxed);
         let current_time = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
         {
             Ok(duration) => duration.as_secs(),
             Err(e) => {
-                error!("System time error: {}", e);
-                return;
+                return Err(Error::SystemTimeError(e.to_string()));
             }
         };
 
@@ -279,7 +283,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         let signatures: Vec<_> = self.unconfirmed_txs.iter().map(|r| *r.key()).collect();
 
         if signatures.is_empty() {
-            return;
+            return Ok(());
         }
 
         for chunk in signatures.chunks(MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS) {
@@ -302,8 +306,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
                                                 .fee
                                                 .div_ceil(num_packed_tasks as u64),
                                         })
-                                        .await
-                                        .expect("send result");
+                                        .await?
                                 }
                             }
                         }
@@ -334,7 +337,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
                                 self.unconfirmed_txs.remove(&signature);
                                 // Create new packed transaction with incremented resign count
                                 let new_packed = data.packed_tx.with_incremented_re_sign_count();
-                                self.handle_packed_tx(new_packed).await;
+                                self.handle_packed_tx(new_packed).await?;
                             }
                         }
                     }
@@ -343,10 +346,12 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
                     self.unconfirmed_txs.remove(&signature);
                     // Create new packed transaction with incremented resign count
                     let new_packed = data.packed_tx.with_incremented_re_sign_count();
-                    self.handle_packed_tx(new_packed).await;
+                    self.handle_packed_tx(new_packed).await?;
                 }
             }
         }
+
+        Ok(())
     }
 
     pub async fn run(
@@ -374,10 +379,10 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
                     return Ok(());
                 }
                 Some(packed_tx) = rx.recv() => {
-                    self.handle_packed_tx(packed_tx).await;
+                    self.handle_packed_tx(packed_tx).await?;
                 }
                 _ = check_interval.tick() => {
-                    self.check_and_retry().await;
+                    self.check_and_retry().await?;
                 }
             }
         }

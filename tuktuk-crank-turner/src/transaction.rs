@@ -19,8 +19,8 @@ impl TransactionSenderSubsystem {
         _ = subsys.on_shutdown_requested() => {
                     Ok(())
                 },
-                _ = thread => {
-                    Ok(())
+                res = thread => {
+                    res.map_err(|e| anyhow::anyhow!("transaction queue error: {}", e))
                 }
             };
         info!("shutting down transaction queue");

@@ -161,16 +161,14 @@ impl TimedTask {
             }
         }
 
-        let maybe_lookup_tables = self.get_or_populate_luts(ctx.clone()).await;
-        if let Err(err) = maybe_lookup_tables {
-            return self.handle_ix_err(ctx.clone(), err).await;
-        }
-        let lookup_tables = maybe_lookup_tables.unwrap();
-        let maybe_next_available = self.get_available_task_ids(ctx.clone()).await;
-        if let Err(err) = maybe_next_available {
-            return self.handle_ix_err(ctx.clone(), err).await;
-        }
-        let next_available = maybe_next_available.unwrap();
+        let lookup_tables = match self.get_or_populate_luts(ctx.clone()).await {
+            Ok(lookup_tables) => lookup_tables,
+            Err(err) => return self.handle_ix_err(ctx.clone(), err).await,
+        };
+        let next_available = match self.get_available_task_ids(ctx.clone()).await {
+            Ok(next_available) => next_available,
+            Err(err) => return self.handle_ix_err(ctx.clone(), err).await,
+        };
         self.in_flight_task_ids = next_available.clone();
 
         let maybe_run_ix = if let Some(cached_result) = self.cached_result.clone() {
@@ -186,10 +184,10 @@ impl TimedTask {
             .await
         };
 
-        if let Err(err) = maybe_run_ix {
-            return self.handle_ix_err(ctx.clone(), err).await;
-        }
-        let run_ix = maybe_run_ix.unwrap();
+        let run_ix = match maybe_run_ix {
+            Ok(run_ix) => run_ix,
+            Err(err) => return self.handle_ix_err(ctx.clone(), err).await,
+        };
 
         tx_sender
             .send(TransactionTask {
@@ -255,6 +253,8 @@ impl TimedTask {
                 TransactionQueueError::CompileError(_) => "CompileError",
                 TransactionQueueError::SignerError(_) => "SignerError",
                 TransactionQueueError::StaleTransaction => "StaleTransaction",
+                TransactionQueueError::ChannelSendError(_) => "ChannelSendError",
+                TransactionQueueError::SystemTimeError(_) => "SystemTimeError",
             };
             TASKS_FAILED
                 .with_label_values(&[self.task_queue_name.as_str(), label])
@@ -291,7 +291,9 @@ impl TimedTask {
                 | TransactionQueueError::SimulatedTransactionError(_)
                 | TransactionQueueError::TransactionError(_)
                 | TransactionQueueError::TpuSenderError(_)
-                | TransactionQueueError::RpcError(_) => {
+                | TransactionQueueError::RpcError(_)
+                | TransactionQueueError::ChannelSendError(_)
+                | TransactionQueueError::SystemTimeError(_) => {
                     if self.total_retries < self.max_retries && !self.is_cleanup_task {
                         let base_delay = 30 * (1 << self.total_retries);
                         let jitter = rand::random_range(0..60); // Jitter up to 1 minute to prevent conflicts with other turners

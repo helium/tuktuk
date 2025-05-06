@@ -76,7 +76,7 @@ const MAX_PACKABLE_TX_SIZE: usize = 800;
 
 pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
     args: TransactionQueueArgs<T>,
-) {
+) -> Result<(), Error> {
     let mut receiver = args.receiver;
 
     // The currently staged bundle of tasks
@@ -203,8 +203,7 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                     task,
                                     fee: 0,
                                 })
-                                .await
-                                .expect("send result");
+                                .await?;
                         }
                     }
                     Err(e) => {
@@ -212,7 +211,7 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                             err: Some(e),
                             task,
                             fee: 0,
-                        }).await.expect("send result");
+                        }).await?;
                     },
                     _ => {
                         // We should never get here
@@ -252,17 +251,15 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                                 err: Some(Error::SimulatedTransactionError(e.clone())),
                                                 task,
                                                 fee: 0,
-                                            })
-                                            .await
-                                            .expect("send result");
+                                            }).await?;
                                         }
                                     } else {
                                         // Handle failed task
                                         args.result_sender.send(CompletedTransactionTask {
                                             err: Some(Error::SimulatedTransactionError(e)),
                                             task: tasks[failed_task_idx].clone(),
-                                        fee: 0,
-                                        }).await.expect("send result");
+                                            fee: 0,
+                                        }).await?;
 
                                         // Requeue remaining tasks
                                         let mut new_bundle = TaskBundle::new();
@@ -287,7 +284,7 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                             err: Some(Error::SimulatedTransactionError(e.clone())),
                                             task,
                                             fee: 0,
-                                        }).await.expect("send result");
+                                        }).await?;
                                     }
                                 }
                             }
@@ -298,7 +295,7 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                     err: Some(Error::FeeTooHigh),
                                     task,
                                     fee: 0,
-                                }).await.expect("send result");
+                                }).await?;
                             }
                         } else {
                             // Simulation successful, send to transaction sender
@@ -307,7 +304,7 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                 tasks,
                                 fee,
                                 re_sign_count: 0,
-                            }).await.expect("send to tx sender");
+                            }).await?;
                         }
                     }
                     Err(e) => {
@@ -317,7 +314,7 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                 err: Some(Error::RawSimulatedTransactionError(e.to_string())),
                                 task: task.clone(),
                                 fee: 0,
-                            }).await.expect("send result");
+                            }).await?;
                         }
                     }
                 }

@@ -107,14 +107,17 @@ impl Stream for TaskStream {
         if let Ok(mut queue) = this.task_queue.try_lock() {
             if let Some(task) = queue.peek() {
                 if task.task_time <= now {
-                    let removed_tasks_res = this.removed_tasks.try_lock();
-                    if removed_tasks_res.is_err() {
-                        return Poll::Pending;
-                    }
-                    let task = queue.pop().unwrap();
+                    let removed_tasks = match this.removed_tasks.try_lock() {
+                        Ok(removed_tasks) => removed_tasks,
+                        Err(_) => return Poll::Pending,
+                    };
+
+                    let task = match queue.pop() {
+                        Some(task) => task,
+                        None => return Poll::Pending,
+                    };
 
                     // Check if task was removed
-                    let removed_tasks = removed_tasks_res.unwrap();
                     let key = RemovedTaskKey {
                         task_key: task.task_key,
                         queued_at: task.task.queued_at,
@@ -176,13 +179,13 @@ pub async fn create_task_queue(args: TaskQueueArgs) -> (TaskStream, TaskQueue) {
     let (removal_tx, mut removal_rx) = mpsc::channel::<Pubkey>(args.channel_capacity);
     let task_queue = Arc::new(Mutex::new(BinaryHeap::new()));
     let removed_tasks = Arc::new(Mutex::new(LruCache::new(
-        NonZero::new(REMOVAL_LRU_SIZE).unwrap(),
+        NonZero::new(REMOVAL_LRU_SIZE).expect("REMOVAL_LRU_SIZE must be non-zero"),
     ))); // Keep last n removed tasks
 
     // Keep last n queued ats, since the watcher does not know the queue_at of removed task, just that the pubkey disappeared. And we don't want to permanently taint a pubkey,
     // we just want to taint that pubkey for the queue_at time of the task.
     let task_queued_ats = Arc::new(Mutex::new(LruCache::new(
-        NonZero::new(QUEUED_AT_LRU_SIZE).unwrap(),
+        NonZero::new(QUEUED_AT_LRU_SIZE).expect("QUEUED_AT_LRU_SIZE must be non-zero"),
     )));
     let notify = Arc::new(Notify::new());
 
