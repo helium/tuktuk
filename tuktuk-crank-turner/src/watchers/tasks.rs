@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use futures::TryStreamExt;
@@ -40,7 +40,7 @@ pub async fn get_and_watch_tasks(
     let task_queue = task_queue.clone();
     let now = now.clone();
     let rpc_client = rpc_client.clone();
-    let (stream, _) = task::on_new(
+    let (stream, unsub) = task::on_new(
         rpc_client.as_ref(),
         pubsub_tracker.as_ref(),
         &task_queue_key,
@@ -131,7 +131,7 @@ pub async fn get_and_watch_tasks(
                         .set(now as i64 - task_queue_account.updated_at);
                     let unix_now = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
-                        .unwrap()
+                        .unwrap_or_else(|_| Duration::from_secs(0))
                         .as_secs();
                     UPDATE_LAG
                         .with_label_values(&[task_queue_account.name.as_str(), "realtime_clock"])
@@ -192,7 +192,15 @@ pub async fn get_and_watch_tasks(
         });
 
     tokio::select! {
-        res = stream_fut => res,
-        _ = handle.on_shutdown_requested() => anyhow::Ok(()),
+        res = stream_fut => {
+            if res.is_err() {
+                unsub().await;
+            }
+            res
+        },
+        _ = handle.on_shutdown_requested() => {
+            unsub().await;
+            anyhow::Ok(())
+        }
     }
 }

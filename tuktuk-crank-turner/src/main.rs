@@ -22,7 +22,11 @@ use tokio::{
 use tokio_graceful_shutdown::{SubsystemBuilder, Toplevel};
 use tracing_subscriber::{fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt};
 use transaction::TransactionSenderSubsystem;
-use tuktuk_sdk::{prelude::*, pubsub_client::PubsubClient, watcher::PubsubTracker};
+use tuktuk_sdk::{
+    clock::{track, SYSVAR_CLOCK},
+    pubsub_client::PubsubClient,
+    watcher::PubsubTracker,
+};
 use warp::{reject::Rejection, reply::Reply, Filter};
 use watchers::{args::WatcherArgs, task_queues::get_and_watch_task_queues};
 
@@ -130,7 +134,9 @@ impl Cli {
             commitment,
         ));
 
-        let now_rx = clock::track(Arc::clone(&rpc_client), Arc::clone(&pubsub_tracker)).await?;
+        let clock_acc = rpc_client.get_account(&SYSVAR_CLOCK).await?;
+        let clock: solana_sdk::clock::Clock = bincode::deserialize(&clock_acc.data)?;
+        let (now_tx, now_rx) = tokio::sync::watch::channel(clock.unix_timestamp as u64);
 
         let (tasks, task_queue) = create_task_queue(TaskQueueArgs {
             channel_capacity: 100,
@@ -222,6 +228,7 @@ impl Cli {
             }));
             // Poll RPC for changes to pubsub keys every 30 seconds
             top_level.start(SubsystemBuilder::new("pubsub-tracker", {
+                let pubsub_tracker = pubsub_tracker.clone();
                 move |handle| async move {
                     let mut interval = interval(pubsub_repoll);
                     loop {
@@ -240,12 +247,17 @@ impl Cli {
                     anyhow::Ok(())
                 }
             }));
+            top_level.start(SubsystemBuilder::new("clock-tracker", {
+                let now_tx = now_tx.clone();
+                let pubsub_tracker = pubsub_tracker.clone();
+                move |handle| track(now_tx, pubsub_tracker, handle)
+            }));
             top_level.start(SubsystemBuilder::new("pubsub-client", {
                 move |handle| async move {
                     tokio::select! {
                         _ = handle.on_shutdown_requested() => {
                             tracing::info!("Shutdown requested, exiting pubsub-client");
-                            shutdown_sender.send(()).unwrap();
+                            shutdown_sender.send(()).map_err(|_| anyhow::anyhow!("Failed to send shutdown signal"))?;
                             anyhow::Ok(())
                         },
                         res = pubsub_handle => {

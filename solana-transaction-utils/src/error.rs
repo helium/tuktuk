@@ -29,6 +29,10 @@ pub enum Error {
     FeeTooHigh,
     #[error("Transaction has failed too many retries and gone stale")]
     StaleTransaction,
+    #[error("Channel send error: {0}")]
+    ChannelSendError(String),
+    #[error("System time error: {0}")]
+    SystemTimeError(String),
 }
 
 impl From<solana_client::client_error::ClientError> for Error {
@@ -40,6 +44,12 @@ impl From<solana_client::client_error::ClientError> for Error {
 impl From<TpuSenderError> for Error {
     fn from(value: TpuSenderError) -> Self {
         Self::TpuSenderError(value.to_string())
+    }
+}
+
+impl<T> From<tokio::sync::mpsc::error::SendError<T>> for Error {
+    fn from(value: tokio::sync::mpsc::error::SendError<T>) -> Self {
+        Self::ChannelSendError(value.to_string())
     }
 }
 
