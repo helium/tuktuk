@@ -253,8 +253,8 @@ impl TimedTask {
                 TransactionQueueError::CompileError(_) => "CompileError",
                 TransactionQueueError::SignerError(_) => "SignerError",
                 TransactionQueueError::StaleTransaction => "StaleTransaction",
-                TransactionQueueError::ChannelSendError(_) => "ChannelSendError",
                 TransactionQueueError::SystemTimeError(_) => "SystemTimeError",
+                TransactionQueueError::ChannelClosed => "ChannelClosed",
             };
             TASKS_FAILED
                 .with_label_values(&[self.task_queue_name.as_str(), label])
@@ -292,7 +292,7 @@ impl TimedTask {
                 | TransactionQueueError::TransactionError(_)
                 | TransactionQueueError::TpuSenderError(_)
                 | TransactionQueueError::RpcError(_)
-                | TransactionQueueError::ChannelSendError(_)
+                | TransactionQueueError::ChannelClosed
                 | TransactionQueueError::SystemTimeError(_) => {
                     if self.total_retries < self.max_retries && !self.is_cleanup_task {
                         let base_delay = 30 * (1 << self.total_retries);
