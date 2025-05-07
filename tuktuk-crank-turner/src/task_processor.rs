@@ -36,10 +36,10 @@ impl TimedTask {
         &self,
         ctx: Arc<TaskContext>,
     ) -> anyhow::Result<Vec<AddressLookupTableAccount>, tuktuk_sdk::error::Error> {
-        let mut lookup_tables = ctx.lookup_tables.lock().await;
         let mut result: Vec<AddressLookupTableAccount> = Vec::new();
         let mut missing_addresses = Vec::new();
         let task_queue = self.get_task_queue(ctx.clone()).await?;
+        let mut lookup_tables = ctx.lookup_tables.lock().await;
 
         // Try to get LUTs from existing map
         for addr in &task_queue.lookup_tables {
