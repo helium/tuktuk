@@ -1,11 +1,9 @@
-use std::{
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-    time::Duration,
+use crate::{
+    blockhash_watcher,
+    error::Error,
+    queue::{CompletedTransactionTask, TransactionTask},
+    send_and_confirm_transactions_in_parallel::QuicTpuClient,
 };
-
 use dashmap::DashMap;
 use futures::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
@@ -14,29 +12,19 @@ use solana_client::{
     tpu_client::TpuClientConfig,
 };
 use solana_sdk::{
-    hash::Hash,
     instruction::Instruction,
     message::{v0, AddressLookupTableAccount, VersionedMessage},
     signature::{Keypair, Signature},
     signer::Signer,
     transaction::VersionedTransaction,
 };
-use tokio::sync::{
-    mpsc::{Receiver, Sender},
-    RwLock,
-};
+use std::{sync::Arc, time::Duration};
+use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_graceful_shutdown::{SubsystemBuilder, SubsystemHandle};
 use tracing::{error, info};
 
-use crate::{
-    error::Error,
-    queue::{CompletedTransactionTask, TransactionTask},
-    send_and_confirm_transactions_in_parallel::QuicTpuClient,
-};
-
 const SEND_TIMEOUT: Duration = Duration::from_secs(5);
 const CONFIRMATION_CHECK_INTERVAL: Duration = Duration::from_secs(5);
-const BLOCKHASH_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 const MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS: usize = 100;
 
 #[derive(Clone, Debug)]
@@ -71,16 +59,8 @@ struct TransactionData<T: Send + Clone> {
     sent_to_rpc: bool,
 }
 
-#[derive(Clone, Debug, Copy)]
-pub struct BlockHashData {
-    last_valid_block_height: u64,
-    blockhash: Hash,
-}
-
 pub struct TransactionSender<T: Send + Clone + Sync> {
     unconfirmed_txs: Arc<DashMap<Signature, TransactionData<T>>>,
-    blockhash_data: Arc<RwLock<BlockHashData>>,
-    current_block_height: Arc<AtomicU64>,
     rpc_client: Arc<RpcClient>,
     tpu_client: Option<QuicTpuClient>,
     ws_url: String,
@@ -88,37 +68,6 @@ pub struct TransactionSender<T: Send + Clone + Sync> {
     payer: Arc<Keypair>,
     max_re_sign_count: u32,
     last_tpu_use: u64,
-}
-
-pub async fn spawn_background_tasks(
-    handle: SubsystemHandle,
-    blockhash_data: Arc<RwLock<BlockHashData>>,
-    current_block_height: Arc<AtomicU64>,
-    rpc_client: Arc<RpcClient>,
-) -> Result<(), Error> {
-    // Spawn blockhash updater
-    let mut interval = tokio::time::interval(BLOCKHASH_REFRESH_INTERVAL);
-    loop {
-        tokio::select! {
-            _ = handle.on_shutdown_requested() => {
-                return Ok(());
-            }
-            _ = interval.tick() => {
-                if let Ok((blockhash, last_valid_block_height)) = rpc_client
-                    .get_latest_blockhash_with_commitment(rpc_client.commitment())
-                    .await
-                {
-                    *blockhash_data.write().await = BlockHashData {
-                        last_valid_block_height,
-                        blockhash,
-                    };
-                }
-                if let Ok(block_height) = rpc_client.get_block_height().await {
-                    current_block_height.store(block_height, Ordering::Relaxed);
-                }
-            }
-        }
-    }
 }
 
 impl<T: Send + Clone + Sync> TransactionSender<T> {
@@ -129,24 +78,8 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         result_tx: Sender<CompletedTransactionTask<T>>,
         max_re_sign_count: u32,
     ) -> Result<Self, Error> {
-        // Initialize blockhash data
-        let (blockhash, last_valid_block_height) = rpc_client
-            .get_latest_blockhash_with_commitment(rpc_client.commitment())
-            .await?;
-
-        let blockhash_data = Arc::new(RwLock::new(BlockHashData {
-            last_valid_block_height,
-            blockhash,
-        }));
-
-        // Initialize block height
-        let block_height = rpc_client.get_block_height().await?;
-        let current_block_height = Arc::new(AtomicU64::new(block_height));
-
         Ok(Self {
             unconfirmed_txs: Arc::new(DashMap::new()),
-            blockhash_data,
-            current_block_height,
             rpc_client,
             tpu_client: None,
             ws_url,
@@ -193,8 +126,9 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
     pub async fn handle_packed_tx(
         &self,
         packed_tx: PackedTransactionWithTasks<T>,
+        blockhash_rx: &blockhash_watcher::MessageReceiver,
     ) -> Result<(), Error> {
-        if let Err(e) = self.process_packed_tx(&packed_tx).await {
+        if let Err(e) = self.process_packed_tx(&packed_tx, blockhash_rx).await {
             // Handle processing error by notifying all tasks
             stream::iter(packed_tx.tasks)
                 .map(|task| Ok((task, Some(e.clone()))))
@@ -212,13 +146,14 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
     pub async fn process_packed_tx(
         &self,
         packed: &PackedTransactionWithTasks<T>,
+        blockhash_rx: &blockhash_watcher::MessageReceiver,
     ) -> Result<(), Error> {
         // Check if transaction has been resigned too many times
         if packed.re_sign_count >= self.max_re_sign_count {
             return Err(Error::StaleTransaction);
         }
 
-        let blockhash = self.blockhash_data.read().await.blockhash;
+        let blockhash = blockhash_rx.borrow().last_valid_blockhash;
         let message = v0::Message::try_compile(
             &self.payer.pubkey(),
             &packed.instructions,
@@ -240,7 +175,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
             signature,
             TransactionData {
                 packed_tx: packed.clone(),
-                last_valid_block_height: self.blockhash_data.read().await.last_valid_block_height,
+                last_valid_block_height: blockhash_rx.borrow().last_valid_block_height,
                 serialized_tx: serialized,
                 sent_to_rpc: false,
             },
@@ -262,8 +197,11 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         }
     }
 
-    async fn check_and_retry(&mut self) -> Result<(), Error> {
-        let current_height = self.current_block_height.load(Ordering::Relaxed);
+    async fn check_and_retry(
+        &mut self,
+        blockhash_rx: &blockhash_watcher::MessageReceiver,
+    ) -> Result<(), Error> {
+        let current_height = blockhash_rx.borrow().current_block_height;
         let current_time = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
         {
             Ok(duration) => duration.as_secs(),
@@ -337,7 +275,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
                                 self.unconfirmed_txs.remove(&signature);
                                 // Create new packed transaction with incremented resign count
                                 let new_packed = data.packed_tx.with_incremented_re_sign_count();
-                                self.handle_packed_tx(new_packed).await?;
+                                self.handle_packed_tx(new_packed, blockhash_rx).await?;
                             }
                         }
                     }
@@ -346,7 +284,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
                     self.unconfirmed_txs.remove(&signature);
                     // Create new packed transaction with incremented resign count
                     let new_packed = data.packed_tx.with_incremented_re_sign_count();
-                    self.handle_packed_tx(new_packed).await?;
+                    self.handle_packed_tx(new_packed, blockhash_rx).await?;
                 }
             }
         }
@@ -359,16 +297,17 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         mut rx: Receiver<PackedTransactionWithTasks<T>>,
         handle: SubsystemHandle,
     ) -> Result<(), Error> {
+        let mut blockhash_watcher = blockhash_watcher::BlockhashWatcher::new(
+            blockhash_watcher::BLOCKHASH_REFRESH_INTERVAL,
+            self.rpc_client.clone(),
+        );
         handle.start(SubsystemBuilder::new("blockhash-updater", {
-            let blockhash_data = self.blockhash_data.clone();
-            let current_block_height = self.current_block_height.clone();
-            let rpc_client = self.rpc_client.clone();
-            move |handle| {
-                spawn_background_tasks(handle, blockhash_data, current_block_height, rpc_client)
-            }
+            let watcher = blockhash_watcher.clone();
+            move |handle| watcher.run(handle)
         }));
 
         let mut check_interval = tokio::time::interval(CONFIRMATION_CHECK_INTERVAL);
+        let blockchain_rx = blockhash_watcher.watcher();
 
         loop {
             tokio::select! {
@@ -379,10 +318,10 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
                     return Ok(());
                 }
                 Some(packed_tx) = rx.recv() => {
-                    self.handle_packed_tx(packed_tx).await?;
+                    self.handle_packed_tx(packed_tx, &blockchain_rx).await?;
                 }
                 _ = check_interval.tick() => {
-                    self.check_and_retry().await?;
+                    self.check_and_retry(&blockchain_rx).await?;
                 }
             }
         }
