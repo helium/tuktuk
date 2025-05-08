@@ -23,7 +23,6 @@ use solana_sdk::{
     signers::Signers,
     transaction::{TransactionError, VersionedTransaction},
 };
-use solana_tpu_client::tpu_client::TpuSenderError;
 use tokio::{sync::RwLock, task::JoinHandle};
 
 use crate::error::Error;
@@ -217,7 +216,7 @@ async fn send_transaction_with_rpc_fallback(
                     context.error_map.insert(index, transaction_error.clone());
                 }
                 _ => {
-                    return Err(TpuSenderError::from(e).into());
+                    return Err(crate::Error::from(e));
                 }
             }
         }
@@ -521,6 +520,6 @@ pub async fn send_and_confirm_transactions_in_parallel<T: Signers + ?Sized>(
         }
         Ok(transaction_errors)
     } else {
-        Err(TpuSenderError::Custom("Max retries exceeded".into()).into())
+        Err(crate::Error::MaxRetriesExceeded)
     }
 }
