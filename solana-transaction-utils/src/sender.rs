@@ -2,15 +2,12 @@ use crate::{
     blockhash_watcher,
     error::Error,
     queue::{CompletedTransactionTask, TransactionTask},
-    send_and_confirm_transactions_in_parallel::QuicTpuClient,
+    tpu_conduit,
 };
 use dashmap::DashMap;
 use futures::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
-use solana_client::{
-    nonblocking::{rpc_client::RpcClient, tpu_client::TpuClient},
-    tpu_client::TpuClientConfig,
-};
+use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
     instruction::Instruction,
     message::{v0, AddressLookupTableAccount, VersionedMessage},
@@ -21,9 +18,7 @@ use solana_sdk::{
 use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_graceful_shutdown::{SubsystemBuilder, SubsystemHandle};
-use tracing::{error, info};
 
-const SEND_TIMEOUT: Duration = Duration::from_secs(5);
 const CONFIRMATION_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 const MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS: usize = 100;
 
@@ -62,12 +57,10 @@ struct TransactionData<T: Send + Clone> {
 pub struct TransactionSender<T: Send + Clone + Sync> {
     unconfirmed_txs: Arc<DashMap<Signature, TransactionData<T>>>,
     rpc_client: Arc<RpcClient>,
-    tpu_client: Option<QuicTpuClient>,
-    ws_url: String,
+    tpu_conduit: tpu_conduit::TpuConduit,
     result_tx: Sender<CompletedTransactionTask<T>>,
     payer: Arc<Keypair>,
     max_re_sign_count: u32,
-    last_tpu_use: u64,
 }
 
 impl<T: Send + Clone + Sync> TransactionSender<T> {
@@ -78,50 +71,16 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         result_tx: Sender<CompletedTransactionTask<T>>,
         max_re_sign_count: u32,
     ) -> Result<Self, Error> {
+        let tpu_conduit = tpu_conduit::TpuConduit::new(rpc_client.clone(), ws_url);
         Ok(Self {
             unconfirmed_txs: Arc::new(DashMap::new()),
             rpc_client,
-            tpu_client: None,
-            ws_url,
+            tpu_conduit,
             result_tx,
             payer,
             max_re_sign_count,
-            last_tpu_use: 0,
         })
     }
-
-    async fn ensure_tpu_client(&mut self) -> Result<(), Error> {
-        if self.tpu_client.is_none() {
-            info!("Initializing TPU client");
-            match TpuClient::new(
-                "transaction-sender",
-                self.rpc_client.clone(),
-                &self.ws_url,
-                TpuClientConfig::default(),
-            )
-            .await
-            {
-                Ok(new_client) => {
-                    self.tpu_client = Some(new_client);
-                }
-                Err(e) => {
-                    error!("Failed to initialize TPU client: {:?}", e);
-                    return Err(Error::TpuSenderError(e.to_string()));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    async fn shutdown_tpu_client(&mut self) {
-        if let Some(tpu) = &mut self.tpu_client {
-            info!("Shutting down TPU client due to inactivity");
-            tpu.shutdown().await;
-            self.tpu_client = None;
-        }
-    }
-
-    const TPU_SHUTDOWN_THRESHOLD: u64 = 60; // Shutdown TPU client after 60 seconds of inactivity
 
     pub async fn handle_packed_tx(
         &self,
@@ -184,6 +143,22 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         Ok(())
     }
 
+    async fn re_handle_unconfirmed<'a, I: Iterator<Item = &'a Signature>>(
+        &self,
+        signatures: I,
+        blockhash_rx: &blockhash_watcher::MessageReceiver,
+    ) -> Result<(), Error> {
+        for signature in signatures {
+            // Blockhash expired, increment resign count and retry via rpc
+            if let Some((_, data)) = self.unconfirmed_txs.remove(signature) {
+                // Create new packed transaction with incremented resign count
+                let new_packed = data.packed_tx.with_incremented_re_sign_count();
+                self.handle_packed_tx(new_packed, blockhash_rx).await?;
+            }
+        }
+        Ok(())
+    }
+
     async fn send_transaction_with_rpc(&self, tx: &VersionedTransaction) -> Result<(), Error> {
         match self.rpc_client.send_transaction(tx).await {
             Ok(_) => {
@@ -202,24 +177,8 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         blockhash_rx: &blockhash_watcher::MessageReceiver,
     ) -> Result<(), Error> {
         let current_height = blockhash_rx.borrow().current_block_height;
-        let current_time = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-        {
-            Ok(duration) => duration.as_secs(),
-            Err(e) => {
-                return Err(Error::SystemTimeError(e.to_string()));
-            }
-        };
-
-        // Check if we should shutdown TPU client due to inactivity
-        if self.last_tpu_use > 0
-            && current_time.saturating_sub(self.last_tpu_use) > Self::TPU_SHUTDOWN_THRESHOLD
-        {
-            self.shutdown_tpu_client().await;
-        }
-
         // Check confirmations
         let signatures: Vec<_> = self.unconfirmed_txs.iter().map(|r| *r.key()).collect();
-
         if signatures.is_empty() {
             return Ok(());
         }
@@ -254,39 +213,27 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         }
 
         // Retry unconfirmed via TPU or resign if blockhash expired
-        if !self.unconfirmed_txs.is_empty() && self.ensure_tpu_client().await.is_ok() {
-            for entry in self.unconfirmed_txs.iter() {
-                let signature = *entry.key();
-                let data = entry.value();
+        if !self.unconfirmed_txs.is_empty() && self.tpu_conduit.connect().await.is_ok() {
+            let (unexpired, expired): (Vec<_>, Vec<_>) = self
+                .unconfirmed_txs
+                .iter()
+                .partition(|entry| entry.value().last_valid_block_height < current_height);
 
-                if current_height < data.last_valid_block_height {
-                    if let Some(tpu) = &self.tpu_client {
-                        match tokio::time::timeout(
-                            SEND_TIMEOUT,
-                            tpu.send_wire_transaction(data.serialized_tx.clone()),
-                        )
-                        .await
-                        {
-                            Ok(true) => {
-                                self.last_tpu_use = current_time;
-                            }
-                            _ => {
-                                // Blockhash expired, increment resign count and retry via rpc
-                                self.unconfirmed_txs.remove(&signature);
-                                // Create new packed transaction with incremented resign count
-                                let new_packed = data.packed_tx.with_incremented_re_sign_count();
-                                self.handle_packed_tx(new_packed, blockhash_rx).await?;
-                            }
-                        }
-                    }
-                } else {
-                    // Blockhash expired, increment resign count and retry via rpc
-                    self.unconfirmed_txs.remove(&signature);
-                    // Create new packed transaction with incremented resign count
-                    let new_packed = data.packed_tx.with_incremented_re_sign_count();
-                    self.handle_packed_tx(new_packed, blockhash_rx).await?;
-                }
+            let unexpired_wire_txns = unexpired
+                .iter()
+                .map(|entry| entry.value().serialized_tx.clone())
+                .collect_vec();
+            if self
+                .tpu_conduit
+                .send_batch(unexpired_wire_txns)
+                .await
+                .is_err()
+            {
+                self.re_handle_unconfirmed(unexpired.iter().map(|entry| entry.key()), blockhash_rx)
+                    .await?;
             }
+            self.re_handle_unconfirmed(expired.iter().map(|entry| entry.key()), blockhash_rx)
+                .await?;
         }
 
         Ok(())
@@ -312,15 +259,14 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         loop {
             tokio::select! {
                 _ = handle.on_shutdown_requested() => {
-                    if let Some(tpu) = &mut self.tpu_client {
-                        tpu.shutdown().await;
-                    }
+                    self.tpu_conduit.disconnect().await;
                     return Ok(());
                 }
                 Some(packed_tx) = rx.recv() => {
                     self.handle_packed_tx(packed_tx, &blockchain_rx).await?;
                 }
                 _ = check_interval.tick() => {
+                    self.tpu_conduit.maybe_disconnect().await;
                     self.check_and_retry(&blockchain_rx).await?;
                 }
             }
