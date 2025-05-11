@@ -1,0 +1,171 @@
+@import 'tailwindcss/base';
+@import './fonts.css';
+@import './prism.css';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+@layer base {
+  [inert] ::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 173 80% 40%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 173 80% 40%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 173 70% 50%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 173 70% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+:root {
+  --bg-opacity-light: 0.5;
+  --bg-opacity-dark: 0.2;
+  --color-borders: #afafaf;
+  --color-nav-drawer-bg: transparent;
+  --hero-shape-stroke: red;
+}
+
+#trail-nav::before {
+  clip-path: inset(0 95% 0 0);
+  content: '';
+  border-left: 2px solid var(--color-borders);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  pointer-events: none;
+  height: calc(100% - 10px);
+}
+
+#trail-nav-link::before {
+  clip-path: inset(0 10% 0 0);
+  position: absolute;
+  content: '';
+  border-left: 2px solid var(--color-borders);
+  border-bottom: 2px solid var(--color-borders);
+  border-bottom-left-radius: 0.625rem;
+  top: 0;
+  left: 0;
+  width: 10px;
+  pointer-events: none;
+  height: 50px;
+  height: 0.875rem;
+}
+
+.trail-nav-link::before {
+  clip-path: inset(0 10% 0 0);
+  position: absolute;
+  content: '';
+  border-left: 2px solid var(--color-borders);
+  border-bottom: 2px solid var(--color-borders);
+  border-bottom-left-radius: 0.625rem;
+  top: 0;
+  left: 0;
+  width: 10px;
+  pointer-events: none;
+  height: 0.875rem;
+}
+
+#trail-nav li:last-child::after {
+  content: '';
+  border-radius: 10px;
+  background: var(--color-nav-drawer-bg);
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  height: calc(100% - 0.65rem);
+}
+
+.animate-breathe, .animation-wrapper {
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden; /* For older versions of Chrome */
+  transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d; /* For older versions of Chrome */
+}
+
+.hex {
+  position: relative;
+  background: inherit;
+  border-radius: 40px;
+  height: 325px;
+  width: 220px;
+}
+
+.hex:before,
+.hex:after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  background: inherit;
+  border-radius: inherit;
+  height: 100%;
+  width: 100%;
+  top: 0;
+  left: 0;
+}
+.hex:before {
+  -webkit-transform: rotate(60deg);
+  -moz-transform: rotate(60deg);
+  -webkit-transform: rotate(-60deg);
+  -moz-transform: rotate(-60deg);
+  transform: rotate(60deg);
+}
+.hex:after {
+  -webkit-transform: rotate(60deg);
+  -moz-transform: rotate(60deg);
+  -webkit-transform: rotate(-60deg);
+  -moz-transform: rotate(-60deg);
+  transform: rotate(-60deg);
+}
