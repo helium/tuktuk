@@ -247,7 +247,6 @@ impl TimedTask {
                 TransactionQueueError::IxGroupTooLarge => "IxGroupTooLarge",
                 TransactionQueueError::RawSimulatedTransactionError(_) => "RawSimulated",
                 TransactionQueueError::RpcError(_) => "RpcError",
-                TransactionQueueError::TransportError(_) => "TransportError",
                 TransactionQueueError::InstructionError(_) => "InstructionError",
                 TransactionQueueError::SerializationError(_) => "SerializationError",
                 TransactionQueueError::CompileError(_) => "CompileError",
@@ -290,7 +289,6 @@ impl TimedTask {
                 TransactionQueueError::RawTransactionError(_)
                 | TransactionQueueError::SimulatedTransactionError(_)
                 | TransactionQueueError::TransactionError(_)
-                | TransactionQueueError::TransportError(_)
                 | TransactionQueueError::RpcError(_)
                 | TransactionQueueError::ChannelClosed
                 | TransactionQueueError::MaxRetriesExceeded => {

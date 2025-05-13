@@ -173,7 +173,6 @@ impl Cli {
         let (packed_tx_sender, packed_tx_receiver) = channel(PACKED_TX_CHANNEL_CAPACITY);
         let sender = TransactionSender::new(
             tx_sender_rpc_client.clone(),
-            solana_ws_url.clone(),
             payer.clone(),
             handles.result_sender.clone(),
             settings.sender_max_re_sign_count,

@@ -2,25 +2,28 @@ use crate::{
     blockhash_watcher,
     error::Error,
     queue::{CompletedTransactionTask, TransactionTask},
-    tpu_conduit,
 };
 use dashmap::DashMap;
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::{stream, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
+    hash::Hash,
     instruction::Instruction,
     message::{v0, AddressLookupTableAccount, VersionedMessage},
     signature::{Keypair, Signature},
     signer::Signer,
     transaction::VersionedTransaction,
 };
+use solana_transaction_status::TransactionStatus;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_graceful_shutdown::{SubsystemBuilder, SubsystemHandle};
+use tracing::warn;
 
 const CONFIRMATION_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 const MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS: usize = 100;
+const RPC_TXN_SEND_CONCURRENCY: usize = 50;
 
 #[derive(Clone, Debug)]
 pub struct PackedTransactionWithTasks<T: Send + Clone> {
@@ -44,20 +47,53 @@ impl<T: Send + Clone> PackedTransactionWithTasks<T> {
             .flatten()
             .collect_vec()
     }
+
+    pub fn into_completions_with_status<E: Into<Error>>(
+        self,
+        err: Option<E>,
+        fee: Option<u64>,
+    ) -> impl Stream<Item = CompletedTransactionTask<T>> {
+        let err = err.map(Into::into);
+        let num_tasks = self.tasks.len();
+        stream::iter(self.tasks).map(move |task| CompletedTransactionTask {
+            err: err.clone(),
+            fee: fee.unwrap_or_else(|| self.fee.div_ceil(num_tasks as u64)),
+            task,
+        })
+    }
+
+    pub fn mk_transaction<S: Signer>(
+        &self,
+        max_re_sign_count: u32,
+        blockhash: Hash,
+        signer: S,
+    ) -> Result<VersionedTransaction, Error> {
+        if self.re_sign_count >= max_re_sign_count {
+            return Err(Error::StaleTransaction);
+        }
+
+        let message = v0::Message::try_compile(
+            &signer.pubkey(),
+            &self.instructions,
+            &self.lookup_tables(),
+            blockhash,
+        )?;
+
+        VersionedTransaction::try_new(VersionedMessage::V0(message), &[signer])
+            .map_err(Error::signer)
+    }
 }
 
 #[derive(Debug, Clone)]
 struct TransactionData<T: Send + Clone> {
     packed_tx: PackedTransactionWithTasks<T>,
+    tx: VersionedTransaction,
     last_valid_block_height: u64,
-    serialized_tx: Vec<u8>,
-    sent_to_rpc: bool,
 }
 
 pub struct TransactionSender<T: Send + Clone + Sync> {
     unconfirmed_txs: Arc<DashMap<Signature, TransactionData<T>>>,
     rpc_client: Arc<RpcClient>,
-    tpu_conduit: tpu_conduit::TpuConduit,
     result_tx: Sender<CompletedTransactionTask<T>>,
     payer: Arc<Keypair>,
     max_re_sign_count: u32,
@@ -66,177 +102,187 @@ pub struct TransactionSender<T: Send + Clone + Sync> {
 impl<T: Send + Clone + Sync> TransactionSender<T> {
     pub async fn new(
         rpc_client: Arc<RpcClient>,
-        ws_url: String,
         payer: Arc<Keypair>,
         result_tx: Sender<CompletedTransactionTask<T>>,
         max_re_sign_count: u32,
     ) -> Result<Self, Error> {
-        let tpu_conduit = tpu_conduit::TpuConduit::new(rpc_client.clone(), ws_url);
         Ok(Self {
             unconfirmed_txs: Arc::new(DashMap::new()),
             rpc_client,
-            tpu_conduit,
             result_tx,
             payer,
             max_re_sign_count,
         })
     }
 
-    pub async fn handle_packed_tx(
+    async fn handle_packed_tx(
         &self,
         packed_tx: PackedTransactionWithTasks<T>,
         blockhash_rx: &blockhash_watcher::MessageReceiver,
-    ) -> Result<(), Error> {
-        if let Err(e) = self.process_packed_tx(&packed_tx, blockhash_rx).await {
-            // Handle processing error by notifying all tasks
-            stream::iter(packed_tx.tasks)
-                .map(|task| Ok((task, Some(e.clone()))))
-                .try_for_each(|(task, err)| async move {
-                    self.result_tx
-                        .send(CompletedTransactionTask { err, task, fee: 0 })
-                        .await
-                })
-                .await?
+    ) {
+        match self.send_packed_tx(&packed_tx, blockhash_rx).await {
+            Err(err) => {
+                warn!(?err, "sending packed transaction");
+                self.handle_completions(packed_tx.into_completions_with_status(Some(err), Some(0)))
+                    .await;
+            }
+            Ok(tx) => {
+                // Add to unconfirmed map
+                self.unconfirmed_txs.insert(
+                    tx.signatures[0],
+                    TransactionData {
+                        tx,
+                        packed_tx: packed_tx.clone(),
+                        last_valid_block_height: blockhash_rx.borrow().last_valid_block_height,
+                    },
+                );
+            }
         }
-
-        Ok(())
     }
 
-    pub async fn process_packed_tx(
+    pub async fn send_packed_tx(
         &self,
-        packed: &PackedTransactionWithTasks<T>,
+        packed_tx: &PackedTransactionWithTasks<T>,
         blockhash_rx: &blockhash_watcher::MessageReceiver,
-    ) -> Result<(), Error> {
-        // Check if transaction has been resigned too many times
-        if packed.re_sign_count >= self.max_re_sign_count {
-            return Err(Error::StaleTransaction);
-        }
-
+    ) -> Result<VersionedTransaction, Error> {
         let blockhash = blockhash_rx.borrow().last_valid_blockhash;
-        let message = v0::Message::try_compile(
-            &self.payer.pubkey(),
-            &packed.instructions,
-            &packed.lookup_tables(),
-            blockhash,
-        )?;
-
-        let tx = VersionedTransaction::try_new(VersionedMessage::V0(message), &[&*self.payer])
-            .map_err(Error::signer)?;
-
-        let serialized = bincode::serialize(&tx).map_err(Error::serialization)?;
-        let signature = tx.signatures[0];
-
-        // Initial send via RPC
-        self.send_transaction_with_rpc(&tx).await?;
-
-        // Add to unconfirmed map
-        self.unconfirmed_txs.insert(
-            signature,
-            TransactionData {
-                packed_tx: packed.clone(),
-                last_valid_block_height: blockhash_rx.borrow().last_valid_block_height,
-                serialized_tx: serialized,
-                sent_to_rpc: false,
-            },
-        );
-
-        Ok(())
+        let tx = packed_tx.mk_transaction(self.max_re_sign_count, blockhash, &self.payer)?;
+        let Some((_, result)) = self.send_transactions(&[tx.clone()]).next().await else {
+            return Err(Error::RpcError("Unexpected stream close".to_string()));
+        };
+        result.map(|_| tx)
     }
 
-    async fn re_handle_unconfirmed<'a, I: Iterator<Item = &'a Signature>>(
+    pub fn send_transactions<'a>(
+        &'a self,
+        txns: &'a [VersionedTransaction],
+    ) -> impl Stream<Item = (Signature, Result<(), Error>)> + use<'a, T> {
+        stream::iter(txns)
+            .map(move |txn| {
+                let signature = txn.signatures[0];
+                let rpc_client = self.rpc_client.clone();
+                async move {
+                    (
+                        signature,
+                        rpc_client
+                            .send_transaction(txn)
+                            .map_ok(|_| ())
+                            .map_err(Error::from)
+                            .await,
+                    )
+                }
+            })
+            .buffer_unordered(RPC_TXN_SEND_CONCURRENCY)
+    }
+
+    async fn handle_expired<I: Stream<Item = Signature>>(
         &self,
         signatures: I,
         blockhash_rx: &blockhash_watcher::MessageReceiver,
-    ) -> Result<(), Error> {
-        for signature in signatures {
-            // Blockhash expired, increment resign count and retry via rpc
-            if let Some((_, data)) = self.unconfirmed_txs.remove(signature) {
-                // Create new packed transaction with incremented resign count
-                let new_packed = data.packed_tx.with_incremented_re_sign_count();
-                self.handle_packed_tx(new_packed, blockhash_rx).await?;
-            }
-        }
-        Ok(())
+    ) {
+        signatures
+            .filter_map(|signature| async move {
+                self.unconfirmed_txs
+                    .remove(&signature)
+                    .map(|(_, data)| data.packed_tx.with_incremented_re_sign_count())
+            })
+            .for_each_concurrent(RPC_TXN_SEND_CONCURRENCY, |packed_tx| async move {
+                self.handle_packed_tx(packed_tx, blockhash_rx).await
+            })
+            .await
     }
 
-    async fn send_transaction_with_rpc(&self, tx: &VersionedTransaction) -> Result<(), Error> {
-        match self.rpc_client.send_transaction(tx).await {
-            Ok(_) => {
-                let sig = tx.signatures[0];
-                if let Some(mut data) = self.unconfirmed_txs.get_mut(&sig) {
-                    data.sent_to_rpc = true;
+    async fn handle_completed<I: Stream<Item = (Signature, TransactionStatus)>>(
+        &self,
+        signature_statuses: I,
+    ) {
+        let completions = signature_statuses
+            // Look up transaction data for signature
+            .filter_map(|(signature, status)| async move {
+                self.unconfirmed_txs
+                    .remove(&signature)
+                    .map(|(_, v)| (v, status))
+            })
+            // Map status into completion messages
+            .flat_map(|(data, status)| {
+                data.packed_tx
+                    .into_completions_with_status(status.err.map(Error::TransactionError), None)
+            });
+        self.handle_completions(completions).await
+    }
+
+    async fn handle_completions<S: Stream<Item = CompletedTransactionTask<T>>>(
+        &self,
+        completions: S,
+    ) {
+        let _ = completions
+            .map(Ok)
+            .try_for_each(|completion| async move { self.result_tx.send(completion).await })
+            .map_err(Error::from)
+            .inspect_err(|err| warn!(?err, "sending task completions"))
+            .await;
+    }
+
+    async fn handle_tick(&mut self, blockhash_rx: &blockhash_watcher::MessageReceiver) {
+        // Check confirmations and process as completed
+        let signatures = self.unconfirmed_txs.iter().map(|r| *r.key()).collect_vec();
+        // Make a stream of completed (signature, status) tuples
+        let completed_txns = stream::iter(signatures)
+            .chunks(MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS)
+            .then(|signatures| {
+                let rpc_client = self.rpc_client.clone();
+                let commitment = rpc_client.commitment();
+                async move {
+                    let signature_statuses = rpc_client
+                        .get_signature_statuses(&signatures)
+                        .map_ok_or_else(
+                            |_| {
+                                std::iter::repeat_n(None, signatures.len())
+                                    .collect_vec()
+                                    .into_iter()
+                            },
+                            |response| response.value.into_iter(),
+                        )
+                        .await
+                        .zip(signatures)
+                        .filter_map(move |(maybe_status, signature)| {
+                            maybe_status.and_then(|status| {
+                                status
+                                    .satisfies_commitment(commitment)
+                                    .then_some((signature, status))
+                            })
+                        });
+                    stream::iter(signature_statuses)
                 }
-                Ok(())
-            }
-            Err(e) => Err(e.into()),
-        }
-    }
+            })
+            .flatten_unordered(10);
+        // Remove completed and notify
+        self.handle_completed(completed_txns).await;
 
-    async fn check_and_retry(
-        &mut self,
-        blockhash_rx: &blockhash_watcher::MessageReceiver,
-    ) -> Result<(), Error> {
+        // Retry unconfirmed
         let current_height = blockhash_rx.borrow().current_block_height;
-        // Check confirmations
-        let signatures: Vec<_> = self.unconfirmed_txs.iter().map(|r| *r.key()).collect();
-        if signatures.is_empty() {
-            return Ok(());
-        }
-
-        for chunk in signatures.chunks(MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS) {
-            if let Ok(result) = self.rpc_client.get_signature_statuses(chunk).await {
-                let statuses = result.value;
-                for (signature, status) in chunk.iter().zip(statuses.into_iter()) {
-                    if let Some(status) = status {
-                        if status.satisfies_commitment(self.rpc_client.commitment()) {
-                            if let Some((_, data)) = self.unconfirmed_txs.remove(signature) {
-                                // Send results for all tasks in this transaction
-                                let num_packed_tasks = data.packed_tx.tasks.len();
-                                for task in data.packed_tx.tasks {
-                                    let err = status.err.clone().map(Error::TransactionError);
-                                    self.result_tx
-                                        .send(CompletedTransactionTask {
-                                            err,
-                                            task,
-                                            fee: data
-                                                .packed_tx
-                                                .fee
-                                                .div_ceil(num_packed_tasks as u64),
-                                        })
-                                        .await?
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Retry unconfirmed via TPU or resign if blockhash expired
-        if !self.unconfirmed_txs.is_empty() && self.tpu_conduit.connect().await.is_ok() {
+        if !self.unconfirmed_txs.is_empty() {
             let (unexpired, expired): (Vec<_>, Vec<_>) = self
                 .unconfirmed_txs
                 .iter()
                 .partition(|entry| entry.value().last_valid_block_height < current_height);
 
-            let unexpired_wire_txns = unexpired
+            // Resend unexpred/unconfirmed to rpc
+            let unexpired_txns = unexpired
                 .iter()
-                .map(|entry| entry.value().serialized_tx.clone())
+                .map(|entry| entry.value().tx.clone())
                 .collect_vec();
-            if self
-                .tpu_conduit
-                .send_batch(unexpired_wire_txns)
-                .await
-                .is_err()
-            {
-                self.re_handle_unconfirmed(unexpired.iter().map(|entry| entry.key()), blockhash_rx)
-                    .await?;
-            }
-            self.re_handle_unconfirmed(expired.iter().map(|entry| entry.key()), blockhash_rx)
-                .await?;
-        }
+            // Collect failed transactions (likely expired) and handle as expired
+            let unexpired_error_signatures = self
+                .send_transactions(unexpired_txns.as_slice())
+                .filter_map(|(signature, result)| async move { result.err().map(|_| signature) });
+            self.handle_expired(unexpired_error_signatures, blockhash_rx)
+                .await;
 
-        Ok(())
+            let expired_signatures = expired.iter().map(|entry| *entry.key());
+            self.handle_expired(stream::iter(expired_signatures), blockhash_rx)
+                .await;
+        }
     }
 
     pub async fn run(
@@ -259,15 +305,13 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         loop {
             tokio::select! {
                 _ = handle.on_shutdown_requested() => {
-                    self.tpu_conduit.disconnect().await;
                     return Ok(());
                 }
                 Some(packed_tx) = rx.recv() => {
-                    self.handle_packed_tx(packed_tx, &blockchain_rx).await?;
+                    self.handle_packed_tx(packed_tx, &blockchain_rx).await;
                 }
                 _ = check_interval.tick() => {
-                    self.tpu_conduit.maybe_disconnect().await;
-                    self.check_and_retry(&blockchain_rx).await?;
+                    self.handle_tick(&blockchain_rx).await;
                 }
             }
         }

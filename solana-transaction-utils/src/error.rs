@@ -1,7 +1,5 @@
 use solana_sdk::{message::CompileError, transaction::TransactionError};
 
-use crate::tpu_conduit;
-
 #[derive(Debug, thiserror::Error, Clone)]
 pub enum Error {
     #[error("RPC error: {0}")]
@@ -16,8 +14,6 @@ pub enum Error {
     SignerError(String),
     #[error("Ix group too large")]
     IxGroupTooLarge,
-    #[error(transparent)]
-    TransportError(#[from] tpu_conduit::Error),
     #[error("Max retries exceeded")]
     MaxRetriesExceeded,
     #[error("Transaction error: {0}")]
