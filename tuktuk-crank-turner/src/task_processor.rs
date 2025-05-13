@@ -125,7 +125,7 @@ impl TimedTask {
                 self.handle_completion(
                     ctx,
                     Some(TransactionQueueError::RawSimulatedTransactionError(
-                        format!("Failed to get instructions: {:?}", err),
+                        format!("Failed to get instructions: {err:?}"),
                     )),
                     0,
                 )

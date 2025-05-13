@@ -403,10 +403,10 @@ impl TaskCmd {
                                 )
                                 .await?;
 
-                            println!("Tx sent: {}", txid);
+                            println!("Tx sent: {txid}");
                         }
                         Err(e) => {
-                            println!("Error running task: {}", e);
+                            println!("Error running task: {e:?}");
                         }
                     }
                 }
