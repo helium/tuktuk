@@ -1,11 +1,6 @@
 use std::str::FromStr;
 
-use anchor_lang::{
-    prelude::*,
-    solana_program::instruction::Instruction,
-    system_program::{transfer, Transfer},
-    InstructionData,
-};
+use anchor_lang::{prelude::*, solana_program::instruction::Instruction, InstructionData};
 use chrono::{DateTime, Utc};
 use clockwork_cron::Schedule;
 use tuktuk_program::{
@@ -19,11 +14,7 @@ use tuktuk_program::{
 };
 
 use super::QUEUE_TASK_DELAY;
-use crate::{
-    error::ErrorCode,
-    hash_name,
-    state::{CronJobNameMappingV0, CronJobV0, UserCronJobsV0},
-};
+use crate::{error::ErrorCode, state::CronJobV0};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
 pub struct RequeueCronTaskArgsV0 {
@@ -151,7 +142,7 @@ pub fn handler(ctx: Context<RequeueCronTaskV0>, args: RequeueCronTaskArgsV0) -> 
             transaction: TransactionSourceV0::CompiledV0(queue_tx),
             crank_reward: None,
             free_tasks: ctx.accounts.cron_job.num_tasks_per_queue_call + 1,
-            id: ctx.accounts.task_queue.next_available_task_id().unwrap(),
+            id: args.task_id,
             description: format!("queue {}", trunc_name),
         },
     )?;
