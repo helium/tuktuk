@@ -69,7 +69,7 @@ pub mod cron {
         cron::{
             self,
             accounts::{CronJobV0, UserCronJobsV0},
-            types::InitializeCronJobArgsV0,
+            types::{InitializeCronJobArgsV0, RequeueCronTaskArgsV0},
             ID,
         },
         TaskQueueV0,
@@ -235,6 +235,63 @@ pub mod cron {
             rent_refund,
             user_crons_key,
             cron_job.name,
+        )
+    }
+
+    pub fn requeue_ix(
+        payer: Pubkey,
+        authority: Pubkey,
+        queue_authority: Pubkey,
+        cron_job_key: Pubkey,
+        task_queue_key: Pubkey,
+        task_id: u16,
+    ) -> Result<Instruction, Error> {
+        Ok(Instruction {
+            program_id: ID,
+            accounts: cron::client::accounts::RequeueCronTaskV0 {
+                cron_job: cron_job_key,
+                task_queue: task_queue_key,
+                task: task::key(&task_queue_key, task_id),
+                system_program: solana_sdk::system_program::ID,
+                payer,
+                authority,
+                queue_authority,
+                task_queue_authority: task_queue_authority_key(&task_queue_key, &queue_authority),
+                task_return_account_1: self::task_return_account_1_key(&cron_job_key),
+                task_return_account_2: self::task_return_account_2_key(&cron_job_key),
+                tuktuk_program: tuktuk_program::tuktuk::ID,
+            }
+            .to_account_metas(None),
+            data: cron::client::args::RequeueCronTaskV0 {
+                args: RequeueCronTaskArgsV0 { task_id },
+            }
+            .data(),
+        })
+    }
+
+    pub async fn requeue<C: GetAnchorAccount>(
+        client: &C,
+        payer: Pubkey,
+        queue_authority: Pubkey,
+        cron_job_key: Pubkey,
+    ) -> Result<Instruction, Error> {
+        let cron_job: CronJobV0 = client
+            .anchor_account(&cron_job_key)
+            .await?
+            .ok_or_else(|| Error::AccountNotFound)?;
+        let task_queue_key = cron_job.task_queue;
+        let task_queue: TaskQueueV0 = client
+            .anchor_account(&task_queue_key)
+            .await?
+            .ok_or_else(|| Error::AccountNotFound)?;
+
+        requeue_ix(
+            payer,
+            cron_job.authority,
+            queue_authority,
+            cron_job_key,
+            task_queue_key,
+            task_queue.next_available_task_id().unwrap(),
         )
     }
 }

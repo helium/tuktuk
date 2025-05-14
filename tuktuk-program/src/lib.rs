@@ -93,6 +93,29 @@ impl TaskQueueV0 {
     }
 }
 
+impl From<CompiledTransactionV0> for cron::types::CompiledTransactionV0 {
+    fn from(value: CompiledTransactionV0) -> Self {
+        cron::types::CompiledTransactionV0 {
+            num_ro_signers: value.num_ro_signers,
+            num_rw_signers: value.num_rw_signers,
+            num_rw: value.num_rw,
+            instructions: value.instructions.into_iter().map(|ix| ix.into()).collect(),
+            signer_seeds: value.signer_seeds,
+            accounts: value.accounts,
+        }
+    }
+}
+
+impl From<CompiledInstructionV0> for cron::types::CompiledInstructionV0 {
+    fn from(value: CompiledInstructionV0) -> Self {
+        cron::types::CompiledInstructionV0 {
+            program_id_index: value.program_id_index,
+            accounts: value.accounts,
+            data: value.data,
+        }
+    }
+}
+
 pub fn compile_transaction(
     instructions: Vec<Instruction>,
     signer_seeds: Vec<Vec<Vec<u8>>>,

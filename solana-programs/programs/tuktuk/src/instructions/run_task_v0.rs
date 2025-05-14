@@ -204,6 +204,15 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             accounts.push(acct);
         }
 
+        // Pass free tasks as remaining accounts so the task can know which IDs will be used
+        let free_tasks = &self.ctx.remaining_accounts[self.free_task_index..];
+        accounts.extend(free_tasks.iter().cloned());
+        account_infos.extend(free_tasks.iter().map(|acct| AccountMeta {
+            pubkey: acct.key(),
+            is_signer: false,
+            is_writable: false,
+        }));
+
         let signer_seeds: Vec<Vec<&[u8]>> = self
             .signers
             .iter()

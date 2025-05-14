@@ -138,31 +138,34 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
         .chars()
         .take(32)
         .collect::<String>();
-    let tasks = (0..num_tasks_to_queue as usize)
-        .filter_map(|i| {
-            let transaction = ctx.remaining_accounts[i].clone();
-            if transaction.data_is_empty() {
-                return None;
-            }
+    let tasks = std::iter::once(TaskReturnV0 {
+        trigger: TriggerV0::Timestamp(ctx.accounts.cron_job.current_exec_ts - QUEUE_TASK_DELAY),
+        transaction: TransactionSourceV0::CompiledV0(queue_tx),
+        crank_reward: None,
+        free_tasks: ctx.accounts.cron_job.num_tasks_per_queue_call + 1,
+        description: format!("queue {}", trunc_name),
+    })
+    .chain((0..num_tasks_to_queue as usize).filter_map(|i| {
+        let transaction = ctx.remaining_accounts[i].clone();
+        if transaction.data_is_empty() {
+            return None;
+        }
 
-            let parsed_transaction: CronJobTransactionV0 =
-                AccountDeserialize::try_deserialize(&mut &transaction.data.borrow()[..]).ok()?;
+        let parsed_transaction: CronJobTransactionV0 =
+            AccountDeserialize::try_deserialize(&mut &transaction.data.borrow()[..]).ok()?;
 
-            Some(TaskReturnV0 {
-                trigger,
-                transaction: parsed_transaction.transaction,
-                crank_reward: None,
-                free_tasks: free_tasks_per_transaction,
-                description: format!("{} {}", trunc_name, parsed_transaction.id),
-            })
-        })
-        .chain(std::iter::once(TaskReturnV0 {
-            trigger: TriggerV0::Timestamp(ctx.accounts.cron_job.current_exec_ts - QUEUE_TASK_DELAY),
-            transaction: TransactionSourceV0::CompiledV0(queue_tx),
+        Some(TaskReturnV0 {
+            trigger,
+            transaction: parsed_transaction.transaction,
             crank_reward: None,
-            free_tasks: ctx.accounts.cron_job.num_tasks_per_queue_call + 1,
-            description: format!("queue {}", trunc_name),
-        }));
+            free_tasks: free_tasks_per_transaction,
+            description: format!("{} {}", trunc_name, parsed_transaction.id),
+        })
+    }));
+
+    // Past all the CronJobTransaction are the free tasks
+    ctx.accounts.cron_job.next_schedule_task =
+        ctx.remaining_accounts[num_tasks_to_queue as usize].key();
 
     let res = write_return_tasks(WriteReturnTasksArgs {
         program_id: crate::ID,
@@ -206,6 +209,7 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
                     cron_job_info.lamports()
                 );
                 ctx.accounts.cron_job.removed_from_queue = true;
+                ctx.accounts.cron_job.next_schedule_task = Pubkey::default();
                 Ok(RunTaskReturnV0 {
                     tasks: vec![],
                     accounts: vec![],
