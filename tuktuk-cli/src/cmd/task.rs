@@ -45,6 +45,14 @@ pub enum Cmd {
         description: Option<String>,
         #[arg(long, default_value = "false")]
         skip_simulate: bool,
+        #[arg(
+            long,
+            help = "Only show tasks that could be executed now",
+            default_value = "false"
+        )]
+        active: bool,
+        #[arg(long, help = "Limit the number of tasks returned")]
+        limit: Option<u32>,
     },
     Run {
         #[command(flatten)]
@@ -140,6 +148,8 @@ impl TaskCmd {
                 task_queue,
                 description,
                 skip_simulate,
+                active,
+                limit,
             } => {
                 let client = opts.client().await?;
                 let task_queue_pubkey = task_queue.get_pubkey(&client).await?.unwrap();
@@ -154,18 +164,26 @@ impl TaskCmd {
                     .as_ref()
                     .anchor_accounts::<TaskV0>(&task_keys)
                     .await?;
-                let filtered_tasks = tasks.into_iter().filter(|(_, task)| {
-                    if let Some(task) = task {
-                        if let Some(description) = description {
-                            return task.description.starts_with(description);
-                        }
-                    }
-                    true
-                });
 
                 let clock_acc = client.rpc_client.get_account(&SYSVAR_CLOCK).await?;
                 let clock: solana_sdk::clock::Clock = bincode::deserialize(&clock_acc.data)?;
                 let now = clock.unix_timestamp;
+
+                let filtered_tasks = tasks.into_iter().filter(|(_, task)| {
+                    if let Some(task) = task {
+                        if let Some(description) = description {
+                            if !task.description.starts_with(description) {
+                                return false;
+                            }
+                        }
+                        let is_task_active = task.trigger.is_active(now);
+                        if *active != is_task_active {
+                            return false;
+                        }
+                        return true;
+                    }
+                    false
+                });
 
                 let mut json_tasks = Vec::new();
                 for (pubkey, maybe_task) in filtered_tasks {
@@ -189,6 +207,12 @@ impl TaskCmd {
                                 None
                             },
                         });
+
+                        if let Some(limit) = limit {
+                            if json_tasks.len() >= *limit as usize {
+                                break;
+                            }
+                        }
                     }
                 }
                 print_json(&json_tasks)?;

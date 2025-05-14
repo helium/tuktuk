@@ -268,6 +268,10 @@ describe("cron", () => {
         },
         "confirmed"
       ));
+
+      const cronJobV0 = await cronProgram.account.cronJobV0.fetch(cronJob);
+      const nextScheduleTask = await tuktukProgram.account.taskV0.fetchNullable(cronJobV0.nextScheduleTask);
+      expect(nextScheduleTask).to.not.be.null;
     });
   });
 });

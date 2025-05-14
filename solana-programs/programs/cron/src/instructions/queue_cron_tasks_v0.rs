@@ -164,6 +164,10 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
             description: format!("queue {}", trunc_name),
         }));
 
+    // Past all the CronJobTransaction are the free tasks
+    ctx.accounts.cron_job.next_schedule_task =
+        ctx.remaining_accounts[(2 * num_tasks_to_queue) as usize].key();
+
     let res = write_return_tasks(WriteReturnTasksArgs {
         program_id: crate::ID,
         payer_info: PayerInfo::PdaPayer(ctx.accounts.cron_job.to_account_info()),
@@ -206,6 +210,7 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
                     cron_job_info.lamports()
                 );
                 ctx.accounts.cron_job.removed_from_queue = true;
+                ctx.accounts.cron_job.next_schedule_task = Pubkey::default();
                 Ok(RunTaskReturnV0 {
                     tasks: vec![],
                     accounts: vec![],
