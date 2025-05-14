@@ -22,4 +22,3 @@ anchor-lang = { workspace = true, features = ["init-if-needed"] }
 anchor-spl = { workspace = true }
 bytemuck = "1.10.0"
 solana-zk-sdk = { workspace = true }
-
