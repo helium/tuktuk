@@ -15,6 +15,7 @@ import {
   compileTransaction,
   customSignerKey,
   init as initTuktuk,
+  nextAvailableTaskIds,
   runTask,
   taskKey,
   taskQueueKey,
@@ -135,7 +136,7 @@ describe("cron", () => {
         [[Buffer.from("test"), bumpBuffer]]
       ));
     });
-  
+
     it("initializes a cron job and runs the task on a schedule", async () => {
       const name = makeid(10);
       let userCronJobs = userCronJobsKey(me)[0];
@@ -238,15 +239,22 @@ describe("cron", () => {
       // Run the scheduled task
       const task2 = taskKey(taskQueue, 1)[0];
       const task3 = taskKey(taskQueue, 2)[0];
+      const taskQueueAcc = await tuktukProgram.account.taskQueueV0.fetch(taskQueue);
+      const task2Acc = await tuktukProgram.account.taskV0.fetch(task2);
+      const task3Acc = await tuktukProgram.account.taskV0.fetch(task3);
+      const nextAvailable = nextAvailableTaskIds(taskQueueAcc.taskBitmap, task2Acc.freeTasks + task3Acc.freeTasks);
       const ixs2 = await runTask({
         program: tuktukProgram,
         task: task2,
         crankTurner: crankTurner.publicKey,
+        nextAvailableTaskIds: nextAvailable.slice(0, task2Acc.freeTasks),
       });
+
       const ixs3 = await runTask({
         program: tuktukProgram,
         task: task3,
         crankTurner: crankTurner.publicKey,
+        nextAvailableTaskIds: nextAvailable.slice(task2Acc.freeTasks, task2Acc.freeTasks + task3Acc.freeTasks),
       });
       const tx2 = toVersionedTx(
         await populateMissingDraftInfo(provider.connection, {
@@ -268,6 +276,10 @@ describe("cron", () => {
         },
         "confirmed"
       ));
+
+      const cronJobV0 = await cronProgram.account.cronJobV0.fetch(cronJob);
+      const nextScheduleTask = await tuktukProgram.account.taskV0.fetchNullable(cronJobV0.nextScheduleTask);
+      expect(nextScheduleTask).to.not.be.null;
     });
   });
 });

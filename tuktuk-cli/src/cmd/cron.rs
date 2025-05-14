@@ -1,21 +1,14 @@
 use std::str::FromStr;
 
-use anchor_client::anchor_lang::InstructionData;
 use clap::{Args, Subcommand};
 use serde::Serialize;
 use solana_sdk::{
     instruction::Instruction, pubkey::Pubkey, signer::Signer, system_instruction::transfer,
 };
 use tuktuk::cron;
-use tuktuk_program::{
-    compile_transaction,
-    cron::{
-        accounts::{CronJobNameMappingV0, CronJobV0, UserCronJobsV0},
-        client::{accounts::QueueCronTasksV0, args::QueueCronTasksV0 as QueueCronTasksV0Args},
-        types::InitializeCronJobArgsV0,
-    },
-    types::QueueTaskArgsV0,
-    TaskQueueV0, TransactionSourceV0, TriggerV0,
+use tuktuk_program::cron::{
+    accounts::{CronJobNameMappingV0, CronJobV0, UserCronJobsV0},
+    types::InitializeCronJobArgsV0,
 };
 use tuktuk_sdk::prelude::*;
 
@@ -121,76 +114,13 @@ impl CronCmd {
     }
 
     async fn requeue_cron_job_ix(client: &CliClient, cron_job_key: &Pubkey) -> Result<Instruction> {
-        let cron_job: CronJobV0 = client
-            .rpc_client
-            .anchor_account(cron_job_key)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("Cron job not found: {}", cron_job_key))?;
-        let task_queue: TaskQueueV0 = client
-            .rpc_client
-            .anchor_account(&cron_job.task_queue)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("Task queue not found: {}", cron_job.task_queue))?;
-        let id = task_queue
-            .next_available_task_id()
-            .ok_or_else(|| anyhow::anyhow!("No available task id"))?;
-        let remaining_accounts = (cron_job.current_transaction_id
-            ..cron_job.current_transaction_id + cron_job.num_tasks_per_queue_call as u32)
-            .map(|i| {
-                Pubkey::find_program_address(
-                    &[
-                        b"cron_job_transaction",
-                        cron_job_key.as_ref(),
-                        &i.to_le_bytes(),
-                    ],
-                    &tuktuk_program::cron::ID,
-                )
-                .0
-            })
-            .collect::<Vec<Pubkey>>();
-        let (queue_tx, _) = compile_transaction(
-            vec![Instruction {
-                program_id: tuktuk_program::cron::ID,
-                accounts: [
-                    QueueCronTasksV0 {
-                        cron_job: *cron_job_key,
-                        task_queue: cron_job.task_queue,
-                        task_return_account_1: tuktuk::cron::task_return_account_1_key(
-                            cron_job_key,
-                        ),
-                        task_return_account_2: tuktuk::cron::task_return_account_2_key(
-                            cron_job_key,
-                        ),
-                        system_program: solana_sdk::system_program::ID,
-                    }
-                    .to_account_metas(None),
-                    remaining_accounts
-                        .iter()
-                        .map(|pubkey| AccountMeta::new_readonly(*pubkey, false))
-                        .collect::<Vec<AccountMeta>>(),
-                ]
-                .concat(),
-                data: QueueCronTasksV0Args {}.data(),
-            }],
-            vec![],
-        )?;
-        let trunc_name = cron_job.name.chars().take(32).collect::<String>();
-        Ok(tuktuk::task::queue(
+        Ok(tuktuk::cron::requeue(
             client.rpc_client.as_ref(),
             client.payer.pubkey(),
             client.payer.pubkey(),
-            cron_job.task_queue,
-            QueueTaskArgsV0 {
-                id,
-                description: format!("queue {}", trunc_name),
-                trigger: TriggerV0::Now,
-                transaction: TransactionSourceV0::CompiledV0(queue_tx),
-                crank_reward: None,
-                free_tasks: cron_job.num_tasks_per_queue_call + 1,
-            },
+            *cron_job_key,
         )
-        .await?
-        .1)
+        .await?)
     }
 
     pub async fn run(&self, opts: Opts) -> Result {
@@ -259,6 +189,7 @@ impl CronCmd {
                     balance: cron_job_balance,
                     num_tasks_per_queue_call: *num_tasks_per_queue_call,
                     removed_from_queue: cron_job.removed_from_queue,
+                    next_schedule_task: cron_job.next_schedule_task,
                 })?;
             }
             Cmd::Get { cron } => {
@@ -288,6 +219,7 @@ impl CronCmd {
                     balance: cron_job_balance,
                     num_tasks_per_queue_call: cron_job.num_tasks_per_queue_call,
                     removed_from_queue: cron_job.removed_from_queue,
+                    next_schedule_task: cron_job.next_schedule_task,
                 };
                 print_json(&serializable)?;
             }
@@ -406,6 +338,7 @@ impl CronCmd {
                             name: cron_job.name,
                             balance: cron_job_balance,
                             num_tasks_per_queue_call: cron_job.num_tasks_per_queue_call,
+                            next_schedule_task: cron_job.next_schedule_task,
                         });
                     }
                 }
@@ -437,4 +370,6 @@ pub struct CronJob {
     pub num_tasks_per_queue_call: u8,
     pub removed_from_queue: bool,
     pub balance: u64,
+    #[serde(with = "serde_pubkey")]
+    pub next_schedule_task: Pubkey,
 }

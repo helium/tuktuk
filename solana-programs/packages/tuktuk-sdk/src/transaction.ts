@@ -251,10 +251,12 @@ export async function runTask({
   task,
   crankTurner,
   fetcher = defaultFetcher,
+  nextAvailableTaskIds: argsNextAvailableTaskIds,
 }: {
   program: Program<Tuktuk>;
   task: PublicKey;
   crankTurner: PublicKey;
+  nextAvailableTaskIds?: number[],
   fetcher?: ({
     task,
     taskQueuedAt,
@@ -287,7 +289,7 @@ export async function runTask({
       };
     });
 
-    const nextAvailable = nextAvailableTaskIds(
+    const nextAvailable = argsNextAvailableTaskIds || nextAvailableTaskIds(
       taskQueueAcc.taskBitmap,
       freeTasks
     );

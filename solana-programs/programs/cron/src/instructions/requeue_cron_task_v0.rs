@@ -1,11 +1,6 @@
 use std::str::FromStr;
 
-use anchor_lang::{
-    prelude::*,
-    solana_program::instruction::Instruction,
-    system_program::{transfer, Transfer},
-    InstructionData,
-};
+use anchor_lang::{prelude::*, solana_program::instruction::Instruction, InstructionData};
 use chrono::{DateTime, Utc};
 use clockwork_cron::Schedule;
 use tuktuk_program::{
@@ -19,33 +14,19 @@ use tuktuk_program::{
 };
 
 use super::QUEUE_TASK_DELAY;
-use crate::{
-    error::ErrorCode,
-    hash_name,
-    state::{CronJobNameMappingV0, CronJobV0, UserCronJobsV0},
-};
+use crate::{error::ErrorCode, state::CronJobV0};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
-pub struct InitializeCronJobArgsV0 {
-    pub schedule: String,
-    pub name: String,
-    /// The number of free tasks each transaction will be executed with.
-    /// This allows transactions scheduled via cron to themselves schedule more transactions.
-    /// If none of your transactions need to schedule more transactions, set this to 0.
-    pub free_tasks_per_transaction: u8,
-    /// The number of tasks to queue per queue call.
-    /// Cron job works by queueing a single task that runs at the appropriate time. This tasks job
-    /// is to recursively queue all transactions in this cron. The higher you set this number, the more
-    /// tasks will be queued per queue call, making the tasks execute faster/more parallelized.
-    /// Setting this too high without proper lookup tables will result in the queue call being too large
-    pub num_tasks_per_queue_call: u8,
+pub struct RequeueCronTaskArgsV0 {
+    pub task_id: u16,
 }
 
 #[derive(Accounts)]
-#[instruction(args: InitializeCronJobArgsV0)]
-pub struct InitializeCronJobV0<'info> {
+#[instruction(args: RequeueCronTaskArgsV0)]
+pub struct RequeueCronTaskV0<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
+    pub authority: Signer<'info>,
     pub queue_authority: Signer<'info>,
     #[account(
         seeds = [b"task_queue_authority", task_queue.key().as_ref(), queue_authority.key().as_ref()],
@@ -53,36 +34,12 @@ pub struct InitializeCronJobV0<'info> {
         seeds::program = tuktuk_program.key(),
     )]
     pub task_queue_authority: Box<Account<'info, TaskQueueAuthorityV0>>,
-    /// CHECK: Just needed as a setting
-    pub authority: Signer<'info>,
     #[account(
-        init_if_needed,
-        payer = payer,
-        space = 8 + 60 + std::mem::size_of::<UserCronJobsV0>(),
-        seeds = [b"user_cron_jobs", authority.key().as_ref()],
-        bump
-    )]
-    pub user_cron_jobs: Box<Account<'info, UserCronJobsV0>>,
-    #[account(
-        init,
-        payer = payer,
-        space = 8 + 60 + std::mem::size_of::<CronJobV0>() + args.name.len() + args.schedule.len(),
-        seeds = [b"cron_job", authority.key().as_ref(), &user_cron_jobs.next_cron_job_id.to_le_bytes()[..]],
-        bump
+        mut,
+        has_one = authority,
+        constraint = cron_job.removed_from_queue || cron_job.next_schedule_task == Pubkey::default()
     )]
     pub cron_job: Box<Account<'info, CronJobV0>>,
-    #[account(
-        init,
-        payer = payer,
-        space = 8 + 60 + std::mem::size_of::<CronJobNameMappingV0>() + args.name.len(),
-        seeds = [
-            b"cron_job_name_mapping",
-            authority.key().as_ref(),
-            &hash_name(args.name.as_str())
-        ],
-        bump
-    )]
-    pub cron_job_name_mapping: Account<'info, CronJobNameMappingV0>,
     #[account(mut)]
     pub task_queue: Box<Account<'info, TaskQueueV0>>,
     /// CHECK: Initialized in CPI
@@ -106,23 +63,8 @@ pub struct InitializeCronJobV0<'info> {
     pub tuktuk_program: Program<'info, Tuktuk>,
 }
 
-pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0) -> Result<()> {
-    let schedule = Schedule::from_str(&args.schedule);
-    // Leave room for numerics after
-    require_gt!(
-        args.num_tasks_per_queue_call,
-        0,
-        ErrorCode::InvalidNumTasksPerQueueCall
-    );
-
-    // Do not allow more than 15 tasks per queue call otherwise the queue_cron_tasks_v0 will
-    // be too large to fit in a single transaction.
-    require_gte!(
-        15,
-        args.num_tasks_per_queue_call,
-        ErrorCode::InvalidNumTasksPerQueueCall
-    );
-
+pub fn handler(ctx: Context<RequeueCronTaskV0>, args: RequeueCronTaskArgsV0) -> Result<()> {
+    let schedule = Schedule::from_str(&ctx.accounts.cron_job.schedule);
     if let Err(e) = schedule {
         msg!("Invalid schedule: {}", e);
         return Err(error!(ErrorCode::InvalidSchedule));
@@ -134,34 +76,9 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
         Utc,
     );
 
-    ctx.accounts.user_cron_jobs.bump_seed = ctx.bumps.user_cron_jobs;
-    ctx.accounts.user_cron_jobs.authority = ctx.accounts.authority.key();
-
-    ctx.accounts.cron_job.set_inner(CronJobV0 {
-        id: ctx.accounts.user_cron_jobs.next_cron_job_id,
-        user_cron_jobs: ctx.accounts.user_cron_jobs.key(),
-        task_queue: ctx.accounts.task_queue.key(),
-        authority: ctx.accounts.authority.key(),
-        free_tasks_per_transaction: args.free_tasks_per_transaction,
-        num_tasks_per_queue_call: args.num_tasks_per_queue_call,
-        schedule: args.schedule,
-        name: args.name.clone(),
-        current_exec_ts: schedule.unwrap().next_after(now).unwrap().timestamp(),
-        current_transaction_id: 0,
-        next_transaction_id: 0,
-        bump_seed: ctx.bumps.cron_job,
-        removed_from_queue: false,
-        num_transactions: 0,
-        next_schedule_task: ctx.accounts.task.key(),
-    });
-    ctx.accounts.user_cron_jobs.next_cron_job_id += 1;
-    ctx.accounts
-        .cron_job_name_mapping
-        .set_inner(CronJobNameMappingV0 {
-            cron_job: ctx.accounts.cron_job.key(),
-            name: args.name.clone(),
-            bump_seed: ctx.bumps.cron_job_name_mapping,
-        });
+    ctx.accounts.cron_job.next_schedule_task = ctx.accounts.task.key();
+    ctx.accounts.cron_job.removed_from_queue = false;
+    ctx.accounts.cron_job.current_exec_ts = schedule.unwrap().next_after(now).unwrap().timestamp();
 
     let remaining_accounts = (ctx.accounts.cron_job.current_transaction_id
         ..ctx.accounts.cron_job.current_transaction_id
@@ -201,18 +118,6 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
         vec![],
     )?;
 
-    transfer(
-        CpiContext::new(
-            ctx.accounts.system_program.to_account_info(),
-            Transfer {
-                from: ctx.accounts.payer.to_account_info(),
-                to: ctx.accounts.task_return_account_1.to_account_info(),
-            },
-        ),
-        // Allocate enough rent for one tx
-        Rent::get()?.minimum_balance(1024),
-    )?;
-
     let trunc_name = ctx
         .accounts
         .cron_job
@@ -237,7 +142,7 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
             transaction: TransactionSourceV0::CompiledV0(queue_tx),
             crank_reward: None,
             free_tasks: ctx.accounts.cron_job.num_tasks_per_queue_call + 1,
-            id: ctx.accounts.task_queue.next_available_task_id().unwrap(),
+            id: args.task_id,
             description: format!("queue {}", trunc_name),
         },
     )?;

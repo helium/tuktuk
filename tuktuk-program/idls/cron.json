@@ -2,7 +2,7 @@
   "address": "cronAjRZnJn3MTP3B9kE62NWDrjSuAPVXf9c4hu4grM",
   "metadata": {
     "name": "cron",
-    "version": "0.2.0",
+    "version": "0.2.2",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },
@@ -352,6 +352,120 @@
           }
         }
       ]
+    },
+    {
+      "name": "requeue_cron_task_v0",
+      "discriminator": [235, 143, 86, 234, 79, 166, 165, 177],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": ["cron_job"]
+        },
+        {
+          "name": "queue_authority",
+          "signer": true
+        },
+        {
+          "name": "task_queue_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116, 97, 115, 107, 95, 113, 117, 101, 117, 101, 95, 97, 117,
+                  116, 104, 111, 114, 105, 116, 121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task_queue"
+              },
+              {
+                "kind": "account",
+                "path": "queue_authority"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "tuktuk_program"
+            }
+          }
+        },
+        {
+          "name": "cron_job",
+          "writable": true
+        },
+        {
+          "name": "task_queue",
+          "writable": true
+        },
+        {
+          "name": "task",
+          "writable": true
+        },
+        {
+          "name": "task_return_account_1",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116, 97, 115, 107, 95, 114, 101, 116, 117, 114, 110, 95, 97,
+                  99, 99, 111, 117, 110, 116, 95, 49
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "cron_job"
+              }
+            ]
+          }
+        },
+        {
+          "name": "task_return_account_2",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116, 97, 115, 107, 95, 114, 101, 116, 117, 114, 110, 95, 97,
+                  99, 99, 111, 117, 110, 116, 95, 50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "cron_job"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "tuktuk_program",
+          "address": "tuktukUrfhXT6ZT77QTU8RQtvgL967uRuVagWF57zVA"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "RequeueCronTaskArgsV0"
+            }
+          }
+        }
+      ]
     }
   ],
   "accounts": [
@@ -415,6 +529,11 @@
       "code": 6006,
       "name": "InvalidNumTasksPerQueueCall",
       "msg": "Invalid number of tasks per queue call"
+    },
+    {
+      "code": 6007,
+      "name": "TooEarly",
+      "msg": "Too early to queue tasks"
     }
   ],
   "types": [
@@ -610,6 +729,10 @@
           {
             "name": "bump_seed",
             "type": "u8"
+          },
+          {
+            "name": "next_schedule_task",
+            "type": "pubkey"
           }
         ]
       }
@@ -658,6 +781,18 @@
           {
             "name": "index",
             "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RequeueCronTaskArgsV0",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "task_id",
+            "type": "u16"
           }
         ]
       }

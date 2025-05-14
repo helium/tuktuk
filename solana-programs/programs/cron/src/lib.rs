@@ -42,4 +42,11 @@ pub mod cron {
     pub fn close_cron_job_v0(ctx: Context<CloseCronJobV0>) -> Result<()> {
         close_cron_job_v0::handler(ctx)
     }
+
+    pub fn requeue_cron_task_v0(
+        ctx: Context<RequeueCronTaskV0>,
+        args: RequeueCronTaskArgsV0,
+    ) -> Result<()> {
+        requeue_cron_task_v0::handler(ctx, args)
+    }
 }
