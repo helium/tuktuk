@@ -29,6 +29,10 @@ pub enum Error {
     FeeTooHigh,
     #[error("Transaction has failed too many retries and gone stale")]
     StaleTransaction,
+    #[error("System time error: {0}")]
+    SystemTimeError(String),
+    #[error("message channel closed")]
+    ChannelClosed,
 }
 
 impl From<solana_client::client_error::ClientError> for Error {
@@ -43,6 +47,12 @@ impl From<TpuSenderError> for Error {
     }
 }
 
+impl<T> From<tokio::sync::mpsc::error::SendError<T>> for Error {
+    fn from(_value: tokio::sync::mpsc::error::SendError<T>) -> Self {
+        Self::ChannelClosed
+    }
+}
+
 impl Error {
     pub fn signer<S: ToString>(str: S) -> Self {
         Self::SignerError(str.to_string())
@@ -50,5 +60,9 @@ impl Error {
 
     pub fn serialization<S: ToString>(str: S) -> Self {
         Self::SerializationError(str.to_string())
+    }
+
+    pub fn channel_closed() -> Error {
+        Error::ChannelClosed
     }
 }

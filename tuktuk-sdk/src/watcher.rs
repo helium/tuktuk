@@ -30,7 +30,7 @@ fn account_from_ui_account(value: &UiAccount) -> Account {
     Account {
         lamports: value.lamports,
         data: value.data.decode().unwrap_or_default(),
-        owner: Pubkey::from_str(&value.owner).unwrap(),
+        owner: Pubkey::from_str(&value.owner).unwrap_or_default(),
         executable: value.executable,
         rent_epoch: value.rent_epoch,
     }
@@ -65,7 +65,7 @@ impl PubsubTracker {
     ) -> Result<
         (
             impl Stream<Item = Result<(Account, UpdateType), Error>> + 'a,
-            Box<dyn FnOnce() -> BoxFuture<'a, ()> + 'a>,
+            Box<dyn FnOnce() -> BoxFuture<'a, ()> + Send + 'a>,
         ),
         Error,
     > {
@@ -73,7 +73,7 @@ impl PubsubTracker {
         let (subscription, unsub) = self
             .pubsub
             .account_subscribe(
-                &solana_pubkey::Pubkey::from_str(&pubkey.to_string()).unwrap(),
+                &solana_pubkey::Pubkey::from_str(&pubkey.to_string())?,
                 Some(RpcAccountInfoConfig {
                     commitment: Some(self.commitment),
                     encoding: Some(UiAccountEncoding::Base64Zstd),

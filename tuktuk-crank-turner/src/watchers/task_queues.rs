@@ -31,7 +31,7 @@ pub async fn get_and_watch_task_queues(
         .anchor_accounts::<TaskQueueV0>(&task_queue_keys)
         .await?;
 
-    let (stream, _) = task_queue::on_new(
+    let (stream, unsub) = task_queue::on_new(
         rpc_client.as_ref(),
         pubsub_tracker.as_ref(),
         &config_key,
@@ -77,7 +77,15 @@ pub async fn get_and_watch_task_queues(
         });
 
     tokio::select! {
-        res = stream_fut => res,
-        _ = handle.on_shutdown_requested() => anyhow::Ok(()),
+        res = stream_fut => {
+            if res.is_err() {
+                unsub().await;
+            }
+            res
+        },
+        _ = handle.on_shutdown_requested() => {
+            unsub().await;
+            anyhow::Ok(())
+        }
     }
 }

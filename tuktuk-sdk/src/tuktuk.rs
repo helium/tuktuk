@@ -543,7 +543,7 @@ pub mod task_queue {
     ) -> Result<
         (
             impl Stream<Item = Result<TaskQueueUpdate, Error>> + 'a,
-            Box<dyn FnOnce() -> BoxFuture<'a, ()> + 'a>,
+            Box<dyn FnOnce() -> BoxFuture<'a, ()> + Send + 'a>,
         ),
         Error,
     > {
@@ -691,7 +691,7 @@ pub mod task {
     ) -> Result<
         (
             impl Stream<Item = Result<TaskUpdate, Error>> + 'a,
-            Box<dyn FnOnce() -> BoxFuture<'a, ()> + 'a>,
+            Box<dyn FnOnce() -> BoxFuture<'a, ()> + Send + 'a>,
         ),
         Error,
     > {

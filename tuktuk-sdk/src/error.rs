@@ -40,6 +40,8 @@ pub enum Error {
     NotEnoughFreeTasks,
     #[error("Instruction error: {0}")]
     InstructionError(#[from] InstructionError),
+    #[error("Clock send error")]
+    ClockSendError,
 }
 
 impl From<solana_client::client_error::ClientError> for Error {

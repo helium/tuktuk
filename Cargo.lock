@@ -6849,11 +6849,12 @@ dependencies = [
 
 [[package]]
 name = "tuktuk-crank-turner"
-version = "0.2.16"
+version = "0.2.19"
 dependencies = [
  "anchor-client",
  "anchor-lang",
  "anyhow",
+ "bincode",
  "clap",
  "config",
  "futures",
@@ -6889,7 +6890,7 @@ dependencies = [
 
 [[package]]
 name = "tuktuk-sdk"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "anchor-lang",
  "async-trait",
@@ -6917,6 +6918,7 @@ dependencies = [
  "spl-token 4.0.2",
  "thiserror 1.0.69",
  "tokio",
+ "tokio-graceful-shutdown",
  "tokio-stream",
  "tokio-tungstenite 0.20.1",
  "tracing",
