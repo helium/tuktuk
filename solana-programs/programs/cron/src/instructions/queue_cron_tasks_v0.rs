@@ -234,6 +234,7 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
                 ctx.accounts.cron_job.to_account_info().lamports()
             );
             ctx.accounts.cron_job.removed_from_queue = true;
+            ctx.accounts.cron_job.next_schedule_task = Pubkey::default();
             Ok(RunTaskReturnV0 {
                 tasks: vec![],
                 accounts: vec![],
