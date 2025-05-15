@@ -165,7 +165,7 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
 
     // Past all the CronJobTransaction are the free tasks
     ctx.accounts.cron_job.next_schedule_task =
-        ctx.remaining_accounts[num_tasks_to_queue as usize].key();
+        ctx.remaining_accounts[ctx.accounts.cron_job.num_tasks_per_queue_call as usize].key();
 
     let res = write_return_tasks(WriteReturnTasksArgs {
         program_id: crate::ID,
