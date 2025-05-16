@@ -224,12 +224,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
 
     async fn handle_tick(&mut self, blockhash_rx: &blockhash_watcher::MessageReceiver) {
         // Check confirmations and process as completed
-        let signatures = self
-            .unconfirmed_txs
-            .iter()
-            .map(|r| *r.key())
-            .collect_vec()
-            .clone();
+        let signatures = self.unconfirmed_txs.iter().map(|r| *r.key()).collect_vec();
         // Make a stream of completed (signature, status) tuples
         let completed_txns = stream::iter(signatures)
             .chunks(MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS)
@@ -280,10 +275,10 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
             let unexpired_error_signatures = self
                 .send_transactions(unexpired_txns.as_slice())
                 .filter_map(|(signature, result)| async move { result.err().map(|_| signature) });
+            let expired_signatures = expired.iter().map(|entry| *entry.key());
+
             self.handle_expired(unexpired_error_signatures, blockhash_rx)
                 .await;
-
-            let expired_signatures = expired.iter().map(|entry| *entry.key());
             self.handle_expired(stream::iter(expired_signatures), blockhash_rx)
                 .await;
         }
