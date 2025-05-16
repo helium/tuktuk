@@ -262,7 +262,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         let current_height = blockhash_rx.borrow().current_block_height;
         if !self.unconfirmed_txs.is_empty() {
             // Collect all entries first to release the DashMap lock
-            let entries: Vec<_> = self
+            let entries = self
                 .unconfirmed_txs
                 .iter()
                 .map(|entry| {
@@ -272,7 +272,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
                         entry.value().tx.clone(),
                     )
                 })
-                .collect();
+                .collect_vec();
 
             let (unexpired, expired): (Vec<_>, Vec<_>) =
                 entries
@@ -282,20 +282,17 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
                     });
 
             // Resend unexpired/unconfirmed to rpc
-            let unexpired_txns: Vec<_> = unexpired.iter().map(|(_, _, tx)| tx.clone()).collect();
+            let unexpired_txns = unexpired.iter().map(|(_, _, tx)| tx.clone()).collect_vec();
 
             // Collect failed transactions (likely expired) and handle as expired
             let unexpired_error_signatures = self
                 .send_transactions(unexpired_txns.as_slice())
                 .filter_map(|(signature, result)| async move { result.err().map(|_| signature) });
 
-            let expired_signatures = expired
-                .into_iter()
-                .map(|(signature, _, _)| signature)
-                .collect_vec();
-
             self.handle_expired(unexpired_error_signatures, blockhash_rx)
                 .await;
+
+            let expired_signatures = expired.iter().map(|(signature, _, _)| *signature);
             self.handle_expired(stream::iter(expired_signatures), blockhash_rx)
                 .await;
         }
