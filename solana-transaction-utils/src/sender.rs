@@ -281,7 +281,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
                         *last_valid_block_height < current_height
                     });
 
-            let unexpired_txns = unexpired.iter().map(|(_, _, tx)| *tx).collect_vec();
+            let unexpired_txns = unexpired.into_iter().map(|(_, _, tx)| tx).collect_vec();
 
             // Collect failed transactions (likely expired) and handle as expired
             let unexpired_error_signatures = self
