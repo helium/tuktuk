@@ -1,8 +1,5 @@
-use crate::{
-    blockhash_watcher,
-    error::Error,
-    queue::{CompletedTransactionTask, TransactionTask},
-};
+use std::{sync::Arc, time::Duration};
+
 use dashmap::DashMap;
 use futures::{stream, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
@@ -16,10 +13,15 @@ use solana_sdk::{
     transaction::VersionedTransaction,
 };
 use solana_transaction_status::TransactionStatus;
-use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_graceful_shutdown::{SubsystemBuilder, SubsystemHandle};
 use tracing::warn;
+
+use crate::{
+    blockhash_watcher,
+    error::Error,
+    queue::{CompletedTransactionTask, TransactionTask},
+};
 
 const CONFIRMATION_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 const MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS: usize = 100;
@@ -222,7 +224,12 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
 
     async fn handle_tick(&mut self, blockhash_rx: &blockhash_watcher::MessageReceiver) {
         // Check confirmations and process as completed
-        let signatures = self.unconfirmed_txs.iter().map(|r| *r.key()).collect_vec();
+        let signatures = self
+            .unconfirmed_txs
+            .iter()
+            .map(|r| *r.key())
+            .collect_vec()
+            .clone();
         // Make a stream of completed (signature, status) tuples
         let completed_txns = stream::iter(signatures)
             .chunks(MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS)
