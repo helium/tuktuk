@@ -20,6 +20,8 @@ use crate::{
     task_seeds, utils,
 };
 
+const MEMO_PROGRAM_ID: Pubkey = pubkey!("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
+
 // You can either fit the task in a return value directly, or you need to return accounts
 // that have their ownership set to this program, and are stuffed with ReturnedTasksV0.
 // The account method is useful if you want to return a lot of tasks, and don't want to
@@ -205,13 +207,19 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         }
 
         // Pass free tasks as remaining accounts so the task can know which IDs will be used
-        let free_tasks = &self.ctx.remaining_accounts[self.free_task_index..];
-        accounts.extend(free_tasks.iter().cloned());
-        account_infos.extend(free_tasks.iter().map(|acct| AccountMeta {
-            pubkey: acct.key(),
-            is_signer: false,
-            is_writable: false,
-        }));
+        let program_id = *remaining_accounts[ix.program_id_index as usize].key;
+        // Bit of a hack:
+        // Memo program expects the remaining accounts to be signers, when they're not.
+        // Most programs don't read additional accounts unless they explicitly ask for them.
+        if program_id != MEMO_PROGRAM_ID {
+            let free_tasks = &self.ctx.remaining_accounts[self.free_task_index..];
+            accounts.extend(free_tasks.iter().cloned());
+            account_infos.extend(free_tasks.iter().map(|acct| AccountMeta {
+                pubkey: acct.key(),
+                is_signer: false,
+                is_writable: false,
+            }));
+        }
 
         let signer_seeds: Vec<Vec<&[u8]>> = self
             .signers
@@ -221,7 +229,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
 
         solana_program::program::invoke_signed(
             &Instruction {
-                program_id: *remaining_accounts[ix.program_id_index as usize].key,
+                program_id,
                 accounts: account_infos,
                 data: ix.data.clone(),
             },

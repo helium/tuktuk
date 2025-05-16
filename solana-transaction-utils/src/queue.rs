@@ -21,7 +21,7 @@ use crate::{
     error::Error,
     pack::{PackedTransaction, MAX_TRANSACTION_SIZE},
     priority_fee::{auto_compute_price, compute_budget_instruction},
-    sender::PackedTransactionWithTasks,
+    tx_tracker::PackedTransactionWithTasks,
 };
 
 #[derive(Debug, Clone)]
@@ -40,7 +40,7 @@ pub struct CompletedTransactionTask<T: Send + Clone> {
     pub task: TransactionTask<T>,
 }
 
-pub struct TransactionQueueArgs<T: Send + Clone> {
+pub struct TransactionQueueArgs<T: Send + Clone + std::fmt::Debug> {
     pub rpc_client: Arc<RpcClient>,
     pub ws_url: String,
     pub payer: Arc<Keypair>,
@@ -74,7 +74,7 @@ pub fn create_transaction_queue_handles<T: Send + Clone>(
 
 const MAX_PACKABLE_TX_SIZE: usize = 800;
 
-pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
+pub async fn create_transaction_queue<T: Send + Clone + std::fmt::Debug + 'static + Sync>(
     args: TransactionQueueArgs<T>,
 ) -> Result<(), Error> {
     let mut receiver = args.receiver;

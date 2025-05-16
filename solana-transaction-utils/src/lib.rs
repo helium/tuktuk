@@ -6,5 +6,6 @@ pub mod queue;
 pub mod send_and_confirm_transactions_in_parallel;
 pub mod sender;
 pub mod sync;
+pub mod tx_tracker;
 
 pub use error::Error;

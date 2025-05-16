@@ -1,39 +1,32 @@
-use crate::{
-    blockhash_watcher,
-    error::Error,
-    queue::{CompletedTransactionTask, TransactionTask},
-};
-use dashmap::DashMap;
+use std::{sync::Arc, time::Duration};
+
 use futures::{stream, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
     hash::Hash,
-    instruction::Instruction,
     message::{v0, AddressLookupTableAccount, VersionedMessage},
     signature::{Keypair, Signature},
     signer::Signer,
     transaction::VersionedTransaction,
 };
 use solana_transaction_status::TransactionStatus;
-use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_graceful_shutdown::{SubsystemBuilder, SubsystemHandle};
 use tracing::warn;
+
+use crate::{
+    blockhash_watcher,
+    error::Error,
+    queue::CompletedTransactionTask,
+    tx_tracker::{PackedTransactionWithTasks, TransactionData, TxTrackerRequest, TxTrackerSender},
+};
 
 const CONFIRMATION_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 const MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS: usize = 100;
 const RPC_TXN_SEND_CONCURRENCY: usize = 50;
 
-#[derive(Clone, Debug)]
-pub struct PackedTransactionWithTasks<T: Send + Clone> {
-    pub instructions: Vec<Instruction>,
-    pub tasks: Vec<TransactionTask<T>>,
-    pub fee: u64,
-    pub re_sign_count: u32,
-}
-
-impl<T: Send + Clone> PackedTransactionWithTasks<T> {
+impl<T: Send + Clone + std::fmt::Debug> PackedTransactionWithTasks<T> {
     pub fn with_incremented_re_sign_count(&self) -> Self {
         let mut result = self.clone();
         result.re_sign_count += 1;
@@ -84,30 +77,24 @@ impl<T: Send + Clone> PackedTransactionWithTasks<T> {
     }
 }
 
-#[derive(Debug, Clone)]
-struct TransactionData<T: Send + Clone> {
-    packed_tx: PackedTransactionWithTasks<T>,
-    tx: VersionedTransaction,
-    last_valid_block_height: u64,
-}
-
-pub struct TransactionSender<T: Send + Clone + Sync> {
-    unconfirmed_txs: Arc<DashMap<Signature, TransactionData<T>>>,
+pub struct TransactionSender<T: Send + Clone + Sync + std::fmt::Debug> {
+    tx_tracker: TxTrackerSender<T>,
     rpc_client: Arc<RpcClient>,
     result_tx: Sender<CompletedTransactionTask<T>>,
     payer: Arc<Keypair>,
     max_re_sign_count: u32,
 }
 
-impl<T: Send + Clone + Sync> TransactionSender<T> {
+impl<T: Send + Clone + Sync + std::fmt::Debug> TransactionSender<T> {
     pub async fn new(
         rpc_client: Arc<RpcClient>,
         payer: Arc<Keypair>,
         result_tx: Sender<CompletedTransactionTask<T>>,
         max_re_sign_count: u32,
+        tx_tracker: TxTrackerSender<T>,
     ) -> Result<Self, Error> {
         Ok(Self {
-            unconfirmed_txs: Arc::new(DashMap::new()),
+            tx_tracker,
             rpc_client,
             result_tx,
             payer,
@@ -120,7 +107,10 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         packed_tx: PackedTransactionWithTasks<T>,
         blockhash_rx: &blockhash_watcher::MessageReceiver,
     ) {
+        // Clone the values we need immediately to avoid holding the borrow
         let blockhash = blockhash_rx.borrow().last_valid_blockhash;
+        let last_valid_block_height = blockhash_rx.borrow().last_valid_block_height;
+
         // Convert the packed txn into a versioned transaction. If this fails it's not recoverable through retries
         // so notify and exit on errors without queueing for retries
         let tx = match packed_tx.mk_transaction(self.max_re_sign_count, blockhash, &self.payer) {
@@ -140,14 +130,16 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
             .inspect_err(|err| warn!(?err, "sending transaction"))
             .await;
 
-        self.unconfirmed_txs.insert(
-            tx.signatures[0],
-            TransactionData {
-                tx,
-                packed_tx: packed_tx.clone(),
-                last_valid_block_height: blockhash_rx.borrow().last_valid_block_height,
-            },
-        );
+        self.tx_tracker
+            .send(TxTrackerRequest::Add {
+                signature: tx.signatures[0],
+                transaction_data: Box::new(TransactionData {
+                    tx,
+                    packed_tx: packed_tx.clone(),
+                    last_valid_block_height,
+                }),
+            })
+            .await;
     }
 
     pub fn send_transactions<'a>(
@@ -178,13 +170,17 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         blockhash_rx: &blockhash_watcher::MessageReceiver,
     ) {
         signatures
-            .filter_map(|signature| async move {
-                self.unconfirmed_txs
-                    .remove(&signature)
-                    .map(|(_, data)| data.packed_tx.with_incremented_re_sign_count())
+            .filter_map(async move |signature| {
+                self.tx_tracker
+                    .remove(signature)
+                    .await
+                    .inspect_err(|err| warn!(?err, "removing signature from tx tracker"))
+                    .ok()
+                    .flatten()
+                    .map(|data| data.packed_tx.with_incremented_re_sign_count())
             })
             .for_each_concurrent(RPC_TXN_SEND_CONCURRENCY, |packed_tx| async move {
-                self.handle_packed_tx(packed_tx, blockhash_rx).await
+                self.handle_packed_tx(packed_tx, blockhash_rx).await;
             })
             .await
     }
@@ -196,9 +192,13 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         let completions = signature_statuses
             // Look up transaction data for signature
             .filter_map(|(signature, status)| async move {
-                self.unconfirmed_txs
-                    .remove(&signature)
-                    .map(|(_, v)| (v, status))
+                self.tx_tracker
+                    .remove(signature)
+                    .await
+                    .inspect_err(|err| warn!(?err, "removing signature from tx tracker"))
+                    .ok()
+                    .flatten()
+                    .map(|data| (data, status))
             })
             // Map status into completion messages
             .flat_map(|(data, status)| {
@@ -221,8 +221,18 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
     }
 
     async fn handle_tick(&mut self, blockhash_rx: &blockhash_watcher::MessageReceiver) {
+        // Clone the value we need immediately to avoid holding the borrow
+        let current_height = blockhash_rx.borrow().current_block_height;
+
         // Check confirmations and process as completed
-        let signatures = self.unconfirmed_txs.iter().map(|r| *r.key()).collect_vec();
+        let signatures = self
+            .tx_tracker
+            .get_all()
+            .await
+            .inspect_err(|err| warn!(?err, "getting all tx tracker"))
+            .ok()
+            .map(|tx_tracker| tx_tracker.into_keys().collect_vec())
+            .unwrap_or_default();
         // Make a stream of completed (signature, status) tuples
         let completed_txns = stream::iter(signatures)
             .chunks(MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS)
@@ -255,19 +265,24 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
             .flatten_unordered(10);
         // Remove completed and notify
         self.handle_completed(completed_txns).await;
-
         // Retry unconfirmed
-        let current_height = blockhash_rx.borrow().current_block_height;
-        if !self.unconfirmed_txs.is_empty() {
-            let (unexpired, expired): (Vec<_>, Vec<_>) = self
-                .unconfirmed_txs
+        let tx_map = self
+            .tx_tracker
+            .get_all()
+            .await
+            .inspect_err(|err| warn!(?err, "getting all tx tracker"))
+            .ok()
+            .unwrap_or_default();
+        let signatures = tx_map.clone().into_keys().collect_vec();
+        if !signatures.is_empty() {
+            let (unexpired, expired): (Vec<_>, Vec<_>) = tx_map
                 .iter()
-                .partition(|entry| entry.value().last_valid_block_height < current_height);
+                .partition(|entry| entry.1.last_valid_block_height < current_height);
 
             // Resend unexpred/unconfirmed to rpc
             let unexpired_txns = unexpired
                 .iter()
-                .map(|entry| entry.value().tx.clone())
+                .map(|entry| entry.1.tx.clone())
                 .collect_vec();
             // Collect failed transactions (likely expired) and handle as expired
             let unexpired_error_signatures = self
@@ -276,7 +291,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
             self.handle_expired(unexpired_error_signatures, blockhash_rx)
                 .await;
 
-            let expired_signatures = expired.iter().map(|entry| *entry.key());
+            let expired_signatures = expired.iter().map(|entry| *entry.0);
             self.handle_expired(stream::iter(expired_signatures), blockhash_rx)
                 .await;
         }

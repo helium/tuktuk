@@ -11,11 +11,12 @@ use solana_sdk::{commitment_config::CommitmentConfig, signature::Keypair, signer
 use solana_transaction_utils::{
     queue::{create_transaction_queue_handles, TransactionQueueArgs},
     sender::TransactionSender,
+    tx_tracker::{tx_tracker_channel, TxTracker},
 };
 use task_completion_processor::process_task_completions;
 use task_context::TaskContext;
 use task_processor::process_tasks;
-use task_queue::{create_task_queue, TaskQueueArgs};
+use task_queue::{create_task_queue, TaskQueueArgs, TimedTask};
 use tokio::{sync::mpsc::channel, time::interval};
 use tokio_graceful_shutdown::{SubsystemBuilder, Toplevel};
 use tracing_subscriber::{fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt};
@@ -181,11 +182,14 @@ impl Cli {
         });
 
         let (packed_tx_sender, packed_tx_receiver) = channel(PACKED_TX_CHANNEL_CAPACITY);
+        let (tx_tracker_sender, tx_tracker_receiver) = tx_tracker_channel::<TimedTask>();
+        let tx_tracker = TxTracker::new(tx_tracker_receiver);
         let sender = TransactionSender::new(
             tx_sender_rpc_client.clone(),
             payer.clone(),
             handles.result_sender.clone(),
             settings.sender_max_re_sign_count,
+            tx_tracker_sender,
         )
         .await
         .expect("create sender");
@@ -197,6 +201,9 @@ impl Cli {
                     // Spawn the sender task with shutdown signal
                     sender.run(packed_tx_receiver, handle)
                 }
+            }));
+            top_level.start(SubsystemBuilder::new("tx-tracker", {
+                move |handle| tx_tracker.run(handle)
             }));
             let watcher_args_clone = watcher_args.clone();
             top_level.start(SubsystemBuilder::new("task-queue-watcher", {
