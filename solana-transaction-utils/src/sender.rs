@@ -21,7 +21,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_graceful_shutdown::{SubsystemBuilder, SubsystemHandle};
 use tracing::warn;
 
-const CONFIRMATION_CHECK_INTERVAL: Duration = Duration::from_secs(5);
+const CONFIRMATION_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 const MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS: usize = 100;
 const RPC_TXN_SEND_CONCURRENCY: usize = 50;
 
@@ -120,37 +120,34 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         packed_tx: PackedTransactionWithTasks<T>,
         blockhash_rx: &blockhash_watcher::MessageReceiver,
     ) {
-        match self.send_packed_tx(&packed_tx, blockhash_rx).await {
+        let blockhash = blockhash_rx.borrow().last_valid_blockhash;
+        // Convert the packed txn into a versioned transaction. If this fails it's not recoverable through retries
+        // so notify and exit on errors without queueing for retries
+        let tx = match packed_tx.mk_transaction(self.max_re_sign_count, blockhash, &self.payer) {
+            Ok(tx) => tx,
             Err(err) => {
-                warn!(?err, "sending packed transaction");
                 self.handle_completions(packed_tx.into_completions_with_status(Some(err), Some(0)))
                     .await;
+                return;
             }
-            Ok(tx) => {
-                // Add to unconfirmed map
-                self.unconfirmed_txs.insert(
-                    tx.signatures[0],
-                    TransactionData {
-                        tx,
-                        packed_tx: packed_tx.clone(),
-                        last_valid_block_height: blockhash_rx.borrow().last_valid_block_height,
-                    },
-                );
-            }
-        }
-    }
-
-    pub async fn send_packed_tx(
-        &self,
-        packed_tx: &PackedTransactionWithTasks<T>,
-        blockhash_rx: &blockhash_watcher::MessageReceiver,
-    ) -> Result<VersionedTransaction, Error> {
-        let blockhash = blockhash_rx.borrow().last_valid_blockhash;
-        let tx = packed_tx.mk_transaction(self.max_re_sign_count, blockhash, &self.payer)?;
-        let Some((_, result)) = self.send_transactions(&[tx.clone()]).next().await else {
-            return Err(Error::RpcError("Unexpected stream close".to_string()));
         };
-        result.map(|_| tx)
+        // Send transaction. Queue for checks and retries whether errored or not to handle rpc being down
+        // temporarily
+        let _ = self
+            .rpc_client
+            .send_transaction(&tx)
+            .map_err(Error::from)
+            .inspect_err(|err| warn!(?err, "sending transaction"))
+            .await;
+
+        self.unconfirmed_txs.insert(
+            tx.signatures[0],
+            TransactionData {
+                tx,
+                packed_tx: packed_tx.clone(),
+                last_valid_block_height: blockhash_rx.borrow().last_valid_block_height,
+            },
+        );
     }
 
     pub fn send_transactions<'a>(
