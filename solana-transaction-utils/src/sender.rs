@@ -261,23 +261,37 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         // Retry unconfirmed
         let current_height = blockhash_rx.borrow().current_block_height;
         if !self.unconfirmed_txs.is_empty() {
-            let (unexpired, expired): (Vec<_>, Vec<_>) = self
+            // Collect all entries first to release the DashMap lock
+            let entries: Vec<_> = self
                 .unconfirmed_txs
                 .iter()
-                .partition(|entry| entry.value().last_valid_block_height < current_height);
+                .map(|entry| {
+                    (
+                        *entry.key(),
+                        entry.value().last_valid_block_height,
+                        entry.value().tx.clone(),
+                    )
+                })
+                .collect();
 
-            // Resend unexpred/unconfirmed to rpc
-            let unexpired_txns = unexpired
-                .iter()
-                .map(|entry| entry.value().tx.clone())
-                .collect_vec();
+            let (unexpired, expired): (Vec<_>, Vec<_>) =
+                entries
+                    .into_iter()
+                    .partition(|(_, last_valid_block_height, _)| {
+                        *last_valid_block_height < current_height
+                    });
+
+            // Resend unexpired/unconfirmed to rpc
+            let unexpired_txns: Vec<_> = unexpired.iter().map(|(_, _, tx)| tx.clone()).collect();
+
             // Collect failed transactions (likely expired) and handle as expired
             let unexpired_error_signatures = self
                 .send_transactions(unexpired_txns.as_slice())
                 .filter_map(|(signature, result)| async move { result.err().map(|_| signature) });
+
             let expired_signatures = expired
-                .iter()
-                .map(|entry| entry.key().to_owned())
+                .into_iter()
+                .map(|(signature, _, _)| signature)
                 .collect_vec();
 
             self.handle_expired(unexpired_error_signatures, blockhash_rx)
