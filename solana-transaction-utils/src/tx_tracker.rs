@@ -84,11 +84,11 @@ impl<T: Send + Clone + std::fmt::Debug> TxTracker<T> {
     }
 
     pub async fn run(mut self, handle: SubsystemHandle) -> Result<(), crate::error::Error> {
-        info!("starting tx tracker cache");
+        info!("starting tx tracker");
         loop {
             tokio::select! {
                 _ = handle.on_shutdown_requested() => {
-                    info!("shutting down task queue cache");
+                    info!("shutting down tx tracker");
                     break;
                 }
                 Some(req) = self.receiver.recv() => {
