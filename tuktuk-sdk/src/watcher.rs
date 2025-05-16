@@ -136,7 +136,7 @@ impl PubsubTracker {
         loop {
             interval.tick().await;
             if let Err(e) = self.check_for_changes().await {
-                eprintln!("Error checking for changes: {:?}", e);
+                eprintln!("Error checking for changes: {e:?}");
             }
         }
     }
@@ -167,7 +167,7 @@ impl PubsubTracker {
 
     fn publish_change(&self, pubkey: Pubkey, account_data: Account) {
         if self.publisher.send((pubkey, account_data.clone())).is_err() {
-            eprintln!("Failed to send update for pubkey: {:?}", pubkey);
+            eprintln!("Failed to send update for pubkey: {pubkey}");
         }
     }
 }

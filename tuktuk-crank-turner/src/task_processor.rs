@@ -125,7 +125,7 @@ impl TimedTask {
                 self.handle_completion(
                     ctx,
                     Some(TransactionQueueError::RawSimulatedTransactionError(
-                        format!("Failed to get instructions: {:?}", err),
+                        format!("Failed to get instructions: {err:?}"),
                     )),
                     0,
                 )
@@ -245,7 +245,6 @@ impl TimedTask {
                 TransactionQueueError::RawTransactionError(_) => "RawTransaction",
                 TransactionQueueError::FeeTooHigh => "FeeTooHigh",
                 TransactionQueueError::IxGroupTooLarge => "IxGroupTooLarge",
-                TransactionQueueError::TpuSenderError(_) => "TpuError",
                 TransactionQueueError::RawSimulatedTransactionError(_) => "RawSimulated",
                 TransactionQueueError::RpcError(_) => "RpcError",
                 TransactionQueueError::InstructionError(_) => "InstructionError",
@@ -253,8 +252,8 @@ impl TimedTask {
                 TransactionQueueError::CompileError(_) => "CompileError",
                 TransactionQueueError::SignerError(_) => "SignerError",
                 TransactionQueueError::StaleTransaction => "StaleTransaction",
-                TransactionQueueError::SystemTimeError(_) => "SystemTimeError",
                 TransactionQueueError::ChannelClosed => "ChannelClosed",
+                TransactionQueueError::MaxRetriesExceeded => "MaxRetriesExceeded",
             };
             TASKS_FAILED
                 .with_label_values(&[self.task_queue_name.as_str(), label])
@@ -290,10 +289,9 @@ impl TimedTask {
                 TransactionQueueError::RawTransactionError(_)
                 | TransactionQueueError::SimulatedTransactionError(_)
                 | TransactionQueueError::TransactionError(_)
-                | TransactionQueueError::TpuSenderError(_)
                 | TransactionQueueError::RpcError(_)
                 | TransactionQueueError::ChannelClosed
-                | TransactionQueueError::SystemTimeError(_) => {
+                | TransactionQueueError::MaxRetriesExceeded => {
                     if self.total_retries < self.max_retries && !self.is_cleanup_task {
                         let base_delay = 30 * (1 << self.total_retries);
                         let jitter = rand::random_range(0..60); // Jitter up to 1 minute to prevent conflicts with other turners

@@ -1,5 +1,4 @@
 use solana_sdk::{message::CompileError, transaction::TransactionError};
-use solana_tpu_client::tpu_client::TpuSenderError;
 
 #[derive(Debug, thiserror::Error, Clone)]
 pub enum Error {
@@ -15,8 +14,8 @@ pub enum Error {
     SignerError(String),
     #[error("Ix group too large")]
     IxGroupTooLarge,
-    #[error("TPU sender error: {0}")]
-    TpuSenderError(String),
+    #[error("Max retries exceeded")]
+    MaxRetriesExceeded,
     #[error("Transaction error: {0}")]
     TransactionError(TransactionError),
     #[error("Simulated transaction error: {0}")]
@@ -29,8 +28,6 @@ pub enum Error {
     FeeTooHigh,
     #[error("Transaction has failed too many retries and gone stale")]
     StaleTransaction,
-    #[error("System time error: {0}")]
-    SystemTimeError(String),
     #[error("message channel closed")]
     ChannelClosed,
 }
@@ -38,12 +35,6 @@ pub enum Error {
 impl From<solana_client::client_error::ClientError> for Error {
     fn from(value: solana_client::client_error::ClientError) -> Self {
         Self::RpcError(value.to_string())
-    }
-}
-
-impl From<TpuSenderError> for Error {
-    fn from(value: TpuSenderError) -> Self {
-        Self::TpuSenderError(value.to_string())
     }
 }
 
