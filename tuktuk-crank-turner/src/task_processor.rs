@@ -1,12 +1,7 @@
-use std::{cmp::max, collections::HashSet, sync::Arc};
+use std::{cmp::max, sync::Arc};
 
 use futures::{Stream, StreamExt, TryStreamExt};
-use solana_sdk::{
-    address_lookup_table::{state::AddressLookupTable, AddressLookupTableAccount},
-    instruction::InstructionError,
-    signer::Signer,
-    transaction::TransactionError,
-};
+use solana_sdk::{instruction::InstructionError, signer::Signer, transaction::TransactionError};
 use solana_transaction_utils::{error::Error as TransactionQueueError, queue::TransactionTask};
 use tokio_graceful_shutdown::SubsystemHandle;
 use tracing::{debug, info};
@@ -26,71 +21,24 @@ impl TimedTask {
         &self,
         ctx: Arc<TaskContext>,
     ) -> Result<TaskQueueV0, tuktuk_sdk::error::Error> {
-        let lock = ctx.task_queues.lock().await;
-        lock.get(&self.task_queue_key)
-            .cloned()
-            .ok_or_else(|| tuktuk_sdk::error::Error::AccountNotFound)
-    }
-
-    pub async fn get_or_populate_luts(
-        &self,
-        ctx: Arc<TaskContext>,
-    ) -> anyhow::Result<Vec<AddressLookupTableAccount>, tuktuk_sdk::error::Error> {
-        let mut result: Vec<AddressLookupTableAccount> = Vec::new();
-        let mut missing_addresses = Vec::new();
-        let task_queue = self.get_task_queue(ctx.clone()).await?;
-        let mut lookup_tables = ctx.lookup_tables.lock().await;
-
-        // Try to get LUTs from existing map
-        for addr in &task_queue.lookup_tables {
-            if let Some(lut) = lookup_tables.get(addr) {
-                result.push(lut.clone());
-            } else {
-                missing_addresses.push(*addr);
-            }
-        }
-
-        // If we have missing LUTs, fetch them
-        if !missing_addresses.is_empty() {
-            let fetched_luts = ctx
-                .rpc_client
-                .get_multiple_accounts(&missing_addresses)
-                .await?
-                .into_iter()
-                .zip(missing_addresses.iter())
-                .filter_map(|(acc, addr)| {
-                    acc.map(|acc| {
-                        let lut = AddressLookupTable::deserialize(&acc.data)
-                            .map_err(tuktuk_sdk::error::Error::from)
-                            .map(|lut| AddressLookupTableAccount {
-                                key: *addr,
-                                addresses: lut.addresses.to_vec(),
-                            })?;
-                        Ok::<_, tuktuk_sdk::error::Error>((*addr, lut))
-                    })
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-
-            // Insert new LUTs into map and result
-            for (addr, lut) in fetched_luts {
-                lookup_tables.insert(addr, lut.clone());
-                result.push(lut);
-            }
-        }
-
-        Ok(result)
+        ctx.task_queues_client
+            .get_task_queue(self.task_queue_key)
+            .await
+            .ok()
+            .flatten()
+            .ok_or(tuktuk_sdk::error::Error::AccountNotFound)
     }
 
     pub async fn get_available_task_ids(
         &self,
         ctx: Arc<TaskContext>,
-    ) -> Result<Vec<u16>, tuktuk_sdk::error::Error> {
+    ) -> Result<Vec<u16>, anyhow::Error> {
         let task_queue = self.get_task_queue(ctx.clone()).await?;
-        let mut in_progress = ctx.in_progress_tasks.lock().await;
-        let mut task_ids = in_progress
-            .entry(self.task_queue_key)
-            .or_insert_with(HashSet::new)
-            .clone();
+        let task_ids = ctx
+            .task_state_client
+            .get_in_progress_tasks(self.task_queue_key)
+            .await
+            .map_err(|_| anyhow::anyhow!("task state channel closed"))?;
 
         TASKS_IN_PROGRESS
             .with_label_values(&[self.task_queue_name.as_str()])
@@ -98,6 +46,7 @@ impl TimedTask {
         TASK_IDS_RESERVED
             .with_label_values(&[self.task_queue_name.as_str()])
             .set(task_ids.len() as i64);
+
         let next_available = next_available_task_ids_excluding_in_progress(
             task_queue.capacity,
             &task_queue.task_bitmap,
@@ -105,7 +54,12 @@ impl TimedTask {
             &task_ids,
             rand::random_range(0..task_queue.task_bitmap.len()),
         )?;
-        task_ids.extend(next_available.clone());
+        ctx.task_state_client
+            .add_in_progress_tasks(
+                self.task_queue_key,
+                next_available.iter().cloned().collect(),
+            )
+            .await;
         Ok(next_available)
     }
 
@@ -161,14 +115,14 @@ impl TimedTask {
             }
         }
 
-        let lookup_tables = match self.get_or_populate_luts(ctx.clone()).await {
-            Ok(lookup_tables) => lookup_tables,
-            Err(err) => return self.handle_ix_err(ctx.clone(), err).await,
-        };
-        let next_available = match self.get_available_task_ids(ctx.clone()).await {
-            Ok(next_available) => next_available,
-            Err(err) => return self.handle_ix_err(ctx.clone(), err).await,
-        };
+        let task_queue = self.get_task_queue(ctx.clone()).await?;
+
+        let lookup_tables = ctx
+            .lookup_tables_client
+            .get_lookup_tables(task_queue.lookup_tables)
+            .await
+            .map_err(|_| anyhow::anyhow!("lookup tables channel closed"))?;
+        let next_available = self.get_available_task_ids(ctx.clone()).await?;
         self.in_flight_task_ids = next_available.clone();
 
         let maybe_run_ix = if let Some(cached_result) = self.cached_result.clone() {
@@ -210,20 +164,24 @@ impl TimedTask {
         err: Option<TransactionQueueError>,
         tx_fee: u64,
     ) -> anyhow::Result<()> {
-        let mut in_progress = ctx.in_progress_tasks.lock().await;
-        let task_ids = in_progress
-            .entry(self.task_queue_key)
-            .or_insert_with(HashSet::new);
-        for task_id in &self.in_flight_task_ids {
-            task_ids.remove(task_id);
-        }
+        ctx.task_state_client
+            .remove_in_progress_tasks(
+                self.task_queue_key,
+                self.in_flight_task_ids.iter().cloned().collect(),
+            )
+            .await;
+        let task_ids = ctx
+            .task_state_client
+            .get_in_progress_tasks(self.task_queue_key)
+            .await
+            .map_err(|_| anyhow::anyhow!("task state channel closed"))?;
         TASK_IDS_RESERVED
             .with_label_values(&[self.task_queue_name.as_str()])
             .set(task_ids.len() as i64);
+
         TASKS_IN_PROGRESS
             .with_label_values(&[self.task_queue_name.as_str()])
             .dec();
-        drop(in_progress);
 
         // Record the result
         ctx.profitability

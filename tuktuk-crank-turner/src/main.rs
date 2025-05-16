@@ -1,6 +1,7 @@
-use std::{collections::HashMap, path, sync::Arc, time::Duration};
+use std::{path, sync::Arc, time::Duration};
 
 use anyhow::Result;
+use cache::{LookupTablesCache, TaskQueueCache, TaskStateCache};
 use clap::Parser;
 use metrics::{register_custom_metrics, REGISTRY};
 use profitability::TaskQueueProfitability;
@@ -15,10 +16,7 @@ use task_completion_processor::process_task_completions;
 use task_context::TaskContext;
 use task_processor::process_tasks;
 use task_queue::{create_task_queue, TaskQueueArgs};
-use tokio::{
-    sync::{mpsc::channel, Mutex},
-    time::interval,
-};
+use tokio::{sync::mpsc::channel, time::interval};
 use tokio_graceful_shutdown::{SubsystemBuilder, Toplevel};
 use tracing_subscriber::{fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt};
 use transaction::TransactionSenderSubsystem;
@@ -30,9 +28,11 @@ use tuktuk_sdk::{
 use warp::{reject::Rejection, reply::Reply, Filter};
 use watchers::{args::WatcherArgs, task_queues::get_and_watch_task_queues};
 
+pub mod cache;
 mod metrics;
 pub mod profitability;
 pub mod settings;
+mod sync;
 pub mod task_completion_processor;
 pub mod task_context;
 pub mod task_processor;
@@ -158,16 +158,26 @@ impl Cli {
         let tx_sender = handles.sender.clone();
         let completion_receiver = handles.result_receiver;
 
+        // Create channels for caches
+        let (task_state_sender, task_state_rx) = cache::task_state_channel();
+        let (lookup_tables_sender, lookup_tables_rx) = cache::lookup_tables_channel();
+        let (task_queues_sender, task_queues_rx) = cache::task_queues_channel();
+
+        // Create caches
+        let task_state_cache = TaskStateCache::new(task_state_rx);
+        let lookup_tables_cache = LookupTablesCache::new(rpc_client.clone(), lookup_tables_rx);
+        let task_queues_cache = TaskQueueCache::new(task_queues_rx);
+
         let task_context = Arc::new(TaskContext {
             tx_sender,
             task_queue: task_queue_arc.clone(),
             now_rx: now_rx.clone(),
             rpc_client: rpc_client.clone(),
             payer: payer.clone(),
-            in_progress_tasks: Arc::new(Mutex::new(HashMap::new())),
-            lookup_tables: Arc::new(Mutex::new(HashMap::new())),
-            task_queues: Arc::new(Mutex::new(HashMap::new())),
             profitability: Arc::new(TaskQueueProfitability::new(settings.recent_attempts_window)),
+            task_state_client: task_state_sender,
+            lookup_tables_client: lookup_tables_sender,
+            task_queues_client: task_queues_sender.clone(),
         });
 
         let (packed_tx_sender, packed_tx_receiver) = channel(PACKED_TX_CHANNEL_CAPACITY);
@@ -190,12 +200,11 @@ impl Cli {
             }));
             let watcher_args_clone = watcher_args.clone();
             top_level.start(SubsystemBuilder::new("task-queue-watcher", {
-                let task_context = task_context.clone();
                 move |handle| {
                     get_and_watch_task_queues(
                         watcher_args_clone,
                         handle,
-                        task_context.task_queues.clone(),
+                        task_queues_sender.clone(),
                     )
                 }
             }));
@@ -266,6 +275,15 @@ impl Cli {
                         }
                     }
                 }
+            }));
+            top_level.start(SubsystemBuilder::new("task-state-cache", {
+                move |handle| task_state_cache.run(handle)
+            }));
+            top_level.start(SubsystemBuilder::new("lookup-tables-cache", {
+                move |handle| lookup_tables_cache.run(handle)
+            }));
+            top_level.start(SubsystemBuilder::new("task-queues-cache", {
+                move |handle| task_queues_cache.run(handle)
             }));
         })
         .catch_signals()

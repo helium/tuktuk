@@ -1,12 +1,7 @@
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures::TryStreamExt;
 use solana_sdk::pubkey::Pubkey;
-use tokio::sync::Mutex;
 use tokio_graceful_shutdown::SubsystemHandle;
 use tracing::{debug, info};
 use tuktuk::task;
@@ -15,6 +10,7 @@ use tuktuk_sdk::{prelude::*, watcher::UpdateType};
 
 use super::args::WatcherArgs;
 use crate::{
+    cache::TaskQueuesSender,
     metrics::{UPDATE_LAG, UPDATE_SOURCE},
     task_queue::TimedTask,
 };
@@ -24,7 +20,7 @@ pub async fn get_and_watch_tasks(
     task_queue_account: TaskQueueV0,
     args: WatcherArgs,
     handle: SubsystemHandle,
-    task_queues: Arc<Mutex<HashMap<Pubkey, TaskQueueV0>>>,
+    task_queues: TaskQueuesSender,
 ) -> anyhow::Result<()> {
     info!(?task_queue_key, "watching tasks for queue");
     let WatcherArgs {
@@ -51,10 +47,11 @@ pub async fn get_and_watch_tasks(
     async fn save_task_queue(
         task_queue_key: Pubkey,
         task_queue: TaskQueueV0,
-        task_queues: Arc<Mutex<HashMap<Pubkey, TaskQueueV0>>>,
+        task_queues: TaskQueuesSender,
     ) {
-        let mut lock = task_queues.lock().await;
-        lock.insert(task_queue_key, task_queue);
+        task_queues
+            .update_task_queue(task_queue_key, task_queue)
+            .await;
     }
 
     save_task_queue(

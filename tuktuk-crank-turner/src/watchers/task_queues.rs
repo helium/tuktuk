@@ -1,19 +1,16 @@
-use std::{collections::HashMap, sync::Arc};
-
 use futures::TryStreamExt;
-use tokio::sync::Mutex;
 use tokio_graceful_shutdown::{SubsystemBuilder, SubsystemHandle};
 use tuktuk::{config_key, task_queue};
 use tuktuk_program::{TaskQueueV0, TuktukConfigV0};
 use tuktuk_sdk::{client::*, prelude::*};
 
 use super::args::WatcherArgs;
-use crate::watchers::tasks::get_and_watch_tasks;
+use crate::{cache::TaskQueuesSender, watchers::tasks::get_and_watch_tasks};
 
 pub async fn get_and_watch_task_queues(
     args: WatcherArgs,
     handle: SubsystemHandle,
-    queues_store: Arc<Mutex<HashMap<Pubkey, TaskQueueV0>>>,
+    queues_store: TaskQueuesSender,
 ) -> anyhow::Result<()> {
     let WatcherArgs {
         rpc_client,
