@@ -275,7 +275,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
             let unexpired_error_signatures = self
                 .send_transactions(unexpired_txns.as_slice())
                 .filter_map(|(signature, result)| async move { result.err().map(|_| signature) });
-            let expired_signatures = expired.iter().map(|entry| *entry.key());
+            let expired_signatures = expired.iter().map(|entry| entry.key().to_owned());
 
             self.handle_expired(unexpired_error_signatures, blockhash_rx)
                 .await;
