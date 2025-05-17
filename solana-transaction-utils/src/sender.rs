@@ -1,8 +1,5 @@
-use crate::{
-    blockhash_watcher,
-    error::Error,
-    queue::{CompletedTransactionTask, TransactionTask},
-};
+use std::{sync::Arc, time::Duration};
+
 use dashmap::DashMap;
 use futures::{stream, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
@@ -16,10 +13,15 @@ use solana_sdk::{
     transaction::VersionedTransaction,
 };
 use solana_transaction_status::TransactionStatus;
-use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_graceful_shutdown::{SubsystemBuilder, SubsystemHandle};
 use tracing::warn;
+
+use crate::{
+    blockhash_watcher,
+    error::Error,
+    queue::{CompletedTransactionTask, TransactionTask},
+};
 
 const CONFIRMATION_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 const MAX_GET_SIGNATURE_STATUSES_QUERY_ITEMS: usize = 100;
@@ -259,16 +261,28 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
         // Retry unconfirmed
         let current_height = blockhash_rx.borrow().current_block_height;
         if !self.unconfirmed_txs.is_empty() {
-            let (unexpired, expired): (Vec<_>, Vec<_>) = self
+            // Collect all entries first to release the DashMap lock
+            let entries = self
                 .unconfirmed_txs
                 .iter()
-                .partition(|entry| entry.value().last_valid_block_height < current_height);
-
-            // Resend unexpred/unconfirmed to rpc
-            let unexpired_txns = unexpired
-                .iter()
-                .map(|entry| entry.value().tx.clone())
+                .map(|entry| {
+                    (
+                        *entry.key(),
+                        entry.value().last_valid_block_height,
+                        entry.value().tx.clone(),
+                    )
+                })
                 .collect_vec();
+
+            let (unexpired, expired): (Vec<_>, Vec<_>) =
+                entries
+                    .into_iter()
+                    .partition(|(_, last_valid_block_height, _)| {
+                        *last_valid_block_height < current_height
+                    });
+
+            let unexpired_txns = unexpired.into_iter().map(|(_, _, tx)| tx).collect_vec();
+
             // Collect failed transactions (likely expired) and handle as expired
             let unexpired_error_signatures = self
                 .send_transactions(unexpired_txns.as_slice())
@@ -276,7 +290,7 @@ impl<T: Send + Clone + Sync> TransactionSender<T> {
             self.handle_expired(unexpired_error_signatures, blockhash_rx)
                 .await;
 
-            let expired_signatures = expired.iter().map(|entry| *entry.key());
+            let expired_signatures = expired.iter().map(|(signature, _, _)| *signature);
             self.handle_expired(stream::iter(expired_signatures), blockhash_rx)
                 .await;
         }
