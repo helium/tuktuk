@@ -151,7 +151,7 @@ export function Layout({ children, title, tableOfContents }) {
               {(title || section) && (
                 <header className="mb-2 space-y-1">
                   {section && (
-                    <p className="font-display text-sm font-medium text-yellow-700">
+                    <p className="font-display text-sm font-medium text-purple-700">
                       {section.title}
                     </p>
                   )}
@@ -231,7 +231,7 @@ export function Layout({ children, title, tableOfContents }) {
                           href={`#${section.id}`}
                           className={clsx(
                             isActive(section)
-                              ? 'text-yellow-700'
+                              ? 'text-purple-700'
                               : 'font-normal text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300'
                           )}
                         >
@@ -249,7 +249,7 @@ export function Layout({ children, title, tableOfContents }) {
                                 href={`#${subSection.id}`}
                                 className={
                                   isActive(subSection)
-                                    ? 'text-yellow-700'
+                                    ? 'text-purple-700'
                                     : 'hover:text-zinc-600 dark:hover:text-zinc-300'
                                 }
                               >

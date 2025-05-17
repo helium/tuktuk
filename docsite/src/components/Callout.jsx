@@ -12,8 +12,8 @@ const styles = {
   warning: {
     container:
       'bg-yellow-500/5 ring-yellow-500/20',
-    title: 'text-yellow-700 dark:text-yellow-500',
-    body: 'text-yellow-800 [--tw-prose-underline:theme(colors.yellow.400)] [--tw-prose-background:theme(colors.yellow.50)] prose-a:text-yellow-700 prose-code:text-yellow-700 dark:text-yellow-300 dark:[--tw-prose-underline:theme(colors.yellow.700)] dark:prose-code:text-yellow-300',
+    title: 'text-purple-700 dark:text-yellow-500',
+    body: 'text-yellow-800 [--tw-prose-underline:theme(colors.yellow.400)] [--tw-prose-background:theme(colors.yellow.50)] prose-a:text-purple-700 prose-code:text-purple-700 dark:text-yellow-300 dark:[--tw-prose-underline:theme(colors.yellow.700)] dark:prose-code:text-yellow-300',
   },
 }
 

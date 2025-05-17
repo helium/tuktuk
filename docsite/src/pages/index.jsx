@@ -114,7 +114,7 @@ export default function Home() {
                                         Blazing Fast On-Chain Automation
                                     </div>
                                     <h1 className="text-4xl font-bold tracking-tighter sm:text-5xl md:text-6xl">
-                                        Schedule Tasks on the Blockchain <span className="text-teal-500">Without the Wait</span>
+                                        Schedule Tasks on the Blockchain <span className="text-purple-500">Without the Wait</span>
                                     </h1>
                                     <p className="max-w-[600px] text-muted-foreground md:text-xl">
                                         TukTuk delivers reliable, blazing-fast cron jobs for your blockchain applications. Set it, forget
@@ -122,14 +122,12 @@ export default function Home() {
                                     </p>
                                 </div>
                                 <div className="flex flex-col gap-2 min-[400px]:flex-row">
-                                    <Button className="bg-teal-600 hover:bg-teal-700" onClick={() => router.push('/docs')}>
+                                    <Button className="bg-purple-600 hover:bg-purple-700" onClick={() => router.push('/docs')}>
                                         View Documentation
                                         <ArrowRight className="ml-2 h-4 w-4" />
                                     </Button>
                                 </div>
-                                <div className="text-sm text-muted-foreground">
-                                    No credit card required.
-                                </div>
+
                             </div>
                             <div className="flex items-center justify-center lg:justify-end">
                                 <div className="w-full max-w-[400px] lg:max-w-none">
@@ -144,7 +142,7 @@ export default function Home() {
                     <div className="container px-4 md:px-6">
                         <div className="flex flex-col items-center justify-center space-y-4 text-center">
                             <div className="space-y-2">
-                                <div className="inline-block rounded-lg bg-teal-100 px-3 py-1 text-sm font-medium text-teal-800 dark:bg-teal-900/30 dark:text-teal-500">
+                                <div className="inline-block rounded-lg bg-purple-100 px-3 py-1 text-sm font-medium text-purple-800 dark:bg-purple-900/30 dark:text-purple-500">
                                     Features
                                 </div>
                                 <h2 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl">Why Choose TukTuk?</h2>
@@ -160,9 +158,9 @@ export default function Home() {
                                 description="Execute tasks with minimal latency. TukTuk is optimized for speed at every step of the process."
                             />
                             <FeatureCard
-                                icon={<Clock className="h-10 w-10 text-teal-500" />}
+                                icon={<Clock className="h-10 w-10 text-purple-500" />}
                                 title="Precise Scheduling"
-                                description="Set up complex schedules with cron syntax or use our intuitive interface to define execution times."
+                                description="Set up complex schedules with cron syntax."
                             />
                             <FeatureCard
                                 icon={<Shield className="h-10 w-10 text-red-500" />}
@@ -177,7 +175,7 @@ export default function Home() {
                             <FeatureCard
                                 icon={
                                     <svg
-                                        className="h-10 w-10 text-teal-500"
+                                        className="h-10 w-10 text-purple-500"
                                         viewBox="0 0 24 24"
                                         fill="none"
                                         xmlns="http://www.w3.org/2000/svg"
@@ -190,13 +188,14 @@ export default function Home() {
                                         <path d="M12 7V12L15 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                                     </svg>
                                 }
-                                title="Real-time Monitoring"
-                                description="Track execution status, view logs, and receive alerts when tasks complete or fail."
+                                title="Security"
+                                description="Smart contracts have not been audited yet and will be audited soon. Use at your own risk."
                             />
+
                             <FeatureCard
                                 icon={
                                     <svg
-                                        className="h-10 w-10 text-yellow-500"
+                                        className="h-10 w-10 text-purple-500"
                                         viewBox="0 0 24 24"
                                         fill="none"
                                         xmlns="http://www.w3.org/2000/svg"
@@ -210,8 +209,8 @@ export default function Home() {
                                         />
                                     </svg>
                                 }
-                                title="Low Gas Optimization"
-                                description="Smart batching and gas optimization techniques minimize transaction costs on the blockchain."
+                                title="Cost-Effective"
+                                description="Optimize your blockchain operations with efficient task scheduling and execution patterns."
                             />
                         </div>
                     </div>
@@ -237,7 +236,7 @@ export default function Home() {
                         </div>
                         <div className="mt-16 grid gap-6 md:grid-cols-3">
                             <div className="flex flex-col items-center space-y-2 rounded-lg border p-6 text-center">
-                                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-teal-100 text-teal-900 dark:bg-teal-900/20 dark:text-teal-400">
+                                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-purple-100 text-purple-900 dark:bg-purple-900/20 dark:text-purple-400">
                                     1
                                 </div>
                                 <h3 className="text-xl font-bold">Connect</h3>
@@ -295,7 +294,7 @@ export default function Home() {
                                 <ul className="mb-6 space-y-2 text-sm">
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-teal-500"
+                                            className="mr-2 h-4 w-4 text-purple-500"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -307,7 +306,7 @@ export default function Home() {
                                     </li>
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-teal-500"
+                                            className="mr-2 h-4 w-4 text-purple-500"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -319,7 +318,7 @@ export default function Home() {
                                     </li>
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-teal-500"
+                                            className="mr-2 h-4 w-4 text-purple-500"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -334,7 +333,7 @@ export default function Home() {
                                     Get Started
                                 </Button>
                             </div>
-                            <div className="flex flex-col rounded-lg border bg-background p-6 shadow-lg ring-2 ring-teal-500">
+                            <div className="flex flex-col rounded-lg border bg-background p-6 shadow-lg ring-2 ring-purple-500">
                                 <div className="mb-4">
                                     <h3 className="text-xl font-bold">Pro</h3>
                                     <p className="text-sm text-muted-foreground">For growing projects and teams</p>
@@ -346,7 +345,7 @@ export default function Home() {
                                 <ul className="mb-6 space-y-2 text-sm">
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-teal-500"
+                                            className="mr-2 h-4 w-4 text-purple-500"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -358,7 +357,7 @@ export default function Home() {
                                     </li>
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-teal-500"
+                                            className="mr-2 h-4 w-4 text-purple-500"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -370,7 +369,7 @@ export default function Home() {
                                     </li>
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-teal-500"
+                                            className="mr-2 h-4 w-4 text-purple-500"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -382,7 +381,7 @@ export default function Home() {
                                     </li>
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-teal-500"
+                                            className="mr-2 h-4 w-4 text-purple-500"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -393,7 +392,7 @@ export default function Home() {
                                         Custom retry strategies
                                     </li>
                                 </ul>
-                                <Button className="mt-auto bg-teal-600 hover:bg-teal-700">Get Started</Button>
+                                <Button className="mt-auto bg-purple-600 hover:bg-purple-700">Get Started</Button>
                             </div>
                             <div className="flex flex-col rounded-lg border bg-background p-6">
                                 <div className="mb-4">
@@ -406,7 +405,7 @@ export default function Home() {
                                 <ul className="mb-6 space-y-2 text-sm">
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-teal-500"
+                                            className="mr-2 h-4 w-4 text-purple-500"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -418,7 +417,7 @@ export default function Home() {
                                     </li>
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-teal-500"
+                                            className="mr-2 h-4 w-4 text-purple-500"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -430,7 +429,7 @@ export default function Home() {
                                     </li>
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-teal-500"
+                                            className="mr-2 h-4 w-4 text-purple-500"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -442,7 +441,7 @@ export default function Home() {
                                     </li>
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-teal-500"
+                                            className="mr-2 h-4 w-4 text-purple-500"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -481,7 +480,7 @@ export default function Home() {
                             </div>
                             <div className="flex items-center justify-center rounded-lg border bg-slate-50 p-8 dark:bg-slate-900/50">
                                 <div className="space-y-4 text-center">
-                                    <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-teal-100 text-teal-900 dark:bg-teal-900/20 dark:text-teal-400">
+                                    <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-purple-100 text-purple-900 dark:bg-purple-900/20 dark:text-purple-400">
                                         <svg
                                             className="h-8 w-8"
                                             fill="none"

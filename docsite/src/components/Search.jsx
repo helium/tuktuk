@@ -86,7 +86,7 @@ function LoadingIcon(props) {
 function HighlightQuery({ text, query }) {
   return (
     <Highlighter
-      highlightClassName="group-aria-selected:underline bg-transparent text-teal-600 dark:text-teal-400"
+      highlightClassName="group-aria-selected:underline bg-transparent text-purple-600 dark:text-purple-400"
       searchWords={[query]}
       autoEscape={true}
       textToHighlight={text}
@@ -114,7 +114,7 @@ function SearchResult({ result, autocomplete, collection, query }) {
       <div
         id={`${id}-title`}
         aria-hidden="true"
-        className="text-sm text-zinc-900 group-aria-selected:text-teal-600 dark:text-zinc-300 dark:group-aria-selected:text-teal-400"
+        className="text-sm text-zinc-900 group-aria-selected:text-purple-600 dark:text-zinc-300 dark:group-aria-selected:text-purple-400"
       >
         <HighlightQuery text={result.title} query={query} />
       </div>

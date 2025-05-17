@@ -1,20 +1,25 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Copy } from "lucide-react"
+import Prism from 'prismjs'
+import 'prismjs/themes/prism-tomorrow.css'
+import 'prismjs/components/prism-javascript'
+import 'prismjs/components/prism-typescript'
 
 export function CodeSnippet() {
-    const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [activeTab, setActiveTab] = useState("memo")
 
-    const copyToClipboard = (text) => {
-        navigator.clipboard.writeText(text)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
-    }
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
-    const memoCode = `import { AnchorProvider, Wallet } from "@coral-xyz/anchor";
+  const memoCode = `import { AnchorProvider, Wallet } from "@coral-xyz/anchor";
 import {
   compileTransaction,
   init,
@@ -68,7 +73,7 @@ const { pubkeys: { task }, signature } = await (await queueTask(program, {
 console.log("Task queued! Transaction signature:", signature);
 console.log("Task address:", task.toBase58());`
 
-    const cronJobCode = `import { AnchorProvider, Wallet } from "@coral-xyz/anchor";
+  const cronJobCode = `import { AnchorProvider, Wallet } from "@coral-xyz/anchor";
 import { createCronJob, cronJobTransactionKey, init as initCron } from "@helium/cron-sdk";
 import {
   compileTransaction,
@@ -115,8 +120,7 @@ await sendInstructions(provider, [
 ]);
 
 // Create a memo instruction
-const memoInstruction = new TransactionInstruction({
-  keys: [],
+const memoInstruction = new TransactionInstruction({  keys: [],
   data: Buffer.from("Scheduled message", "utf-8"),
   programId: MEMO_PROGRAM_ID,
 });
@@ -145,7 +149,7 @@ await cronProgram.methods
 
 console.log("Cron job created:", cronJob.toBase58());`
 
-    const tokenTransferCode = `import { AnchorProvider, BN, Wallet } from "@coral-xyz/anchor";
+  const tokenTransferCode = `import { AnchorProvider, BN, Wallet } from "@coral-xyz/anchor";
 import {
   compileTransaction,
   customSignerKey,
@@ -226,55 +230,60 @@ const { pubkeys: { task }, signature } = await (await queueTask(program, {
 
 console.log("Token transfer task queued:", task.toBase58());`
 
-    return (
-        <div className="rounded-lg border bg-card text-card-foreground shadow-sm">
-            <div className="flex flex-col space-y-1.5 p-6">
-                <h3 className="text-2xl font-semibold leading-none tracking-tight">Get Started with Examples</h3>
-                <p className="text-sm text-muted-foreground">
-                    Explore these practical examples to start building with TukTuk SDK.
-                </p>
-            </div>
-            <Tabs defaultValue="memo" className="w-full">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between px-6">
-                    <TabsList className="h-auto flex-wrap gap-2">
-                        <TabsTrigger className="whitespace-nowrap" value="memo">Simple Memo</TabsTrigger>
-                        <TabsTrigger className="whitespace-nowrap" value="cronJob">Scheduled Task</TabsTrigger>
-                        <TabsTrigger className="whitespace-nowrap" value="tokenTransfer">Token Transfer</TabsTrigger>
-                    </TabsList>
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className="mt-2 sm:mt-0"
-                        onClick={() => {
-                            const codeMap = {
-                                memo: memoCode,
-                                cronJob: cronJobCode,
-                                tokenTransfer: tokenTransferCode,
-                            }
-                            const activeTab =
-                                document.querySelector('[role="tablist"] [data-state="active"]')?.getAttribute("value") || "memo"
-                            copyToClipboard(codeMap[activeTab])
-                        }}
-                    >
-                        {copied ? "Copied!" : <Copy className="h-4 w-4" />}
-                    </Button>
-                </div>
-                <TabsContent value="memo" className="p-6 pt-2">
-                    <pre className="rounded-md bg-slate-950 p-4 overflow-x-auto text-sm text-slate-50">
-                        <code>{memoCode}</code>
-                    </pre>
-                </TabsContent>
-                <TabsContent value="cronJob" className="p-6 pt-2">
-                    <pre className="rounded-md bg-slate-950 p-4 overflow-x-auto text-sm text-slate-50">
-                        <code>{cronJobCode}</code>
-                    </pre>
-                </TabsContent>
-                <TabsContent value="tokenTransfer" className="p-6 pt-2">
-                    <pre className="rounded-md bg-slate-950 p-4 overflow-x-auto text-sm text-slate-50">
-                        <code>{tokenTransferCode}</code>
-                    </pre>
-                </TabsContent>
-            </Tabs>
+  useEffect(() => {
+    Prism.highlightAll()
+  }, [])
+
+  return (
+    <div className="rounded-lg border bg-card text-card-foreground shadow-sm">
+      <div className="flex flex-col space-y-1.5 p-6">
+        <h3 className="text-2xl font-semibold leading-none tracking-tight">Get Started with Examples</h3>
+        <p className="text-sm text-muted-foreground">
+          Explore these practical examples to start building with TukTuk SDK.
+        </p>
+      </div>
+      <Tabs defaultValue="memo" className="w-full">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between px-6">
+          <TabsList className="h-auto flex-wrap gap-2">
+            <TabsTrigger className="whitespace-nowrap" value="memo" onClick={() => Prism.highlightAll()}>Simple Memo</TabsTrigger>
+            <TabsTrigger className="whitespace-nowrap" value="cronJob" onClick={() => Prism.highlightAll()}>Scheduled Task</TabsTrigger>
+            <TabsTrigger className="whitespace-nowrap" value="tokenTransfer" onClick={() => Prism.highlightAll()}>Token Transfer</TabsTrigger>
+          </TabsList>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mt-2 sm:mt-0"
+            onClick={() => {
+              const codeMap = {
+                memo: memoCode,
+                cronJob: cronJobCode,
+                tokenTransfer: tokenTransferCode,
+              }
+              const activeTab =
+                document.querySelector('[role="tablist"] [data-state="active"]')?.getAttribute("value") || "memo"
+              copyToClipboard(codeMap[activeTab])
+            }}
+          >
+            {copied ? "Copied!" : <Copy className="h-4 w-4" />}
+          </Button>
         </div>
-    )
+        <TabsContent value="memo" className="p-6 pt-2">
+          <pre className="rounded-md bg-slate-950 p-4 overflow-x-auto text-sm text-slate-50">
+            <code className="language-javascript">{memoCode}</code>
+          </pre>
+        </TabsContent>
+        <TabsContent value="cronJob" className="p-6 pt-2">
+          <pre className="rounded-md bg-slate-950 p-4 overflow-x-auto text-sm text-slate-50">
+            <code className="language-javascript">{cronJobCode}</code>
+          </pre>
+        </TabsContent>
+        <TabsContent value="tokenTransfer" className="p-6 pt-2">
+          <pre className="rounded-md bg-slate-950 p-4 overflow-x-auto text-sm text-slate-50">
+            <code className="language-javascript">{tokenTransferCode}</code>
+          </pre>
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
 }
+

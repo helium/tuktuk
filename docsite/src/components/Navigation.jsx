@@ -49,7 +49,7 @@ export function Navigation({ navigation, className }) {
                                   'trail-nav-link',
                                   'block w-full pl-3.5 before:ring-white before:ring-2',
                                   link.href === router.pathname
-                                    ? 'font-semibold text-yellow-700'
+                                    ? 'font-semibold text-purple-700'
                                     : 'text-zinc-500 hover:text-zinc-600 dark:text-zinc-400 dark:hover:text-zinc-300'
                                 )}
                               >
