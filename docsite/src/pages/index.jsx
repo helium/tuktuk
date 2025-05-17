@@ -109,20 +109,20 @@ export default function Home() {
                         <div className="grid gap-6 lg:grid-cols-[1fr_400px] lg:gap-12 xl:grid-cols-[1fr_600px]">
                             <div className="flex flex-col justify-center space-y-4">
                                 <div className="space-y-2">
-                                    <div className="inline-flex items-center rounded-lg bg-yellow-100 px-3 py-1 text-sm font-medium text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-500">
-                                        <Zap className="mr-1 h-3.5 w-3.5" />
-                                        Blazing Fast On-Chain Automation
+                                    <div className=" gap-2 inline-flex items-center rounded-lg bg-[#E7DEFF] px-3 py-1 text-sm font-medium text-[#5E25FD] dark:bg-[#5E25FD] dark:text-white">
+                                        <Image src="/helium-logo.svg" alt="Helium Logo" width={20} height={20} />
+                                        Powering Helium
                                     </div>
                                     <h1 className="text-4xl font-bold tracking-tighter sm:text-5xl md:text-6xl">
-                                        Schedule Tasks on the Blockchain <span className="text-purple-500">Without the Wait</span>
+                                        Schedule Tasks on Solana <span className="text-[#5E25FD]">Without the Wait</span>
                                     </h1>
                                     <p className="max-w-[600px] text-muted-foreground md:text-xl">
-                                        TukTuk delivers reliable, blazing-fast cron jobs for your blockchain applications. Set it, forget
+                                        TukTuk delivers reliable, blazing-fast cron jobs for your Solana applications. Set it, forget
                                         it, and watch your tasks execute with precision.
                                     </p>
                                 </div>
                                 <div className="flex flex-col gap-2 min-[400px]:flex-row">
-                                    <Button className="bg-purple-600 hover:bg-purple-700" onClick={() => router.push('/docs')}>
+                                    <Button className="bg-[#5E25FD] hover:bg-[#5E25FD] dark:bg-[#7F52FF] dark:hover:bg-[#7F52FF]" onClick={() => router.push('/docs')}>
                                         View Documentation
                                         <ArrowRight className="ml-2 h-4 w-4" />
                                     </Button>
@@ -142,7 +142,7 @@ export default function Home() {
                     <div className="container px-4 md:px-6">
                         <div className="flex flex-col items-center justify-center space-y-4 text-center">
                             <div className="space-y-2">
-                                <div className="inline-block rounded-lg bg-purple-100 px-3 py-1 text-sm font-medium text-purple-800 dark:bg-purple-900/30 dark:text-purple-500">
+                                <div className="inline-block rounded-lg bg-purple-100 px-3 py-1 text-sm font-medium text-purple-800 dark:bg-purple-900/30 dark:text-[#5E25FD]">
                                     Features
                                 </div>
                                 <h2 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl">Why Choose TukTuk?</h2>
@@ -158,7 +158,7 @@ export default function Home() {
                                 description="Execute tasks with minimal latency. TukTuk is optimized for speed at every step of the process."
                             />
                             <FeatureCard
-                                icon={<Clock className="h-10 w-10 text-purple-500" />}
+                                icon={<Clock className="h-10 w-10 text-[#5E25FD]" />}
                                 title="Precise Scheduling"
                                 description="Set up complex schedules with cron syntax."
                             />
@@ -168,14 +168,14 @@ export default function Home() {
                                 description="Built-in redundancy ensures your tasks run on time, every time, with automatic retries."
                             />
                             <FeatureCard
-                                icon={<Code className="h-10 w-10 text-purple-500" />}
+                                icon={<Code className="h-10 w-10 text-[#5E25FD]" />}
                                 title="Developer Friendly"
                                 description="Simple API, comprehensive SDKs, and detailed documentation make integration a breeze."
                             />
                             <FeatureCard
                                 icon={
                                     <svg
-                                        className="h-10 w-10 text-purple-500"
+                                        className="h-10 w-10 text-[#5E25FD]"
                                         viewBox="0 0 24 24"
                                         fill="none"
                                         xmlns="http://www.w3.org/2000/svg"
@@ -195,7 +195,7 @@ export default function Home() {
                             <FeatureCard
                                 icon={
                                     <svg
-                                        className="h-10 w-10 text-purple-500"
+                                        className="h-10 w-10 text-[#5E25FD]"
                                         viewBox="0 0 24 24"
                                         fill="none"
                                         xmlns="http://www.w3.org/2000/svg"
@@ -210,7 +210,7 @@ export default function Home() {
                                     </svg>
                                 }
                                 title="Cost-Effective"
-                                description="Optimize your blockchain operations with efficient task scheduling and execution patterns."
+                                description="Optimize your Solana operations with efficient task scheduling and execution patterns."
                             />
                         </div>
                     </div>
@@ -220,7 +220,7 @@ export default function Home() {
                     <div className="container px-4 md:px-6">
                         <div className="flex flex-col items-center justify-center space-y-4 text-center">
                             <div className="space-y-2">
-                                <div className="inline-block rounded-lg bg-purple-100 px-3 py-1 text-sm font-medium text-purple-800 dark:bg-purple-900/30 dark:text-purple-500">
+                                <div className="inline-block rounded-lg bg-purple-100 px-3 py-1 text-sm font-medium text-purple-800 dark:bg-purple-900/30 dark:text-[#5E25FD]">
                                     How It Works
                                 </div>
                                 <h2 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl">
@@ -294,7 +294,7 @@ export default function Home() {
                                 <ul className="mb-6 space-y-2 text-sm">
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-purple-500"
+                                            className="mr-2 h-4 w-4 text-[#5E25FD]"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -306,7 +306,7 @@ export default function Home() {
                                     </li>
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-purple-500"
+                                            className="mr-2 h-4 w-4 text-[#5E25FD]"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -318,7 +318,7 @@ export default function Home() {
                                     </li>
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-purple-500"
+                                            className="mr-2 h-4 w-4 text-[#5E25FD]"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -345,7 +345,7 @@ export default function Home() {
                                 <ul className="mb-6 space-y-2 text-sm">
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-purple-500"
+                                            className="mr-2 h-4 w-4 text-[#5E25FD]"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -357,7 +357,7 @@ export default function Home() {
                                     </li>
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-purple-500"
+                                            className="mr-2 h-4 w-4 text-[#5E25FD]"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -369,7 +369,7 @@ export default function Home() {
                                     </li>
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-purple-500"
+                                            className="mr-2 h-4 w-4 text-[#5E25FD]"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -381,7 +381,7 @@ export default function Home() {
                                     </li>
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-purple-500"
+                                            className="mr-2 h-4 w-4 text-[#5E25FD]"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -405,7 +405,7 @@ export default function Home() {
                                 <ul className="mb-6 space-y-2 text-sm">
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-purple-500"
+                                            className="mr-2 h-4 w-4 text-[#5E25FD]"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -417,7 +417,7 @@ export default function Home() {
                                     </li>
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-purple-500"
+                                            className="mr-2 h-4 w-4 text-[#5E25FD]"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -429,7 +429,7 @@ export default function Home() {
                                     </li>
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-purple-500"
+                                            className="mr-2 h-4 w-4 text-[#5E25FD]"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -441,7 +441,7 @@ export default function Home() {
                                     </li>
                                     <li className="flex items-center">
                                         <svg
-                                            className="mr-2 h-4 w-4 text-purple-500"
+                                            className="mr-2 h-4 w-4 text-[#5E25FD]"
                                             fill="none"
                                             stroke="currentColor"
                                             viewBox="0 0 24 24"
@@ -472,7 +472,7 @@ export default function Home() {
                                         Join the fastest growing on-chain automation platform
                                     </h2>
                                     <p className="max-w-[600px] text-muted-foreground md:text-xl">
-                                        TukTuk is trusted by developers across the blockchain ecosystem. Start building with confidence
+                                        TukTuk is trusted by developers across the Solana ecosystem. Start building with confidence
                                         today.
                                     </p>
                                 </div>
@@ -516,7 +516,7 @@ export default function Home() {
                             <span className="inline-block font-bold text-xl">TukTuk</span>
                         </Link>
                         <p className="text-sm text-muted-foreground">
-                            Blazing fast on-chain cron jobs for the modern blockchain developer. Schedule, automate, and relax.
+                            Blazing fast on-chain cron jobs for the modern Solana developer. Schedule, automate, and relax.
                         </p>
                         <div className="flex gap-4">
                             <Link href="https://github.com/helium/tuktuk" className="text-muted-foreground hover:text-foreground" target="_blank">
@@ -537,7 +537,7 @@ export default function Home() {
                         <p className="text-xs text-muted-foreground">
                             &copy; {new Date().getFullYear()} TukTuk. All rights reserved.
                         </p>
-                        <p className="text-xs text-muted-foreground">Crafted with ❤️ for the blockchain community</p>
+                        <p className="text-xs text-muted-foreground">Crafted with ❤️ for the Solana community</p>
                     </div>
                 </div>
             </footer>
