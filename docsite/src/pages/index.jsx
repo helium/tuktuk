@@ -189,7 +189,7 @@ export default function Home() {
                                     </svg>
                                 }
                                 title="Security"
-                                description="Smart contracts have not been audited yet and will be audited soon. Use at your own risk."
+                                description="Smart contracts currently being audited. Use at your own risk."
                             />
 
                             <FeatureCard
