@@ -171,17 +171,6 @@ impl TaskQueueCmd {
                     update_authority.unwrap_or(client.payer.pubkey()),
                 )?;
                 // Fund if amount specified
-                let config: TuktukConfigV0 = client
-                    .as_ref()
-                    .anchor_account(&tuktuk::config_key())
-                    .await?
-                    .ok_or_else(|| anyhow::anyhow!("Tuktuk config account not found"))?;
-                if *funding_amount < config.min_deposit {
-                    return Err(anyhow::anyhow!(
-                        "Funding amount must be greater than the minimum deposit: {}",
-                        config.min_deposit
-                    ));
-                }
                 let fund_ix = Self::fund_task_queue_ix(&client, &key, *funding_amount).await?;
 
                 send_instructions(
