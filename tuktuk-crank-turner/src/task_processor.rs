@@ -122,7 +122,35 @@ impl TimedTask {
             .get_lookup_tables(task_queue.lookup_tables)
             .await
             .map_err(|_| anyhow::anyhow!("lookup tables channel closed"))?;
-        let next_available = self.get_available_task_ids(ctx.clone()).await?;
+        let maybe_next_available = self.get_available_task_ids(ctx.clone()).await;
+        let next_available = match maybe_next_available {
+            Ok(next_available) => next_available,
+            Err(err) => {
+                info!(
+                    ?err,
+                    ?self.task_queue_name,
+                    ?self.task_key,
+                    "failed to get available task ids, requeuing task"
+                );
+                let now = *ctx.now_rx.borrow();
+                let base_delay = 30 * (1 << self.total_retries);
+                let jitter = rand::random_range(0..60); // Jitter up to 1 minute to prevent conflicts with other turners
+                let retry_delay = base_delay + jitter;
+                ctx.task_queue
+                    .add_task(TimedTask {
+                        task: self.task.clone(),
+                        total_retries: self.total_retries + 1,
+                        in_flight_task_ids: vec![],
+                        profitability_delayed: self.profitability_delayed,
+                        // Try again in 10-30 seconds
+                        task_time: now + retry_delay,
+                        ..self.clone()
+                    })
+                    .await?;
+
+                return Ok(());
+            }
+        };
         self.in_flight_task_ids = next_available.clone();
 
         let maybe_run_ix = if let Some(cached_result) = self.cached_result.clone() {
@@ -219,6 +247,7 @@ impl TimedTask {
             match err {
                 TransactionQueueError::FeeTooHigh => {
                     info!(?self.task_key, ?err, "task fee too high");
+                    let now = *ctx.now_rx.borrow();
                     ctx.task_queue
                         .add_task(TimedTask {
                             task: self.task.clone(),
@@ -226,7 +255,7 @@ impl TimedTask {
                             in_flight_task_ids: vec![],
                             profitability_delayed: self.profitability_delayed,
                             // Try again in 10-30 seconds
-                            task_time: self.task_time + rand::random_range(10..30),
+                            task_time: now + rand::random_range(10..30),
                             ..self.clone()
                         })
                         .await?;

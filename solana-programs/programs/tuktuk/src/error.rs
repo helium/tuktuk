@@ -38,4 +38,6 @@ pub enum ErrorCode {
     InvalidDescriptionLength,
     #[msg("Task queue has queue authorities")]
     TaskQueueHasQueueAuthorities,
+    #[msg("Free tasks must be less than the capacity of the task queue")]
+    FreeTasksGreaterThanCapacity,
 }

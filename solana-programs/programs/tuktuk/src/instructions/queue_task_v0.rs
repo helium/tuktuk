@@ -52,6 +52,11 @@ pub struct QueueTaskV0<'info> {
 
 pub fn handler(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
     require_gte!(
+        ctx.accounts.task_queue.capacity,
+        (args.free_tasks + 1) as u16,
+        ErrorCode::FreeTasksGreaterThanCapacity
+    );
+    require_gte!(
         40,
         args.description.len(),
         ErrorCode::InvalidDescriptionLength
