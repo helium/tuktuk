@@ -72,7 +72,7 @@ pub fn create_config(
 pub mod cron {
     use anchor_lang::{InstructionData, ToAccountMetas};
     use itertools::Itertools;
-    use solana_sdk::{instruction::Instruction, pubkey, pubkey::Pubkey};
+    use solana_sdk::{instruction::Instruction, pubkey::Pubkey};
     use tuktuk_program::{
         cron::{
             self,
@@ -85,8 +85,6 @@ pub mod cron {
 
     use super::{hash_name, task, task_queue::task_queue_authority_key};
     use crate::{client::GetAnchorAccount, error::Error};
-
-    pub const TASK_QUEUE_ID: Pubkey = pubkey!("H39gEszvsi6AT4rYBiJTuZHJSF5hMHy6CKGTd7wzhsg7");
 
     pub fn user_cron_jobs_key(authority: &Pubkey) -> Pubkey {
         Pubkey::find_program_address(&[b"user_cron_jobs", authority.as_ref()], &ID).0
