@@ -388,7 +388,23 @@ pub mod task_queue {
 
     use self::tuktuk::types::InitializeTaskQueueArgsV0;
     use super::*;
-    use crate::client::GetAnchorAccount;
+    use crate::{
+        client::GetAnchorAccount,
+        compiled_transaction::next_available_task_ids_excluding_in_progress,
+    };
+
+    pub fn next_available_task_ids(
+        task_queue: &tuktuk::accounts::TaskQueueV0,
+        n: u8,
+    ) -> Result<Vec<u16>, Error> {
+        next_available_task_ids_excluding_in_progress(
+            task_queue.capacity,
+            &task_queue.task_bitmap,
+            n,
+            &Default::default(),
+            0,
+        )
+    }
 
     pub fn key(config_key: &Pubkey, next_task_queue_id: u32) -> Pubkey {
         Pubkey::find_program_address(
@@ -412,6 +428,10 @@ pub mod task_queue {
             &tuktuk::ID,
         )
         .0
+    }
+
+    pub fn queue_authority_key() -> Pubkey {
+        Pubkey::find_program_address(&[b"queue_authority"], &tuktuk::ID).0
     }
 
     pub fn keys(config_key: &Pubkey, config: &TuktukConfigV0) -> Result<Vec<Pubkey>, Error> {
