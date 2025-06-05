@@ -402,7 +402,7 @@ pub mod task_queue {
             &task_queue.task_bitmap,
             n,
             &Default::default(),
-            0,
+            rand::random_range(0..task_queue.task_bitmap.len()),
         )
     }
 
@@ -430,8 +430,8 @@ pub mod task_queue {
         .0
     }
 
-    pub fn queue_authority_key() -> Pubkey {
-        Pubkey::find_program_address(&[b"queue_authority"], &tuktuk::ID).0
+    pub fn queue_authority_key(program_id: &Pubkey) -> Pubkey {
+        Pubkey::find_program_address(&[b"queue_authority"], program_id).0
     }
 
     pub fn keys(config_key: &Pubkey, config: &TuktukConfigV0) -> Result<Vec<Pubkey>, Error> {
