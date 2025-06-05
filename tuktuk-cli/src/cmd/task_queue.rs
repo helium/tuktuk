@@ -6,7 +6,7 @@ use solana_sdk::{
     instruction::Instruction, pubkey::Pubkey, signer::Signer, system_instruction::transfer,
 };
 use tuktuk::task_queue_name_mapping_key;
-use tuktuk_program::{TaskQueueV0, TuktukConfigV0};
+use tuktuk_program::TaskQueueV0;
 use tuktuk_sdk::prelude::*;
 
 use crate::{

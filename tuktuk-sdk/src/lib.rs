@@ -7,6 +7,8 @@ pub mod pubsub_client;
 pub mod tuktuk;
 pub mod watcher;
 
+pub use tuktuk_program;
+
 pub mod prelude {
     pub use anchor_lang::prelude::*;
 
