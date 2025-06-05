@@ -32,7 +32,7 @@ pub fn task_queue_name_mapping_key(config_key: &Pubkey, name: &str) -> Pubkey {
     .0
 }
 
-pub fn custom_signing_key(task_queue: &Pubkey, signer_seeds: &[&[u8]]) -> Pubkey {
+pub fn custom_signer_key(task_queue: &Pubkey, signer_seeds: &[&[u8]]) -> Pubkey {
     Pubkey::find_program_address(
         &[&[b"custom", task_queue.as_ref()], signer_seeds].concat(),
         &tuktuk::ID,
