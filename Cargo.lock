@@ -6820,7 +6820,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tuktuk-cli"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -6849,7 +6849,7 @@ dependencies = [
 
 [[package]]
 name = "tuktuk-crank-turner"
-version = "0.2.21"
+version = "0.2.22"
 dependencies = [
  "anchor-client",
  "anchor-lang",

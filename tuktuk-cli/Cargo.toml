@@ -1,6 +1,6 @@
 [package]
 name = "tuktuk-cli"
-version = "0.2.10"
+version = "0.2.11"
 description = "A cli for tuktuk"
 homepage.workspace = true
 repository.workspace = true
