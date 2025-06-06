@@ -137,7 +137,11 @@ async fn simulate_task(client: &CliClient, task_key: Pubkey) -> Result<Option<Si
             }
         }
         Err(tuktuk_sdk::error::Error::AccountNotFound) => Ok(None),
-        Err(e) => Err(e.into()),
+        Err(e) => Ok(Some(SimulationResult {
+            error: Some(e.to_string()),
+            logs: None,
+            compute_units: None,
+        })),
     }
 }
 

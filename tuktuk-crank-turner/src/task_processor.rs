@@ -147,7 +147,9 @@ impl TimedTask {
                         ..self.clone()
                     })
                     .await?;
-
+                TASKS_IN_PROGRESS
+                    .with_label_values(&[self.task_queue_name.as_str()])
+                    .dec();
                 return Ok(());
             }
         };
