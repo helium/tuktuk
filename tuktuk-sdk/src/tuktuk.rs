@@ -393,16 +393,34 @@ pub mod task_queue {
         compiled_transaction::next_available_task_ids_excluding_in_progress,
     };
 
+    /// Selects the 'n' next available task ids starting at a random offset
+    ///
+    /// Returns an error if 'n' free task ids are not available
     pub fn next_available_task_ids(
         task_queue: &tuktuk::accounts::TaskQueueV0,
         n: u8,
+    ) -> Result<Vec<u16>, Error> {
+        next_available_task_ids_from(
+            task_queue,
+            n,
+            rand::random_range(0..task_queue.task_bitmap.len()),
+        )
+    }
+
+    /// Selects the 'n' next available task ids starting at a given offset
+    ///
+    /// Returns an error if 'n' free task ids are not available
+    pub fn next_available_task_ids_from(
+        task_queue: &tuktuk::accounts::TaskQueueV0,
+        n: u8,
+        offset: usize,
     ) -> Result<Vec<u16>, Error> {
         next_available_task_ids_excluding_in_progress(
             task_queue.capacity,
             &task_queue.task_bitmap,
             n,
             &Default::default(),
-            rand::random_range(0..task_queue.task_bitmap.len()),
+            offset,
         )
     }
 
