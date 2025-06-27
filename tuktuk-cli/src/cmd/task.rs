@@ -180,11 +180,10 @@ impl TaskCmd {
                                 return false;
                             }
                         }
-                        let is_task_active = task.trigger.is_active(now);
-                        if *active != is_task_active {
-                            return false;
-                        }
-                        return true;
+
+                        // If active flag is set, only show tasks that are active
+                        // Otherwise, show all tasks
+                        return !*active || task.trigger.is_active(now);
                     }
                     false
                 });
