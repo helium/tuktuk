@@ -121,10 +121,10 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
             let mut updated_instructions = bundle.tx.instructions.clone();
             let compute_budget_ix = compute_budget_instruction(compute_units);
             // Replace or insert compute budget instruction
-            if let Some(pos) = updated_instructions
-                .iter()
-                .position(|ix| ix.program_id == solana_sdk::compute_budget::id())
-            {
+            if let Some(pos) = updated_instructions.iter().position(|ix| {
+                ix.program_id == solana_sdk::compute_budget::id()
+                    && ix.data.first() == compute_budget_ix.data.first()
+            }) {
                 updated_instructions[pos] = compute_budget_ix; // Replace existing
             } else {
                 updated_instructions.insert(0, compute_budget_ix); // Insert at the beginning
