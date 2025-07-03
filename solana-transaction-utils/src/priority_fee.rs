@@ -145,11 +145,10 @@ pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>>(
 
     // Simulate the transaction to get the actual compute used
     let simulation_result = client.as_ref().simulate_transaction(&snub_tx).await?;
-    if let Some(err) = simulation_result.value.err {
+    if simulation_result.value.err.is_some() {
         info!(?simulation_result.value.logs, "simulation error");
-        return Err(Error::SimulatedTransactionError(err));
     }
-    let actual_compute_used = simulation_result.value.units_consumed.unwrap_or(200000);
+    let actual_compute_used = simulation_result.value.units_consumed.unwrap_or(1000000);
 
     let final_compute_budget = (actual_compute_used as f32 * compute_multiplier) as u32;
     Ok((
@@ -175,11 +174,11 @@ pub async fn auto_compute_price<C: AsRef<RpcClient>>(
         compute_price_instruction_for_accounts(client, &accounts).await?;
 
     // Replace or insert compute price instruction
-    if let Some(pos) = instructions
-        .iter()
-        .position(|ix| ix.program_id == solana_sdk::compute_budget::id())
-    {
-        updated_instructions[pos + 1] = compute_price_ix; // Replace existing
+    if let Some(pos) = instructions.iter().position(|ix| {
+        ix.program_id == solana_sdk::compute_budget::id()
+            && ix.data.first() == compute_price_ix.data.first()
+    }) {
+        updated_instructions[pos] = compute_price_ix; // Replace existing
     } else {
         updated_instructions.insert(1, compute_price_ix); // Insert after compute budget
     }
@@ -239,10 +238,10 @@ pub async fn auto_compute_limit_and_price<C: AsRef<RpcClient>>(
     .await?;
 
     // Replace or insert compute budget instruction
-    if let Some(pos) = updated_instructions
-        .iter()
-        .position(|ix| ix.program_id == solana_sdk::compute_budget::id())
-    {
+    if let Some(pos) = updated_instructions.iter().position(|ix| {
+        ix.program_id == solana_sdk::compute_budget::id()
+            && ix.data.first() == compute_budget_ix.data.first()
+    }) {
         updated_instructions[pos] = compute_budget_ix; // Replace existing
     } else {
         updated_instructions.insert(0, compute_budget_ix); // Insert at the beginning

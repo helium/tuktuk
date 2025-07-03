@@ -1,6 +1,6 @@
 [package]
 name = "tuktuk-cli"
-version = "0.2.11"
+version = "0.2.12"
 description = "A cli for tuktuk"
 homepage.workspace = true
 repository.workspace = true
@@ -38,3 +38,4 @@ spl-token = { workspace = true }
 solana-program = { workspace = true }
 itertools = { workspace = true }
 bs58 = "0.5.1"
+futures = { workspace = true }

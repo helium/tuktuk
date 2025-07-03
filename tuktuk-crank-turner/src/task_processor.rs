@@ -280,7 +280,8 @@ impl TimedTask {
                 | TransactionQueueError::TransactionError(_)
                 | TransactionQueueError::RpcError(_)
                 | TransactionQueueError::ChannelClosed
-                | TransactionQueueError::MaxRetriesExceeded => {
+                | TransactionQueueError::MaxRetriesExceeded
+                | TransactionQueueError::RawSimulatedTransactionError(_) => {
                     if self.total_retries < self.max_retries && !self.is_cleanup_task {
                         let base_delay = 30 * (1 << self.total_retries);
                         let jitter = rand::random_range(0..60); // Jitter up to 1 minute to prevent conflicts with other turners
