@@ -38,3 +38,4 @@ spl-token = { workspace = true }
 solana-program = { workspace = true }
 itertools = { workspace = true }
 bs58 = "0.5.1"
+futures = { workspace = true }

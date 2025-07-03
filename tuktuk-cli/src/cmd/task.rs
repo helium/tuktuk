@@ -1,8 +1,10 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc};
 
 use anyhow::anyhow;
+use chrono::{Local, TimeZone};
 use clap::{Args, Subcommand};
 use clock::SYSVAR_CLOCK;
+use futures::stream::StreamExt;
 use itertools::Itertools;
 use serde::Serialize;
 use solana_client::rpc_config::RpcSimulateTransactionConfig;
@@ -16,7 +18,10 @@ use solana_sdk::{
 use solana_transaction_utils::{
     pack::pack_instructions_into_transactions, priority_fee::auto_compute_limit_and_price,
 };
-use tuktuk_program::{types::TriggerV0, TaskQueueV0, TaskV0};
+use tuktuk_program::{
+    types::{QueueTaskArgsV0, TriggerV0},
+    TaskQueueV0, TaskV0,
+};
 use tuktuk_sdk::prelude::*;
 
 use super::{task_queue::TaskQueueArg, TransactionSource};
@@ -51,6 +56,8 @@ pub enum Cmd {
             default_value = "false"
         )]
         active: bool,
+        #[arg(long, help = "Show tasks with a succesful/failed simulation")]
+        successful: Option<bool>,
         #[arg(long, help = "Limit the number of tasks returned")]
         limit: Option<u32>,
     },
@@ -64,6 +71,20 @@ pub enum Cmd {
         description: Option<String>,
         #[arg(short, long, default_value = "false")]
         skip_preflight: bool,
+    },
+    Requeue {
+        #[command(flatten)]
+        task_queue: TaskQueueArg,
+        #[arg(short, long)]
+        id: Option<u16>,
+        #[arg(short, long, default_value = "false", help = "Requeue all stale tasks")]
+        stale: bool,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        after_id: Option<u16>,
+        #[arg(long)]
+        new_timestamp: Option<i64>,
     },
     Close {
         #[command(flatten)]
@@ -145,6 +166,13 @@ async fn simulate_task(client: &CliClient, task_key: Pubkey) -> Result<Option<Si
     }
 }
 
+#[derive(Clone, Serialize)]
+struct SimulationResult {
+    pub error: Option<String>,
+    pub logs: Option<Vec<String>>,
+    pub compute_units: Option<u64>,
+}
+
 impl TaskCmd {
     pub async fn run(&self, opts: Opts) -> Result {
         match &self.cmd {
@@ -154,6 +182,7 @@ impl TaskCmd {
                 skip_simulate,
                 active,
                 limit,
+                successful,
             } => {
                 let client = opts.client().await?;
                 let task_queue_pubkey = task_queue.get_pubkey(&client).await?.unwrap();
@@ -173,43 +202,50 @@ impl TaskCmd {
                 let clock: solana_sdk::clock::Clock = bincode::deserialize(&clock_acc.data)?;
                 let now = clock.unix_timestamp;
 
-                let filtered_tasks = tasks.into_iter().filter(|(_, task)| {
-                    if let Some(task) = task {
-                        if let Some(description) = description {
-                            if !task.description.starts_with(description) {
-                                return false;
+                let filtered_tasks = tasks
+                    .into_iter()
+                    .filter(|(_, task)| {
+                        if let Some(task) = task {
+                            if let Some(description) = description {
+                                if !task.description.starts_with(description) {
+                                    return false;
+                                }
                             }
+
+                            // If active flag is set, only show tasks that are active
+                            // Otherwise, show all tasks
+                            return !*active || task.trigger.is_active(now);
                         }
+                        false
+                    })
+                    .collect::<Vec<_>>();
 
-                        // If active flag is set, only show tasks that are active
-                        // Otherwise, show all tasks
-                        return !*active || task.trigger.is_active(now);
-                    }
-                    false
-                });
+                let mut json_tasks = Vec::with_capacity(filtered_tasks.len());
+                let mut simulation_tasks = Vec::new();
 
-                let mut json_tasks = Vec::new();
-                for (pubkey, maybe_task) in filtered_tasks {
+                for (i, (pubkey, maybe_task)) in filtered_tasks.into_iter().enumerate() {
                     if let Some(task) = maybe_task {
-                        let mut simulation_result = None;
                         if !*skip_simulate && task.trigger.is_active(now) {
-                            simulation_result = simulate_task(&client, pubkey).await?;
+                            simulation_tasks.push((i, pubkey));
                         }
 
-                        json_tasks.push(Task {
-                            pubkey,
-                            id: task.id,
-                            description: task.description,
-                            trigger: Trigger::from(task.trigger),
-                            crank_reward: task.crank_reward,
-                            rent_refund: task.rent_refund,
-                            simulation_result,
-                            transaction: if self.verbose {
-                                Some(TransactionSource::from(task.transaction.clone()))
-                            } else {
-                                None
+                        json_tasks.push((
+                            i,
+                            Task {
+                                pubkey,
+                                id: task.id,
+                                description: task.description,
+                                trigger: Trigger::from(task.trigger),
+                                crank_reward: task.crank_reward,
+                                rent_refund: task.rent_refund,
+                                simulation_result: None,
+                                transaction: if self.verbose {
+                                    Some(TransactionSource::from(task.transaction.clone()))
+                                } else {
+                                    None
+                                },
                             },
-                        });
+                        ));
 
                         if let Some(limit) = limit {
                             if json_tasks.len() >= *limit as usize {
@@ -218,7 +254,50 @@ impl TaskCmd {
                         }
                     }
                 }
-                print_json(&json_tasks)?;
+
+                // Run simulations in parallel with a limit of 10 concurrent tasks
+                let client = Arc::new(client);
+                let simulation_results = futures::stream::iter(simulation_tasks)
+                    .map(|(i, pubkey)| {
+                        let client = client.clone();
+                        async move {
+                            let result = simulate_task(&client, pubkey).await;
+                            (i, result)
+                        }
+                    })
+                    .buffer_unordered(10)
+                    .collect::<Vec<_>>()
+                    .await;
+
+                let mut results = vec![None; json_tasks.len()];
+                for (i, result) in simulation_results {
+                    if let Ok(sim_result) = result {
+                        results[i] = sim_result;
+                    }
+                }
+
+                // Update tasks with simulation results
+                for (i, task) in json_tasks.iter_mut() {
+                    task.simulation_result = results[*i].clone();
+                }
+
+                // Filter by simulation success/failure if requested
+                let mut final_tasks = json_tasks
+                    .into_iter()
+                    .map(|(_, task)| task)
+                    .collect::<Vec<_>>();
+                if let Some(successful) = successful {
+                    final_tasks.retain(|task| {
+                        if let Some(simulation_result) = &task.simulation_result {
+                            (*successful && simulation_result.error.is_none())
+                                || (!*successful && simulation_result.error.is_some())
+                        } else {
+                            !*successful
+                        }
+                    });
+                }
+
+                print_json(&final_tasks)?;
             }
             Cmd::Close {
                 task_queue,
@@ -414,6 +493,107 @@ impl TaskCmd {
                     }
                 }
             }
+            Cmd::Requeue {
+                task_queue,
+                id,
+                new_timestamp,
+                stale,
+                description,
+                after_id,
+            } => {
+                let client = opts.client().await?;
+                let task_queue_pubkey = task_queue.get_pubkey(&client).await?.unwrap();
+                let task_queue: TaskQueueV0 = client
+                    .as_ref()
+                    .anchor_account(&task_queue_pubkey)
+                    .await?
+                    .ok_or_else(|| anyhow!("Topic account not found"))?;
+                let task_keys = tuktuk::task::keys(&task_queue_pubkey, &task_queue)?;
+                let tasks = client
+                    .as_ref()
+                    .anchor_accounts::<TaskV0>(&task_keys)
+                    .await?;
+
+                let clock_acc = client.rpc_client.get_account(&SYSVAR_CLOCK).await?;
+                let clock: solana_sdk::clock::Clock = bincode::deserialize(&clock_acc.data)?;
+                let now = clock.unix_timestamp;
+
+                let filtered_tasks = tasks.into_iter().filter(|(_, task)| {
+                    if let Some(task) = task {
+                        if *stale {
+                            let is_stale = task.trigger.is_active(now)
+                                && match task.trigger {
+                                    TriggerV0::Now => false,
+                                    TriggerV0::Timestamp(ts) => {
+                                        now - ts > task_queue.stale_task_age as i64
+                                    }
+                                };
+
+                            if !is_stale {
+                                return false;
+                            }
+                        }
+
+                        if let Some(description) = description {
+                            if !task.description.starts_with(description) {
+                                return false;
+                            }
+                        }
+
+                        if let Some(after_id) = after_id {
+                            if task.id <= *after_id {
+                                return false;
+                            }
+                        }
+
+                        if let Some(id) = id {
+                            if task.id != *id {
+                                return false;
+                            }
+                        }
+
+                        return true;
+                    }
+                    false
+                });
+
+                let collected_tasks = filtered_tasks
+                    .into_iter()
+                    .flat_map(|(_, task)| task)
+                    .collect_vec();
+
+                println!("Requeueing {} tasks", collected_tasks.len());
+
+                for task in collected_tasks {
+                    println!("Requeueing task: {:?}", task);
+                    let (new_task_key, ix) = tuktuk::task::queue(
+                        client.as_ref(),
+                        client.payer.pubkey(),
+                        client.payer.pubkey(),
+                        task_queue_pubkey,
+                        QueueTaskArgsV0 {
+                            id: task.id,
+                            trigger: new_timestamp.map_or(TriggerV0::Now, TriggerV0::Timestamp),
+                            transaction: task.transaction.clone(),
+                            crank_reward: Some(task.crank_reward),
+                            free_tasks: task.free_tasks,
+                            description: task.description,
+                        },
+                    )
+                    .await?;
+
+                    send_instructions(
+                        client.rpc_client.clone(),
+                        &client.payer,
+                        client.opts.ws_url().as_str(),
+                        &[ix],
+                        &[],
+                    )
+                    .await?;
+
+                    println!("New task key: {new_task_key}");
+                }
+            }
         }
         Ok(())
     }
@@ -434,23 +614,27 @@ struct Task {
 }
 
 #[derive(Serialize)]
-struct SimulationResult {
-    pub error: Option<String>,
-    pub logs: Option<Vec<String>>,
-    pub compute_units: Option<u64>,
-}
-
-#[derive(Serialize)]
 enum Trigger {
     Now,
-    Timestamp(i64),
+    Timestamp {
+        epoch: i64,
+        #[serde(rename = "human_readable")]
+        formatted: String,
+    },
 }
 
 impl From<TriggerV0> for Trigger {
     fn from(trigger: TriggerV0) -> Self {
         match trigger {
             TriggerV0::Now => Trigger::Now,
-            TriggerV0::Timestamp(ts) => Trigger::Timestamp(ts),
+            TriggerV0::Timestamp(ts) => Trigger::Timestamp {
+                epoch: ts,
+                formatted: Local
+                    .timestamp_opt(ts, 0)
+                    .single()
+                    .unwrap_or_else(Local::now)
+                    .to_rfc3339(),
+            },
         }
     }
 }
