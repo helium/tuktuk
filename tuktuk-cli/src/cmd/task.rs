@@ -565,7 +565,6 @@ impl TaskCmd {
                 println!("Requeueing {} tasks", collected_tasks.len());
 
                 for task in collected_tasks {
-                    println!("Requeueing task: {:?}", task);
                     let (new_task_key, ix) = tuktuk::task::queue(
                         client.as_ref(),
                         client.payer.pubkey(),
