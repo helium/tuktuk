@@ -391,13 +391,11 @@ impl TaskCmd {
                     if seen_ids.contains(&task.id) {
                         if *failed {
                             if let Some(Ok(Some(sim_result))) = simulation_results.get(pubkey) {
-                                println!("Pushing failed {:?} {:?}", task, sim_result.logs);
                                 if sim_result.error.is_some() {
                                     to_close.push(task.clone());
                                 }
                             }
                         } else {
-                            println!("Pushing {:?}", task);
                             to_close.push(task.clone());
                         }
                     }
