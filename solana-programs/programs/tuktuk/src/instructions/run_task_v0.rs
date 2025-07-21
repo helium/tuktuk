@@ -44,6 +44,8 @@ impl TasksAccountHeaderV0 {
     }
 }
 
+const MEMO_PROGRAM_ID: Pubkey = pubkey!("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
+
 // Add new iterator struct for reading tasks
 pub struct TasksIterator<'a> {
     data: &'a mut &'a [u8],
@@ -205,13 +207,17 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         }
 
         // Pass free tasks as remaining accounts so the task can know which IDs will be used
-        let free_tasks = &self.ctx.remaining_accounts[self.free_task_index..];
-        accounts.extend(free_tasks.iter().cloned());
-        account_infos.extend(free_tasks.iter().map(|acct| AccountMeta {
-            pubkey: acct.key(),
-            is_signer: false,
-            is_writable: false,
-        }));
+        let program_id = remaining_accounts[ix.program_id_index as usize].key;
+        // Ignore memo program because it expects every account passed to be a signer.
+        if *program_id != MEMO_PROGRAM_ID {
+            let free_tasks = &self.ctx.remaining_accounts[self.free_task_index..];
+            accounts.extend(free_tasks.iter().cloned());
+            account_infos.extend(free_tasks.iter().map(|acct| AccountMeta {
+                pubkey: acct.key(),
+                is_signer: false,
+                is_writable: false,
+            }));
+        }
 
         let signer_seeds: Vec<Vec<&[u8]>> = self
             .signers
@@ -221,7 +227,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
 
         solana_program::program::invoke_signed(
             &Instruction {
-                program_id: *remaining_accounts[ix.program_id_index as usize].key,
+                program_id: *program_id,
                 accounts: account_infos,
                 data: ix.data.clone(),
             },
