@@ -145,11 +145,10 @@ pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>>(
 
     // Simulate the transaction to get the actual compute used
     let simulation_result = client.as_ref().simulate_transaction(&snub_tx).await?;
-    if let Some(err) = simulation_result.value.err {
+    if simulation_result.value.err.is_some() {
         info!(?simulation_result.value.logs, "simulation error");
-        return Err(Error::SimulatedTransactionError(err));
     }
-    let actual_compute_used = simulation_result.value.units_consumed.unwrap_or(200000);
+    let actual_compute_used = simulation_result.value.units_consumed.unwrap_or(1000000);
 
     let final_compute_budget = (actual_compute_used as f32 * compute_multiplier) as u32;
     Ok((

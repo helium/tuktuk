@@ -393,16 +393,34 @@ pub mod task_queue {
         compiled_transaction::next_available_task_ids_excluding_in_progress,
     };
 
+    /// Selects the 'n' next available task ids starting at a random offset
+    ///
+    /// Returns an error if 'n' free task ids are not available
     pub fn next_available_task_ids(
         task_queue: &tuktuk::accounts::TaskQueueV0,
         n: u8,
+    ) -> Result<Vec<u16>, Error> {
+        next_available_task_ids_from(
+            task_queue,
+            n,
+            rand::random_range(0..task_queue.task_bitmap.len()),
+        )
+    }
+
+    /// Selects the 'n' next available task ids starting at a given offset
+    ///
+    /// Returns an error if 'n' free task ids are not available
+    pub fn next_available_task_ids_from(
+        task_queue: &tuktuk::accounts::TaskQueueV0,
+        n: u8,
+        offset: usize,
     ) -> Result<Vec<u16>, Error> {
         next_available_task_ids_excluding_in_progress(
             task_queue.capacity,
             &task_queue.task_bitmap,
             n,
             &Default::default(),
-            rand::random_range(0..task_queue.task_bitmap.len()),
+            offset,
         )
     }
 
@@ -677,7 +695,7 @@ pub struct TaskUpdate {
 }
 
 pub mod task {
-    use std::time::Duration;
+    use std::{collections::HashMap, time::Duration};
 
     use anchor_lang::{AccountDeserialize, InstructionData, ToAccountMetas};
     use futures::{future::BoxFuture, stream::unfold, Stream, StreamExt};
@@ -725,12 +743,12 @@ pub mod task {
         queue_authority: Pubkey,
         args: QueueTaskArgsV0,
     ) -> Result<(Pubkey, Instruction), Error> {
-        let task_key = self::key(
-            &task_queue_key,
-            task_queue
-                .next_available_task_id()
-                .ok_or_else(|| Error::TooManyTasks)?,
-        );
+        let id = task_queue
+            .next_available_task_id()
+            .ok_or_else(|| Error::TooManyTasks)?;
+        let task_key = self::key(&task_queue_key, id);
+        let mut args = args;
+        args.id = id;
 
         Ok((
             task_key,
@@ -782,11 +800,11 @@ pub mod task {
     > {
         let (stream, unsubscribe) = pubsub_tracker.watch_pubkey(*task_queue_key).await?;
         let stream = Box::pin(stream);
-        let retry_interval = tokio::time::interval(Duration::from_secs(10));
+        let retry_interval = tokio::time::interval(Duration::from_secs(30));
         let task_queue = task_queue.clone();
 
         let ret = unfold(
-            (stream, task_queue, vec![], retry_interval),
+            (stream, task_queue, HashMap::new(), retry_interval),
             move |(mut stream, mut last_tq, mut missing_tasks, mut retry_interval)| async move {
                 loop {
                     tokio::select! {
@@ -815,8 +833,21 @@ pub mod task {
                                             .collect_vec();
 
                                         let tasks = client.anchor_accounts(&new_task_keys).await?;
+
+                                        // Add empty tasks to missing_tasks for retry
+                                        for (key, task) in tasks.iter() {
+                                            if task.is_none() && !missing_tasks.contains_key(key) {
+                                                missing_tasks.insert(*key, 0);
+                                            }
+                                        }
+
+                                        // Filter out missing tasks from the update
+                                        let available_tasks = tasks.into_iter()
+                                            .filter(|(_, task)| task.is_some())
+                                            .collect_vec();
+
                                         Ok(TaskUpdate {
-                                            tasks,
+                                            tasks: available_tasks,
                                             task_queue: new_task_queue,
                                             removed: removed_task_keys,
                                             update_type,
@@ -831,24 +862,42 @@ pub mod task {
                             }
                         }
                         _ = retry_interval.tick() => {
-                            let searchable_missing_tasks = missing_tasks.clone();
-                            missing_tasks.clear();
-                            match client.anchor_accounts(&searchable_missing_tasks).await {
-                                Ok(tasks) => {
-                                    let found_tasks = tasks.into_iter().filter(|(_, task)| task.is_some()).collect_vec();
-                                    if !found_tasks.is_empty() {
-                                        return Some((Ok(TaskUpdate {
-                                            tasks: found_tasks,
-                                            task_queue: last_tq.clone(),
-                                            removed: vec![],
-                                            update_type: UpdateType::Poll,
-                                        }), (stream, last_tq, missing_tasks, retry_interval)));
+                            if !missing_tasks.is_empty() {
+                                let retry_keys: Vec<_> = missing_tasks.keys().cloned().collect();
+                                match client.anchor_accounts(&retry_keys).await {
+                                    Ok(tasks) => {
+                                        let mut found_tasks = Vec::new();
+
+                                        // Update retry counts and collect found tasks
+                                        for (key, task) in tasks {
+                                            if let Some(task) = task {
+                                                found_tasks.push((key, Some(task)));
+                                                missing_tasks.remove(&key);
+                                            } else {
+                                                // Safely increment retry count and remove if exceeded max attempts
+                                                if let Some(retry_count) = missing_tasks.get_mut(&key) {
+                                                    *retry_count += 1;
+                                                    if *retry_count >= 3 {
+                                                        missing_tasks.remove(&key);
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        if !found_tasks.is_empty() {
+                                            return Some((Ok(TaskUpdate {
+                                                tasks: found_tasks,
+                                                task_queue: last_tq.clone(),
+                                                removed: vec![],
+                                                update_type: UpdateType::Poll,
+                                            }), (stream, last_tq, missing_tasks, retry_interval)));
+                                        }
+                                    },
+                                    Err(e) => {
+                                        return Some((Err(e), (stream, last_tq, missing_tasks, retry_interval)));
                                     }
-                                },
-                                Err(e) => {
-                                    return Some((Err(e), (stream, last_tq, missing_tasks, retry_interval)));
-                                }
-                            };
+                                };
+                            }
                         }
                     }
                 }
