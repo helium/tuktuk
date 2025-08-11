@@ -35,7 +35,7 @@ pub struct InitializeTaskQueueV0<'info> {
       payer = payer,
       seeds = ["task_queue".as_bytes(), tuktuk_config.key().as_ref(), &tuktuk_config.next_task_queue_id.to_le_bytes()[..]],
       bump,
-      space = 60 + std::mem::size_of::<TaskQueueV0>() + args.name.len() + ((args.capacity + 7) / 8) as usize,
+      space = 60 + std::mem::size_of::<TaskQueueV0>() + args.name.len() + ((args.capacity + 7) / 8) as usize + args.lookup_tables.len() * 32,
     )]
     pub task_queue: Box<Account<'info, TaskQueueV0>>,
     #[account(
