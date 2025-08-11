@@ -40,4 +40,18 @@ pub enum ErrorCode {
     TaskQueueHasQueueAuthorities,
     #[msg("Free tasks must be less than the capacity of the task queue")]
     FreeTasksGreaterThanCapacity,
+    #[msg("Task ID is already in use")]
+    TaskIdAlreadyInUse,
+    #[msg("Duplicate task IDs provided")]
+    DuplicateTaskIds,
+    #[msg("Number of free task IDs does not match number of free task accounts")]
+    MismatchedFreeTaskCounts,
+    #[msg("Too many returned tasks, increase free tasks count")]
+    TooManyReturnedTasks,
+    #[msg("Malformed remote transaction")]
+    MalformedRemoteTransaction,
+    #[msg("Invalid account key")]
+    InvalidAccountKey,
+    #[msg("Invalid crank reward")]
+    InvalidCrankReward,
 }
