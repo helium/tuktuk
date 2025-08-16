@@ -445,11 +445,6 @@ pub fn handler<'info>(
             )?;
             let data = utils::ed25519::verify_ed25519_ix(&ix, signer.to_bytes().as_slice())?;
             let mut remote_tx = RemoteTaskTransactionV0::try_deserialize(&mut &data[..])?;
-            require_eq!(
-                remote_tx.transaction.accounts.len(),
-                0,
-                ErrorCode::MalformedRemoteTransaction
-            );
 
             let num_accounts = remote_tx
                 .transaction
