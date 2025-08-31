@@ -3,6 +3,8 @@
   "include": ["../../target/types/**/*"],
   "compilerOptions": {
     "rootDir": "../../target/types",
-    "outDir": "lib/cjs"
+    "outDir": "lib/cjs",
+    "declaration": true,
+    "declarationDir": "./lib/types"
   }
 }

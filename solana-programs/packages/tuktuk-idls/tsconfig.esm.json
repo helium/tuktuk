@@ -5,5 +5,7 @@
     "rootDir": "../../target/types",
     "outDir": "./lib/esm",
     "declarationDir": "./lib/types",
+    "declaration": true,
+    "emitDeclarationOnly": false
   }
 }
