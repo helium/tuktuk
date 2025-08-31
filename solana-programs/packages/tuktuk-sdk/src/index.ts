@@ -38,7 +38,7 @@ export function nextAvailableTaskIds(taskBitmap: Buffer, n: number, random: bool
 export const TUKTUK_CONFIG = tuktukConfigKey()[0];
 
 export type TaskQueueV0 = IdlTypes<Tuktuk>["taskQueueV0"];
-export type TaskV0 = IdlTypes<Tuktuk>["taskQueueV0"];
+export type TaskV0 = IdlTypes<Tuktuk>["taskV0"];
 export type InitializeTaskQueueArgsV0 = IdlTypes<Tuktuk>["initializeTaskQueueArgsV0"];
 export type QueueTaskArgsV0 = IdlTypes<Tuktuk>["queueTaskArgsV0"];
 
