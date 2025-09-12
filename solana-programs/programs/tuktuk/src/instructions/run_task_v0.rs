@@ -44,6 +44,8 @@ impl TasksAccountHeaderV0 {
     }
 }
 
+const MEMO_PROGRAM_ID: Pubkey = pubkey!("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
+
 // Add new iterator struct for reading tasks
 pub struct TasksIterator<'a> {
     data: &'a mut &'a [u8],
@@ -205,13 +207,17 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         }
 
         // Pass free tasks as remaining accounts so the task can know which IDs will be used
-        let free_tasks = &self.ctx.remaining_accounts[self.free_task_index..];
-        accounts.extend(free_tasks.iter().cloned());
-        account_infos.extend(free_tasks.iter().map(|acct| AccountMeta {
-            pubkey: acct.key(),
-            is_signer: false,
-            is_writable: false,
-        }));
+        let program_id = remaining_accounts[ix.program_id_index as usize].key;
+        // Ignore memo program because it expects every account passed to be a signer.
+        if *program_id != MEMO_PROGRAM_ID {
+            let free_tasks = &self.ctx.remaining_accounts[self.free_task_index..];
+            accounts.extend(free_tasks.iter().cloned());
+            account_infos.extend(free_tasks.iter().map(|acct| AccountMeta {
+                pubkey: acct.key(),
+                is_signer: false,
+                is_writable: false,
+            }));
+        }
 
         let signer_seeds: Vec<Vec<&[u8]>> = self
             .signers
@@ -221,7 +227,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
 
         solana_program::program::invoke_signed(
             &Instruction {
-                program_id: *remaining_accounts[ix.program_id_index as usize].key,
+                program_id: *program_id,
                 accounts: account_infos,
                 data: ix.data.clone(),
             },
@@ -288,12 +294,43 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
     }
 
     fn create_new_task(&mut self, task: TaskReturnV0) -> Result<()> {
+        require_gte!(
+            40,
+            task.description.len(),
+            ErrorCode::InvalidDescriptionLength
+        );
+        require_gte!(
+            task.crank_reward
+                .unwrap_or(self.ctx.accounts.task_queue.min_crank_reward),
+            self.ctx.accounts.task_queue.min_crank_reward,
+            ErrorCode::InvalidCrankReward
+        );
+        require_gte!(
+            self.ctx.accounts.task_queue.capacity,
+            (task.free_tasks + 1) as u16,
+            ErrorCode::FreeTasksGreaterThanCapacity
+        );
+
         let free_task_account = &self.ctx.remaining_accounts[self.free_task_index];
         self.free_task_index += 1;
         let task_queue = &mut self.ctx.accounts.task_queue;
         let task_queue_key = task_queue.key();
 
-        let task_id = self.free_task_ids.pop().unwrap();
+        let task_id = self
+            .free_task_ids
+            .pop()
+            .ok_or(error!(ErrorCode::TooManyReturnedTasks))?;
+
+        require!(
+            !task_queue.task_exists(task_id),
+            ErrorCode::TaskIdAlreadyInUse
+        );
+
+        // Verify the account is empty
+        require!(
+            free_task_account.data_is_empty(),
+            ErrorCode::FreeTaskAccountNotEmpty
+        );
 
         let seeds = [b"task", task_queue_key.as_ref(), &task_id.to_le_bytes()];
         let (key, bump_seed) = Pubkey::find_program_address(&seeds, self.ctx.program_id);
@@ -318,10 +355,10 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         let task_size = task_data.try_to_vec()?.len() + 8 + 60;
         let rent_lamports = Rent::get()?.minimum_balance(task_size);
         let lamports = rent_lamports + task_data.crank_reward;
-        task_data.rent_amount = lamports;
+        task_data.rent_amount = rent_lamports;
 
         let task_queue_info = self.ctx.accounts.task_queue.to_account_info();
-        let task_queue_min_lamports = Rent::get()?.minimum_balance(task_queue_info.data_len() + 60);
+        let task_queue_min_lamports = Rent::get()?.minimum_balance(task_queue_info.data_len());
 
         require_gt!(
             task_queue_info.lamports(),
@@ -343,8 +380,13 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         free_task_account.realloc(task_size, false)?;
 
         let task_info = self.ctx.accounts.task.to_account_info();
-        let task_remaining_lamports = self.ctx.accounts.task.to_account_info().lamports()
-            - self.ctx.accounts.task.crank_reward;
+        let task_remaining_lamports = self
+            .ctx
+            .accounts
+            .task
+            .to_account_info()
+            .lamports()
+            .saturating_sub(self.ctx.accounts.task.crank_reward);
         let lamports_from_task = task_remaining_lamports.min(lamports);
         let lamports_needed_from_queue = lamports.saturating_sub(lamports_from_task);
 
@@ -373,13 +415,23 @@ pub fn handler<'info>(
         TriggerV0::Timestamp(timestamp) => timestamp,
     };
     ctx.accounts.task_queue.updated_at = now;
+    // Check for duplicate task IDs
+    let mut seen_ids = std::collections::HashSet::new();
     for id in args.free_task_ids.clone() {
         require_gt!(
             ctx.accounts.task_queue.capacity,
             id,
             ErrorCode::InvalidTaskId
         );
+        // Ensure ID is not already in use in the task queue
+        require!(
+            !ctx.accounts.task_queue.task_exists(id),
+            ErrorCode::TaskIdAlreadyInUse
+        );
+        // Check for duplicates in provided IDs
+        require!(seen_ids.insert(id), ErrorCode::DuplicateTaskIds);
     }
+
     let remaining_accounts = ctx.remaining_accounts;
 
     let transaction = match ctx.accounts.task.transaction.clone() {
@@ -393,6 +445,11 @@ pub fn handler<'info>(
             )?;
             let data = utils::ed25519::verify_ed25519_ix(&ix, signer.to_bytes().as_slice())?;
             let mut remote_tx = RemoteTaskTransactionV0::try_deserialize(&mut &data[..])?;
+            require_eq!(
+                remote_tx.transaction.accounts.len(),
+                0,
+                ErrorCode::MalformedRemoteTransaction
+            );
 
             let num_accounts = remote_tx
                 .transaction
@@ -425,7 +482,9 @@ pub fn handler<'info>(
                                 + remote_tx.transaction.num_rw_signers;
                             // The rent refund account may make an account that shouldn't be writable appear writable
                             if i >= writable_end_idx as usize
-                                && *acc.key == ctx.accounts.rent_refund.key()
+                                && (*acc.key == ctx.accounts.rent_refund.key()
+                                    || *acc.key == ctx.accounts.task_queue.key()
+                                    || *acc.key == ctx.accounts.task.key())
                             {
                                 data.push(0);
                             } else {
@@ -464,21 +523,26 @@ pub fn handler<'info>(
         .task_queue
         .set_task_exists(ctx.accounts.task.id, false);
 
-    let free_tasks = ctx.accounts.task.free_tasks;
-
-    // Validate that all free task accounts are empty
+    // Validate that all free task accounts are empty and are valid PDAs
     let free_tasks_start_index = transaction.accounts.len();
-    for i in 0..free_tasks {
-        let free_task_index = free_tasks_start_index + i as usize;
-        let free_task_account = &remaining_accounts[free_task_index];
-        require!(
-            free_task_account.data_is_empty(),
-            ErrorCode::FreeTaskAccountNotEmpty
-        );
-    }
+    // Validate number of free task accounts matches number of task IDs
+    require_eq!(
+        args.free_task_ids.len(),
+        ctx.remaining_accounts.len() - free_tasks_start_index,
+        ErrorCode::MismatchedFreeTaskCounts
+    );
 
     if now.saturating_sub(task_time) <= ctx.accounts.task_queue.stale_task_age as i64 {
         let mut processor = TaskProcessor::new(ctx, &transaction, args.free_task_ids)?;
+
+        // Validate account keys match
+        for (i, account) in transaction.accounts.iter().enumerate() {
+            require_eq!(
+                account,
+                remaining_accounts[i].key,
+                ErrorCode::InvalidAccountKey
+            );
+        }
 
         // Process each instruction
         for ix in &transaction.instructions {
