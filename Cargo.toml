@@ -43,8 +43,8 @@ tokio-util = "0"
 tokio-stream = { version = "0", features = ["fs"] }
 # Keep at 0.10 since zeroize breaks for solana and rsa madness
 tonic = { version = "0.10", features = ["tls", "tls-roots"] }
-futures = "*"
-futures-util = "*"
+futures = "0.3.30"
+futures-util = "0.3.30"
 tracing = "0"
 tracing-subscriber = { version = "0", default-features = false, features = [
   "env-filter",
