@@ -1,4 +1,8 @@
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::anyhow;
 use chrono::{Local, TimeZone};
@@ -447,12 +451,19 @@ impl TaskCmd {
                         .as_ref()
                         .anchor_accounts::<TaskV0>(&task_keys)
                         .await?;
+                    let clock_acc = client.rpc_client.get_account(&SYSVAR_CLOCK).await?;
+                    let clock: solana_sdk::clock::Clock = bincode::deserialize(&clock_acc.data)?;
+                    let now = clock.unix_timestamp;
                     tasks
                         .into_iter()
                         .filter(|(_, task)| {
                             if let Some(task) = task {
+                                if *failed && !task.trigger.is_active(now) {
+                                    return false;
+                                }
                                 return task.description.starts_with(description);
                             }
+
                             false
                         })
                         .map(|(p, task)| (p, task.unwrap().clone()))
@@ -465,10 +476,37 @@ impl TaskCmd {
                 let mut to_close = Vec::new();
 
                 // If failed flag is set, simulate each task first
+                let client = Arc::new(client);
+                let simulation_tasks = tasks
+                    .iter()
+                    .filter(|(_, task)| seen_ids.insert(task.id))
+                    .map(|(pubkey, _)| *pubkey)
+                    .collect::<Vec<_>>();
+
+                let mut simulation_results = HashMap::new();
+                if *failed {
+                    // Run simulations in parallel with a limit of 10 concurrent tasks
+                    let results = futures::stream::iter(simulation_tasks)
+                        .map(|pubkey| {
+                            let client = client.clone();
+                            async move {
+                                let result = simulate_task(&client, pubkey).await;
+                                (pubkey, result)
+                            }
+                        })
+                        .buffer_unordered(10)
+                        .collect::<Vec<_>>()
+                        .await;
+
+                    // Collect results into a HashMap for O(1) lookups
+                    simulation_results = results.into_iter().collect();
+                }
+
+                // Filter tasks based on simulation results if failed flag is set
                 for (pubkey, task) in &tasks {
-                    if seen_ids.insert(task.id) {
+                    if seen_ids.contains(&task.id) {
                         if *failed {
-                            if let Some(sim_result) = simulate_task(&client, *pubkey).await? {
+                            if let Some(Ok(Some(sim_result))) = simulation_results.get(pubkey) {
                                 if sim_result.error.is_some() {
                                     to_close.push(task.clone());
                                 }
