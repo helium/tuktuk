@@ -1,6 +1,6 @@
 [package]
 name = "tuktuk-cli"
-version = "0.2.12"
+version = "0.2.13"
 description = "A cli for tuktuk"
 homepage.workspace = true
 repository.workspace = true
@@ -20,6 +20,7 @@ thiserror = "1"
 anchor-lang = { workspace = true }
 solana-quic-client = { workspace = true }
 solana-client = { workspace = true }
+solana-transaction-status-client-types = "2.2.1"
 anyhow = { workspace = true }
 clap = { workspace = true }
 tokio = { workspace = true }

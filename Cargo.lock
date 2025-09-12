@@ -6820,7 +6820,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tuktuk-cli"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -6838,6 +6838,7 @@ dependencies = [
  "solana-program",
  "solana-quic-client",
  "solana-sdk",
+ "solana-transaction-status-client-types",
  "solana-transaction-utils",
  "spl-associated-token-account",
  "spl-token 4.0.2",
