@@ -21,7 +21,7 @@ pub struct AddCronTransactionV0<'info> {
     #[account(mut, has_one = authority)]
     pub cron_job: Box<Account<'info, CronJobV0>>,
     #[account(
-        init_if_needed,
+        init,
         payer = payer,
         seeds = [b"cron_job_transaction", cron_job.key().as_ref(), &args.index.to_le_bytes()[..]],
         bump,

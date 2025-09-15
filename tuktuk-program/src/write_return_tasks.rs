@@ -68,6 +68,7 @@ where
     };
 
     let mut total_tasks = 0;
+    let mut has_unprocessed_tasks = true;
     for AccountWithSeeds { account, seeds } in accounts.iter() {
         // Store original size before any reallocation
         original_sizes.push(account.data_len());
@@ -102,6 +103,7 @@ where
         loop {
             let task_bytes = current_task.try_to_vec()?;
             if offset + task_bytes.len() > MAX_PERMITTED_DATA_INCREASE {
+                has_unprocessed_tasks = true;
                 break; // This task will be handled by the next account
             }
 
@@ -112,12 +114,14 @@ where
             total_tasks += 1;
 
             // Get next task
-            match tasks.next() {
-                Some(task) => current_task = task,
+            current_task = match tasks.next() {
+                Some(task) => task,
                 None => {
+                    has_unprocessed_tasks = false;
+                    // No more tasks, we're done
                     break;
                 }
-            }
+            };
         }
 
         if num_tasks > 0 {
@@ -215,8 +219,8 @@ where
             account.realloc(0, false)?;
         }
 
-        // If we've processed all tasks, we can exit
-        if num_tasks == 0 || tasks.next().is_none() {
+        // If we have no more tasks to process, we can exit
+        if num_tasks == 0 || !has_unprocessed_tasks {
             break;
         }
     }
