@@ -80,7 +80,7 @@ pub fn handler(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
         .unwrap_or(task_queue.header().min_crank_reward);
     require_gte!(crank_reward, task_queue.header().min_crank_reward);
 
-    let mut transaction = args.transaction.clone();
+    let mut transaction = args.transaction;
     if let TransactionSourceV0::CompiledV0(mut compiled_tx) = transaction {
         compiled_tx
             .accounts
