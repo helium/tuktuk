@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use borsh::{BorshDeserialize, BorshSerialize};
 
 #[account]
 #[derive(Default, InitSpace)]
@@ -44,6 +45,22 @@ pub struct TaskQueueV0 {
     // the queue to be full and prevent new tasks from being added.
     // The shorter this value, the more difficult it will be to debug, as failed tasks dissappear.
     pub stale_task_age: u32,
+}
+
+/// Header portion of TaskQueueV0 for memory-efficient access
+#[derive(BorshSerialize, BorshDeserialize, Clone)]
+pub struct TaskQueueHeader {
+    pub tuktuk_config: Pubkey,
+    pub id: u32,
+    pub update_authority: Pubkey,
+    pub reserved: Pubkey,
+    pub min_crank_reward: u64,
+    pub uncollected_protocol_fees: u64,
+    pub capacity: u16,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub bump_seed: u8,
+    pub bitmap_size: u32,
 }
 
 #[macro_export]
@@ -95,6 +112,131 @@ impl TaskQueueV0 {
             }
         }
         None
+    }
+}
+
+/// Memory-efficient wrapper for TaskQueueV0 that avoids deserializing the entire bitmap
+pub struct TaskQueueDataWrapper<'a> {
+    data: &'a mut [u8],
+    header: TaskQueueHeader,
+    bitmap_offset: usize,
+    name_offset: usize,
+    lookup_tables_offset: usize,
+    stale_task_age_offset: usize,
+}
+
+impl<'a> TaskQueueDataWrapper<'a> {
+    /// The size of the Anchor discriminator (8 bytes)
+    pub const DISCRIMINATOR_SIZE: usize = 8;
+    /// The size of the TaskQueueHeader in bytes (32+4+32+32+8+8+2+8+8+1+4 = 139 bytes)
+    pub const HEADER_SIZE: usize = 139;
+    /// Total offset to the bitmap
+    pub const BITMAP_OFFSET: usize = Self::DISCRIMINATOR_SIZE + Self::HEADER_SIZE;
+
+    /// Create a new wrapper from account data
+    /// Validates the discriminator and deserializes only the header
+    pub fn new(data: &'a mut [u8]) -> Result<Self> {
+        // Verify we have enough data for discriminator + header
+        require_gte!(
+            data.len(),
+            Self::BITMAP_OFFSET,
+            anchor_lang::error::ErrorCode::AccountDidNotDeserialize
+        );
+
+        // Verify the discriminator matches TaskQueueV0
+        require!(
+            &data[0..8] == TaskQueueV0::DISCRIMINATOR,
+            anchor_lang::error::ErrorCode::AccountDiscriminatorMismatch
+        );
+
+        // Deserialize only the header
+        let header =
+            TaskQueueHeader::deserialize(&mut &data[Self::DISCRIMINATOR_SIZE..Self::BITMAP_OFFSET])
+                .map_err(|_| anchor_lang::error::ErrorCode::AccountDidNotDeserialize)?;
+
+        // Calculate offsets for fields after the bitmap
+        let bitmap_size = header.bitmap_size as usize;
+        let name_offset = Self::BITMAP_OFFSET + bitmap_size;
+
+        // Read name length (4 bytes) and calculate name data size
+        let name_len = u32::from_le_bytes([
+            data[name_offset],
+            data[name_offset + 1],
+            data[name_offset + 2],
+            data[name_offset + 3],
+        ]) as usize;
+        let lookup_tables_offset = name_offset + 4 + name_len;
+
+        // Read lookup tables length (4 bytes) and calculate lookup tables data size
+        let lookup_tables_len = u32::from_le_bytes([
+            data[lookup_tables_offset],
+            data[lookup_tables_offset + 1],
+            data[lookup_tables_offset + 2],
+            data[lookup_tables_offset + 3],
+        ]) as usize;
+        let stale_task_age_offset = lookup_tables_offset + 4 + (lookup_tables_len * 32) + 2; // +2 for num_queue_authorities
+
+        Ok(Self {
+            data,
+            header,
+            bitmap_offset: Self::BITMAP_OFFSET,
+            name_offset,
+            lookup_tables_offset,
+            stale_task_age_offset,
+        })
+    }
+
+    /// Get reference to the header
+    pub fn header(&self) -> &TaskQueueHeader {
+        &self.header
+    }
+
+    /// Get mutable reference to the header
+    pub fn header_mut(&mut self) -> &mut TaskQueueHeader {
+        &mut self.header
+    }
+
+    /// Check if a task exists at the given index
+    pub fn task_exists(&self, task_idx: u16) -> bool {
+        let byte_idx = self.bitmap_offset + (task_idx as usize / 8);
+        let bit_idx = task_idx % 8;
+        self.data[byte_idx] & (1 << bit_idx) != 0
+    }
+
+    /// Set whether a task exists at the given index
+    pub fn set_task_exists(&mut self, task_idx: u16, exists: bool) {
+        let byte_idx = self.bitmap_offset + (task_idx as usize / 8);
+        let bit_idx = task_idx % 8;
+        if exists {
+            self.data[byte_idx] |= 1 << bit_idx;
+        } else {
+            self.data[byte_idx] &= !(1 << bit_idx);
+        }
+    }
+
+    /// Get the stale task age
+    pub fn stale_task_age(&self) -> u32 {
+        let bytes = &self.data[self.stale_task_age_offset..self.stale_task_age_offset + 4];
+        u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
+    }
+
+    /// Set the stale task age
+    pub fn set_stale_task_age(&mut self, age: u32) {
+        let bytes = age.to_le_bytes();
+        self.data[self.stale_task_age_offset..self.stale_task_age_offset + 4]
+            .copy_from_slice(&bytes);
+    }
+
+    /// Persist the header changes back to the data
+    pub fn save(&mut self) -> Result<()> {
+        let mut header_bytes = Vec::new();
+        self.header
+            .serialize(&mut header_bytes)
+            .map_err(|_| anchor_lang::error::ErrorCode::AccountDidNotSerialize)?;
+
+        self.data[Self::DISCRIMINATOR_SIZE..Self::BITMAP_OFFSET].copy_from_slice(&header_bytes);
+
+        Ok(())
     }
 }
 

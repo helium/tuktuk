@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::state::{TaskQueueAuthorityV0, TaskQueueV0, TaskV0};
+use crate::state::{TaskQueueAuthorityV0, TaskQueueDataWrapper, TaskQueueV0, TaskV0};
 
 #[derive(Accounts)]
 pub struct DequeuetaskV0<'info> {
@@ -12,9 +12,10 @@ pub struct DequeuetaskV0<'info> {
         seeds = [b"task_queue_authority", task_queue.key().as_ref(), queue_authority.key().as_ref()],
         bump = task_queue_authority.bump_seed,
     )]
-    pub task_queue_authority: Box<Account<'info, TaskQueueAuthorityV0>>,
+    pub task_queue_authority: Account<'info, TaskQueueAuthorityV0>,
+    /// CHECK: We manually deserialize this using TaskQueueDataWrapper for memory efficiency
     #[account(mut)]
-    pub task_queue: Box<Account<'info, TaskQueueV0>>,
+    pub task_queue: UncheckedAccount<'info>,
     #[account(
         mut,
         close = rent_refund,
@@ -25,8 +26,9 @@ pub struct DequeuetaskV0<'info> {
 }
 
 pub fn handler(ctx: Context<DequeuetaskV0>) -> Result<()> {
-    ctx.accounts
-        .task_queue
-        .set_task_exists(ctx.accounts.task.id, false);
+    let task_queue_account_info = ctx.accounts.task_queue.to_account_info();
+    let mut task_queue_data = task_queue_account_info.try_borrow_mut_data()?;
+    let mut task_queue = TaskQueueDataWrapper::new(*task_queue_data)?;
+    task_queue.set_task_exists(ctx.accounts.task.id, false);
     Ok(())
 }
