@@ -308,7 +308,7 @@ pub struct CompiledInstructionV0 {
 
 impl CompiledInstructionV0 {
     pub fn size(&self) -> usize {
-        1 + self.accounts.len() + self.data.len()
+        1 + 4 + self.accounts.len() + 4 + self.data.len()
     }
 }
 
@@ -334,6 +334,26 @@ pub struct CompiledTransactionV0 {
 
 impl CompiledTransactionV0 {
     pub fn size(&self) -> usize {
-        1 + self.accounts.len() + self.instructions.iter().map(|i| i.size()).sum::<usize>()
+        // Calculate the size of the transaction header (3 u8 fields + 1 byte for instruction count)
+        let header_size = 3 + 1;
+        // Calculate the size of all accounts (each Pubkey is 32 bytes)
+        let accounts_size = 4 + self.accounts.len() * 32;
+        // Calculate the size of all instructions
+        let instructions_size = 4 + self.instructions.iter().map(|i| i.size()).sum::<usize>();
+
+        header_size + accounts_size + instructions_size
+    }
+}
+
+impl TransactionSourceV0 {
+    pub fn size(&self) -> usize {
+        match self {
+            TransactionSourceV0::CompiledV0(compiled_tx) => compiled_tx.size(),
+            TransactionSourceV0::RemoteV0 { url, signer: _ } => {
+                // For remote transactions, we need to account for the URL string length
+                // and the signer pubkey (32 bytes)
+                32 + 4 + url.len() // 4 bytes for string length prefix
+            }
+        }
     }
 }

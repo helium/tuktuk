@@ -5,7 +5,6 @@ use anchor_lang::{
 
 use crate::{
     error::ErrorCode,
-    resize_to_fit::resize_to_fit,
     state::{TaskQueueAuthorityV0, TaskQueueDataWrapper, TaskV0, TransactionSourceV0, TriggerV0},
 };
 
@@ -41,7 +40,7 @@ pub struct QueueTaskV0<'info> {
     #[account(
         init,
         payer = payer,
-        space = 8 + std::mem::size_of::<TaskV0>() + 60 + args.description.len(),
+        space = 8 + std::mem::size_of::<TaskV0>() + args.transaction.size() + args.description.len() + 60,
         seeds = [b"task".as_ref(), task_queue.key().as_ref(), &args.id.to_le_bytes()[..]],
         bump,
     )]
@@ -81,11 +80,10 @@ pub fn handler(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
     require_gte!(crank_reward, task_queue.header().min_crank_reward);
 
     let mut transaction = args.transaction;
-    if let TransactionSourceV0::CompiledV0(mut compiled_tx) = transaction {
+    if let TransactionSourceV0::CompiledV0(ref mut compiled_tx) = transaction {
         compiled_tx
             .accounts
             .extend(ctx.remaining_accounts.iter().map(|a| a.key()));
-        transaction = TransactionSourceV0::CompiledV0(compiled_tx);
     }
     ctx.accounts.task.set_inner(TaskV0 {
         free_tasks: args.free_tasks,
@@ -106,14 +104,8 @@ pub fn handler(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
     task_queue.header_mut().updated_at = Clock::get()?.unix_timestamp;
     task_queue.save()?;
 
-    // Drop the borrow before calling resize_to_fit
+    // Drop the borrow
     drop(task_queue_data);
-
-    resize_to_fit(
-        &ctx.accounts.payer.to_account_info(),
-        &ctx.accounts.system_program.to_account_info(),
-        &ctx.accounts.task,
-    )?;
 
     let rented_amount = ctx.accounts.task.to_account_info().lamports();
     ctx.accounts.task.rent_amount = rented_amount;
