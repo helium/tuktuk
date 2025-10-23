@@ -14,8 +14,8 @@ use anchor_lang::{
 use crate::{
     error::ErrorCode,
     state::{
-        CompiledInstructionV0, CompiledTransactionV0, TaskQueueV0, TaskV0, TransactionSourceV0,
-        TriggerV0,
+        CompiledInstructionV0, CompiledTransactionV0, TaskQueueDataWrapper, TaskV0,
+        TransactionSourceV0, TriggerV0,
     },
     task_seeds, utils,
 };
@@ -113,8 +113,9 @@ pub struct RunTaskV0<'info> {
     /// CHECK: Via has one
     #[account(mut)]
     pub rent_refund: AccountInfo<'info>,
+    /// CHECK: We manually deserialize this using TaskQueueDataWrapper for memory efficiency
     #[account(mut)]
-    pub task_queue: Account<'info, TaskQueueV0>,
+    pub task_queue: UncheckedAccount<'info>,
     #[account(
         mut,
         has_one = task_queue,
@@ -139,6 +140,12 @@ struct TaskProcessor<'a, 'info> {
     free_task_index: usize,
     signer_addresses: std::collections::HashSet<Pubkey>,
     signers: Vec<Vec<Vec<u8>>>,
+    // Task queue data we need for validation
+    min_crank_reward: u64,
+    capacity: u16,
+    // Changes to make to task queue
+    tasks_to_set: Vec<u16>, // Task IDs to set as existing
+    queue_lamports_needed: u64,
 }
 
 impl<'a, 'info> TaskProcessor<'a, 'info> {
@@ -146,6 +153,8 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         ctx: Context<'a, 'a, 'a, 'info, RunTaskV0<'info>>,
         transaction: &'a CompiledTransactionV0,
         mut free_task_ids: Vec<u16>,
+        min_crank_reward: u64,
+        capacity: u16,
     ) -> Result<Self> {
         free_task_ids.reverse();
 
@@ -177,6 +186,10 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             free_task_index: transaction.accounts.len(),
             signer_addresses,
             signers: signers_inner_u8,
+            min_crank_reward,
+            capacity,
+            tasks_to_set: Vec::new(),
+            queue_lamports_needed: 0,
         })
     }
 
@@ -237,6 +250,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
                 .map(|s| s.as_slice())
                 .collect::<Vec<&[&[u8]]>>(),
         )?;
+        msg!("Invoked");
 
         if let Some((_, return_data)) = solana_program::program::get_return_data() {
             match self.process_return_data(&return_data, &accounts) {
@@ -299,32 +313,26 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             task.description.len(),
             ErrorCode::InvalidDescriptionLength
         );
+
         require_gte!(
-            task.crank_reward
-                .unwrap_or(self.ctx.accounts.task_queue.min_crank_reward),
-            self.ctx.accounts.task_queue.min_crank_reward,
+            task.crank_reward.unwrap_or(self.min_crank_reward),
+            self.min_crank_reward,
             ErrorCode::InvalidCrankReward
         );
         require_gte!(
-            self.ctx.accounts.task_queue.capacity,
+            self.capacity,
             (task.free_tasks + 1) as u16,
             ErrorCode::FreeTasksGreaterThanCapacity
         );
 
         let free_task_account = &self.ctx.remaining_accounts[self.free_task_index];
         self.free_task_index += 1;
-        let task_queue = &mut self.ctx.accounts.task_queue;
-        let task_queue_key = task_queue.key();
+        let task_queue_key = self.ctx.accounts.task_queue.key();
 
         let task_id = self
             .free_task_ids
             .pop()
             .ok_or(error!(ErrorCode::TooManyReturnedTasks))?;
-
-        require!(
-            !task_queue.task_exists(task_id),
-            ErrorCode::TaskIdAlreadyInUse
-        );
 
         // Verify the account is empty
         require!(
@@ -343,28 +351,20 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             rent_refund: task_queue_key,
             trigger: task.trigger.clone(),
             transaction: task.transaction.clone(),
-            crank_reward: task.crank_reward.unwrap_or(task_queue.min_crank_reward),
+            crank_reward: task.crank_reward.unwrap_or(self.min_crank_reward),
             bump_seed,
             queued_at: Clock::get()?.unix_timestamp,
             free_tasks: task.free_tasks,
             rent_amount: 0,
         };
 
-        task_queue.set_task_exists(task_data.id, true);
+        // Track that we need to set this task as existing
+        self.tasks_to_set.push(task_data.id);
 
         let task_size = task_data.try_to_vec()?.len() + 8 + 60;
         let rent_lamports = Rent::get()?.minimum_balance(task_size);
         let lamports = rent_lamports + task_data.crank_reward;
         task_data.rent_amount = rent_lamports;
-
-        let task_queue_info = self.ctx.accounts.task_queue.to_account_info();
-        let task_queue_min_lamports = Rent::get()?.minimum_balance(task_queue_info.data_len());
-
-        require_gt!(
-            task_queue_info.lamports(),
-            task_queue_min_lamports + lamports,
-            ErrorCode::TaskQueueInsufficientFunds
-        );
 
         system_program::assign(
             CpiContext::new_with_signer(
@@ -396,12 +396,20 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         }
 
         if lamports_needed_from_queue > 0 {
-            task_queue_info.sub_lamports(lamports_needed_from_queue)?;
+            self.queue_lamports_needed += lamports_needed_from_queue;
             free_task_account.add_lamports(lamports_needed_from_queue)?;
         }
 
         let mut data = free_task_account.try_borrow_mut_data()?;
         task_data.try_serialize(&mut data.as_mut())
+    }
+
+    fn get_tasks_to_set(&self) -> &[u16] {
+        &self.tasks_to_set
+    }
+
+    fn get_queue_lamports_needed(&self) -> u64 {
+        self.queue_lamports_needed
     }
 }
 
@@ -414,20 +422,21 @@ pub fn handler<'info>(
         TriggerV0::Now => now,
         TriggerV0::Timestamp(timestamp) => timestamp,
     };
-    ctx.accounts.task_queue.updated_at = now;
+
+    // Use memory-efficient wrapper to avoid deserializing the entire task queue
+    let task_queue_account_info = ctx.accounts.task_queue.to_account_info().clone();
+    let task_queue_min_lamports = Rent::get()?.minimum_balance(task_queue_account_info.data_len());
+    let mut task_queue_data = task_queue_account_info.try_borrow_mut_data()?;
+    let mut task_queue = TaskQueueDataWrapper::new(*task_queue_data)?;
+
+    task_queue.header_mut().updated_at = now;
+
     // Check for duplicate task IDs
     let mut seen_ids = std::collections::HashSet::new();
     for id in args.free_task_ids.clone() {
-        require_gt!(
-            ctx.accounts.task_queue.capacity,
-            id,
-            ErrorCode::InvalidTaskId
-        );
+        require_gte!(task_queue.header().capacity, id, ErrorCode::InvalidTaskId);
         // Ensure ID is not already in use in the task queue
-        require!(
-            !ctx.accounts.task_queue.task_exists(id),
-            ErrorCode::TaskIdAlreadyInUse
-        );
+        require!(!task_queue.task_exists(id), ErrorCode::TaskIdAlreadyInUse);
         // Check for duplicates in provided IDs
         require!(seen_ids.insert(id), ErrorCode::DuplicateTaskIds);
     }
@@ -508,20 +517,15 @@ pub fn handler<'info>(
     };
 
     // Handle rewards
-    let reward = ctx.accounts.task.crank_reward;
-    // let protocol_fee = reward.checked_mul(5).unwrap().checked_div(100).unwrap();
-    let protocol_fee = 0;
-    let task_fee = reward.checked_sub(protocol_fee).unwrap();
+    let task_fee = ctx.accounts.task.crank_reward;
 
     let task_info = ctx.accounts.task.to_account_info();
     let crank_turner_info = ctx.accounts.crank_turner.to_account_info();
-    let task_queue_info = ctx.accounts.task_queue.to_account_info();
 
-    ctx.accounts.task_queue.uncollected_protocol_fees += protocol_fee;
+    task_queue.set_task_exists(ctx.accounts.task.id, false);
 
-    ctx.accounts
-        .task_queue
-        .set_task_exists(ctx.accounts.task.id, false);
+    // Save the task queue changes
+    task_queue.save()?;
 
     // Validate that all free task accounts are empty and are valid PDAs
     let free_tasks_start_index = transaction.accounts.len();
@@ -532,8 +536,21 @@ pub fn handler<'info>(
         ErrorCode::MismatchedFreeTaskCounts
     );
 
-    if now.saturating_sub(task_time) <= ctx.accounts.task_queue.stale_task_age as i64 {
-        let mut processor = TaskProcessor::new(ctx, &transaction, args.free_task_ids)?;
+    let stale_task_age = task_queue.stale_task_age();
+    let min_crank_reward = task_queue.header().min_crank_reward;
+    let capacity = task_queue.header().capacity;
+
+    if now.saturating_sub(task_time) <= stale_task_age as i64 {
+        task_queue.save()?;
+        // We can't hold on to a mutable reference because inner instructions may use the task queue.
+        drop(task_queue_data);
+        let mut processor = TaskProcessor::new(
+            ctx,
+            &transaction,
+            args.free_task_ids,
+            min_crank_reward,
+            capacity,
+        )?;
 
         // Validate account keys match
         for (i, account) in transaction.accounts.iter().enumerate() {
@@ -548,6 +565,37 @@ pub fn handler<'info>(
         for ix in &transaction.instructions {
             processor.process_instruction(ix, remaining_accounts)?;
         }
+
+        // Get the changes we need to make
+        let tasks_to_set = processor.get_tasks_to_set().to_vec();
+        let queue_lamports_needed = processor.get_queue_lamports_needed();
+
+        drop(processor);
+        let task_queue_current_lamports = task_queue_account_info.lamports();
+        if queue_lamports_needed > 0 {
+            msg!(
+                "Need {} lamports from the task queue to fund tasks. Task queue has {} lamports.",
+                queue_lamports_needed,
+                task_queue_current_lamports
+            );
+        }
+        require_gt!(
+            task_queue_current_lamports.saturating_sub(queue_lamports_needed),
+            task_queue_min_lamports,
+            ErrorCode::TaskQueueInsufficientFunds
+        );
+
+        if queue_lamports_needed > 0 {
+            task_queue_account_info.sub_lamports(queue_lamports_needed)?;
+        }
+
+        let mut task_queue_data = task_queue_account_info.try_borrow_mut_data()?;
+        let mut task_queue = TaskQueueDataWrapper::new(*task_queue_data)?;
+
+        // Apply the changes to the task queue
+        for task_id in tasks_to_set {
+            task_queue.set_task_exists(task_id, true);
+        }
     } else {
         msg!(
             "Task is stale with run time {:?}, current time {:?}, closing task",
@@ -556,16 +604,10 @@ pub fn handler<'info>(
         );
     }
 
-    msg!(
-        "Paying out reward {:?}, crank turner gets {:?}, protocol fee {:?}",
-        reward,
-        task_fee,
-        protocol_fee
-    );
+    msg!("Paying out reward {:?}", task_fee);
 
-    task_info.sub_lamports(reward)?;
+    task_info.sub_lamports(task_fee)?;
     crank_turner_info.add_lamports(task_fee)?;
-    task_queue_info.add_lamports(protocol_fee)?;
 
     Ok(())
 }

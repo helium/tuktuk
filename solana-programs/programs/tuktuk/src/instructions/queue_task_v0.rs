@@ -5,8 +5,7 @@ use anchor_lang::{
 
 use crate::{
     error::ErrorCode,
-    resize_to_fit::resize_to_fit,
-    state::{TaskQueueAuthorityV0, TaskQueueV0, TaskV0, TransactionSourceV0, TriggerV0},
+    state::{TaskQueueAuthorityV0, TaskQueueDataWrapper, TaskV0, TransactionSourceV0, TriggerV0},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
@@ -34,25 +33,39 @@ pub struct QueueTaskV0<'info> {
         seeds = [b"task_queue_authority", task_queue.key().as_ref(), queue_authority.key().as_ref()],
         bump = task_queue_authority.bump_seed,
     )]
-    pub task_queue_authority: Box<Account<'info, TaskQueueAuthorityV0>>,
+    pub task_queue_authority: Account<'info, TaskQueueAuthorityV0>,
+    /// CHECK: We manually deserialize this using TaskQueueDataWrapper for memory efficiency
     #[account(mut)]
-    pub task_queue: Box<Account<'info, TaskQueueV0>>,
+    pub task_queue: UncheckedAccount<'info>,
     #[account(
         init,
         payer = payer,
-        space = 8 + std::mem::size_of::<TaskV0>() + 60 + args.description.len(),
-        constraint = !task_queue.task_exists(args.id) @ ErrorCode::TaskAlreadyExists,
-        constraint = args.id < task_queue.capacity,
+        space = 8 + std::mem::size_of::<TaskV0>() + args.transaction.size() + 4 + args.description.len() + 60,
         seeds = [b"task".as_ref(), task_queue.key().as_ref(), &args.id.to_le_bytes()[..]],
         bump,
     )]
-    pub task: Box<Account<'info, TaskV0>>,
+    pub task: Account<'info, TaskV0>,
     pub system_program: Program<'info, System>,
 }
 
 pub fn handler(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
+    // Use memory-efficient wrapper to avoid deserializing the entire task queue
+    let task_queue_account_info = ctx.accounts.task_queue.to_account_info();
+    let mut task_queue_data = task_queue_account_info.try_borrow_mut_data()?;
+    let mut task_queue = TaskQueueDataWrapper::new(*task_queue_data)?;
+
+    // Validate constraints that were removed from the account struct
+    require!(
+        !task_queue.task_exists(args.id),
+        ErrorCode::TaskAlreadyExists
+    );
+    require!(
+        args.id < task_queue.header().capacity,
+        ErrorCode::InvalidTaskId
+    );
+
     require_gte!(
-        ctx.accounts.task_queue.capacity,
+        task_queue.header().capacity,
         (args.free_tasks + 1) as u16,
         ErrorCode::FreeTasksGreaterThanCapacity
     );
@@ -63,15 +76,14 @@ pub fn handler(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
     );
     let crank_reward = args
         .crank_reward
-        .unwrap_or(ctx.accounts.task_queue.min_crank_reward);
-    require_gte!(crank_reward, ctx.accounts.task_queue.min_crank_reward);
+        .unwrap_or(task_queue.header().min_crank_reward);
+    require_gte!(crank_reward, task_queue.header().min_crank_reward);
 
-    let mut transaction = args.transaction.clone();
-    if let TransactionSourceV0::CompiledV0(mut compiled_tx) = transaction {
+    let mut transaction = args.transaction;
+    if let TransactionSourceV0::CompiledV0(ref mut compiled_tx) = transaction {
         compiled_tx
             .accounts
             .extend(ctx.remaining_accounts.iter().map(|a| a.key()));
-        transaction = TransactionSourceV0::CompiledV0(compiled_tx);
     }
     ctx.accounts.task.set_inner(TaskV0 {
         free_tasks: args.free_tasks,
@@ -86,14 +98,14 @@ pub fn handler(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
         bump_seed: ctx.bumps.task,
         queued_at: Clock::get()?.unix_timestamp,
     });
-    ctx.accounts.task_queue.set_task_exists(args.id, true);
-    ctx.accounts.task_queue.updated_at = Clock::get()?.unix_timestamp;
 
-    resize_to_fit(
-        &ctx.accounts.payer.to_account_info(),
-        &ctx.accounts.system_program.to_account_info(),
-        &ctx.accounts.task,
-    )?;
+    // Update the task queue bitmap and metadata
+    task_queue.set_task_exists(args.id, true);
+    task_queue.header_mut().updated_at = Clock::get()?.unix_timestamp;
+    task_queue.save()?;
+
+    // Drop the borrow
+    drop(task_queue_data);
 
     let rented_amount = ctx.accounts.task.to_account_info().lamports();
     ctx.accounts.task.rent_amount = rented_amount;
