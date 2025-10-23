@@ -120,8 +120,6 @@ pub struct TaskQueueDataWrapper<'a> {
     data: &'a mut [u8],
     header: TaskQueueHeader,
     bitmap_offset: usize,
-    name_offset: usize,
-    lookup_tables_offset: usize,
     stale_task_age_offset: usize,
 }
 
@@ -180,8 +178,6 @@ impl<'a> TaskQueueDataWrapper<'a> {
             data,
             header,
             bitmap_offset: Self::BITMAP_OFFSET,
-            name_offset,
-            lookup_tables_offset,
             stale_task_age_offset,
         })
     }
