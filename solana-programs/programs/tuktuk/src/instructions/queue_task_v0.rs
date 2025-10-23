@@ -40,7 +40,7 @@ pub struct QueueTaskV0<'info> {
     #[account(
         init,
         payer = payer,
-        space = 8 + std::mem::size_of::<TaskV0>() + args.transaction.size() + args.description.len() + 60,
+        space = 8 + std::mem::size_of::<TaskV0>() + args.transaction.size() + 4 + args.description.len() + 60,
         seeds = [b"task".as_ref(), task_queue.key().as_ref(), &args.id.to_le_bytes()[..]],
         bump,
     )]

@@ -434,7 +434,7 @@ pub fn handler<'info>(
     // Check for duplicate task IDs
     let mut seen_ids = std::collections::HashSet::new();
     for id in args.free_task_ids.clone() {
-        require_gt!(task_queue.header().capacity, id, ErrorCode::InvalidTaskId);
+        require_gte!(task_queue.header().capacity, id, ErrorCode::InvalidTaskId);
         // Ensure ID is not already in use in the task queue
         require!(!task_queue.task_exists(id), ErrorCode::TaskIdAlreadyInUse);
         // Check for duplicates in provided IDs
