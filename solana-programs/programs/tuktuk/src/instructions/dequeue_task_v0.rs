@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::state::{TaskQueueAuthorityV0, TaskQueueDataWrapper, TaskQueueV0, TaskV0};
+use crate::state::{TaskQueueAuthorityV0, TaskQueueDataWrapper, TaskV0};
 
 #[derive(Accounts)]
 pub struct DequeuetaskV0<'info> {
@@ -22,7 +22,7 @@ pub struct DequeuetaskV0<'info> {
         has_one = rent_refund,
         has_one = task_queue,
     )]
-    pub task: Box<Account<'info, TaskV0>>,
+    pub task: Account<'info, TaskV0>,
 }
 
 pub fn handler(ctx: Context<DequeuetaskV0>) -> Result<()> {

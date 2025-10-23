@@ -238,7 +238,6 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             .map(|s| s.iter().map(|v| v.as_slice()).collect())
             .collect();
 
-        msg!("Invokign");
         solana_program::program::invoke_signed(
             &Instruction {
                 program_id: *program_id,
