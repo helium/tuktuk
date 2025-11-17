@@ -37,7 +37,7 @@ export function verificationHash(
               Buffer.from([acc.isWritable ? 1 : 0, acc.isSigner ? 1 : 0]),
             ])
           )
-        )
+        ),
       ])
     ),
     "hex"
@@ -60,8 +60,7 @@ export class RemoteTaskTransactionV0 {
         const isWritable =
           index < fields.transaction.numRwSigners ||
           (index >=
-            fields.transaction.numRwSigners +
-              fields.transaction.numRoSigners &&
+            fields.transaction.numRwSigners + fields.transaction.numRoSigners &&
             index <
               fields.transaction.numRwSigners +
                 fields.transaction.numRoSigners +
@@ -76,7 +75,10 @@ export class RemoteTaskTransactionV0 {
     this.transaction = { ...fields.transaction, accounts: [] };
   }
 
-  static async serialize(coder: AccountsCoder, value: RemoteTaskTransactionV0): Promise<Buffer> {
+  static async serialize(
+    coder: AccountsCoder,
+    value: RemoteTaskTransactionV0
+  ): Promise<Buffer> {
     return coder.encode("remoteTaskTransactionV0", value);
   }
 }
@@ -231,7 +233,7 @@ async function defaultFetcher({
     task_queued_at: taskQueuedAt.toString(),
     task_queue: taskQueue.toBase58(),
   });
-  const { transaction: txB64, signature, remaining_accounts } = resp.data;;
+  const { transaction: txB64, signature, remaining_accounts } = resp.data;
   const remainingAccounts = remaining_accounts.map((acc) => {
     return {
       pubkey: new PublicKey(acc.pubkey),
@@ -256,16 +258,16 @@ export async function runTask({
   program: Program<Tuktuk>;
   task: PublicKey;
   crankTurner: PublicKey;
-  nextAvailableTaskIds?: number[],
+  nextAvailableTaskIds?: number[];
   fetcher?: ({
     task,
     taskQueuedAt,
     url,
   }: {
-    task: PublicKey,
-    taskQueuedAt: BN,
-    taskQueue: PublicKey,
-    url: string,
+    task: PublicKey;
+    taskQueuedAt: BN;
+    taskQueue: PublicKey;
+    url: string;
   }) => Promise<{
     remoteTaskTransaction: Buffer;
     remainingAccounts: AccountMeta[];
@@ -289,10 +291,9 @@ export async function runTask({
       };
     });
 
-    const nextAvailable = argsNextAvailableTaskIds || nextAvailableTaskIds(
-      taskQueueAcc.taskBitmap,
-      freeTasks
-    );
+    const nextAvailable =
+      argsNextAvailableTaskIds?.slice(0, freeTasks) ||
+      nextAvailableTaskIds(taskQueueAcc.taskBitmap, freeTasks);
     const freeTasksAccounts = nextAvailable.map((id) => ({
       pubkey: taskKey(taskQueue, id)[0],
       isWritable: true,
@@ -312,26 +313,22 @@ export async function runTask({
         .instruction(),
     ];
   } else {
-    const nextAvailable = nextAvailableTaskIds(
-      taskQueueAcc.taskBitmap,
-      freeTasks
-    );
+    const nextAvailable =
+      argsNextAvailableTaskIds?.slice(0, freeTasks) ||
+      nextAvailableTaskIds(taskQueueAcc.taskBitmap, freeTasks);
     const freeTasksAccounts = nextAvailable.map((id) => ({
       pubkey: taskKey(taskQueue, id)[0],
       isWritable: true,
       isSigner: false,
     }));
 
-    const {
-      remoteTaskTransaction,
-      remainingAccounts,
-      signature,
-    } = await fetcher({
-      task,
-      taskQueuedAt: queuedAt,
-      url: transaction.remoteV0.url,
-      taskQueue,
-    });
+    const { remoteTaskTransaction, remainingAccounts, signature } =
+      await fetcher({
+        task,
+        taskQueuedAt: queuedAt,
+        url: transaction.remoteV0.url,
+        taskQueue,
+      });
 
     return [
       Ed25519Program.createInstructionWithPublicKey({
