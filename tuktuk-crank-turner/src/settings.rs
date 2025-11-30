@@ -65,7 +65,7 @@ impl Settings {
     /// Load Settings from a given path. Settings are loaded from a given
     /// optional path and can be overriden with environment variables.
     ///
-    /// Environemnt overrides have the same name as the entries in the settings
+    /// Environment overrides have the same name as the entries in the settings
     /// file in uppercase and prefixed with "QN_". For example
     /// "QN_LOG" will override the log setting. A double underscore distinguishes
     /// subsections in the settings file
