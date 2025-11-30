@@ -79,9 +79,16 @@ impl Settings {
         }
         // Add in settings from the environment (with a prefix of APP)
         // Eg.. `TUKTUK_DEBUG=1 ./target/app` would set the `debug` key
-        builder
+        let mut settings: Settings = builder
             .add_source(Environment::with_prefix("TUKTUK").separator("__"))
             .build()
-            .and_then(|config| config.try_deserialize())
+            .and_then(|config| config.try_deserialize())?;
+
+        // Expand environment variables in key_path (supports both $HOME and ~)
+        settings.key_path = shellexpand::full(&settings.key_path)
+            .map_err(|e| config::ConfigError::Message(format!("Failed to expand key_path: {}", e)))?
+            .into_owned();
+
+        Ok(settings)
     }
 }
