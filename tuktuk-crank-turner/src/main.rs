@@ -32,6 +32,7 @@ pub mod cache;
 mod metrics;
 pub mod profitability;
 pub mod settings;
+pub mod setup;
 mod sync;
 pub mod task_completion_processor;
 pub mod task_context;
@@ -309,6 +310,9 @@ impl Cli {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Create default config if it doesn't exist
+    setup::create_config_if_missing()?;
+
     let cli = Cli::parse();
     cli.run().await
 }
