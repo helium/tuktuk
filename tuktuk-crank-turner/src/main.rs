@@ -50,6 +50,16 @@ pub struct Cli {
     pub config: Option<path::PathBuf>,
 }
 
+impl Cli {
+    fn get_expanded_config_path(&self) -> Option<path::PathBuf> {
+        self.config.as_ref().map(|p| {
+            shellexpand::full(&p.to_string_lossy())
+                .map(|expanded| path::PathBuf::from(expanded.as_ref()))
+                .unwrap_or_else(|_| p.clone())
+        })
+    }
+}
+
 async fn metrics_handler() -> Result<impl Reply, Rejection> {
     use prometheus::Encoder;
     let encoder = prometheus::TextEncoder::new();
@@ -89,7 +99,7 @@ const PACKED_TX_CHANNEL_CAPACITY: usize = 32;
 impl Cli {
     pub async fn run(&self) -> Result<()> {
         register_custom_metrics();
-        let settings = Settings::new(self.config.as_ref())?;
+        let settings = Settings::new(self.get_expanded_config_path().as_ref())?;
         tracing_subscriber::registry()
             .with(tracing_subscriber::EnvFilter::new(&settings.log))
             .with(tracing_subscriber::fmt::layer().with_span_events(FmtSpan::CLOSE))
