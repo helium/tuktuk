@@ -46,7 +46,11 @@ pub struct Cli {
     /// Optional configuration file to use. If present the toml file at the
     /// given path will be loaded. Environment variables can override the
     /// settings in the given file.
-    #[clap(short = 'c')]
+    #[clap(
+        short = 'c',
+        long,
+        default_value = "~/.config/helium/cli/tuktuk-crank-turner/config.toml"
+    )]
     pub config: Option<path::PathBuf>,
 }
 
