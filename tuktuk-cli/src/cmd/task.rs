@@ -124,6 +124,7 @@ async fn simulate_task(client: &CliClient, task_key: Pubkey) -> Result<Option<Si
     // Get the run instruction
     let run_ix_res = tuktuk_sdk::compiled_transaction::run_ix(
         client.as_ref(),
+        client.as_ref(),
         task_key,
         client.payer.pubkey(),
         &HashSet::new(),
@@ -598,6 +599,7 @@ impl TaskCmd {
                 };
                 for (task_key, _) in tasks {
                     let run_ix_result = tuktuk_sdk::compiled_transaction::run_ix(
+                        client.as_ref(),
                         client.as_ref(),
                         task_key,
                         client.payer.pubkey(),

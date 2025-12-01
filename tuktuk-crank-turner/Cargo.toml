@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 anchor-lang = { workspace = true }
 anchor-client = { workspace = true, features = ["async"] }
+async-trait = { workspace = true }
 bincode = { workspace = true }
 solana-sdk = { workspace = true }
 tokio = { workspace = true }

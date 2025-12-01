@@ -117,11 +117,6 @@ impl TimedTask {
 
         let task_queue = self.get_task_queue(ctx.clone()).await?;
 
-        let lookup_tables = ctx
-            .lookup_tables_client
-            .get_lookup_tables(task_queue.lookup_tables)
-            .await
-            .map_err(|_| anyhow::anyhow!("lookup tables channel closed"))?;
         let maybe_next_available = self.get_available_task_ids(ctx.clone()).await;
         let next_available = match maybe_next_available {
             Ok(next_available) => next_available,
@@ -163,7 +158,8 @@ impl TimedTask {
                 &self.task,
                 payer.pubkey(),
                 next_available,
-                lookup_tables,
+                task_queue.lookup_tables.clone(),
+                ctx.rpc_client.as_ref(),
             )
             .await
         };

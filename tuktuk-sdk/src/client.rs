@@ -4,7 +4,10 @@ use anchor_lang::AccountDeserialize;
 use futures::{stream, StreamExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
 pub use solana_client::nonblocking::rpc_client::RpcClient as SolanaRpcClient;
-use solana_sdk::{account::Account, pubkey::Pubkey};
+use solana_sdk::{
+    account::Account, address_lookup_table::state::AddressLookupTable,
+    message::AddressLookupTableAccount, pubkey::Pubkey,
+};
 
 use crate::error::Error;
 
@@ -58,6 +61,37 @@ impl GetAccount for SolanaRpcClient {
             .buffered(5)
             .try_concat()
             .await
+    }
+}
+
+#[async_trait::async_trait]
+pub trait LookupTableResolver {
+    async fn resolve_lookup_tables(
+        &self,
+        lookup_tables: Vec<Pubkey>,
+    ) -> Result<Vec<AddressLookupTableAccount>, Error>;
+}
+
+#[async_trait::async_trait]
+impl LookupTableResolver for SolanaRpcClient {
+    async fn resolve_lookup_tables(
+        &self,
+        lookup_tables: Vec<Pubkey>,
+    ) -> Result<Vec<AddressLookupTableAccount>, Error> {
+        let accounts = self.get_multiple_accounts(&lookup_tables).await?;
+        Ok(accounts
+            .into_iter()
+            .zip(lookup_tables.iter())
+            .filter_map(|(maybe_acc, pubkey)| {
+                maybe_acc.map(|acc| {
+                    let lut = AddressLookupTable::deserialize(&acc.data).map_err(Error::from)?;
+                    Ok(AddressLookupTableAccount {
+                        key: *pubkey,
+                        addresses: lut.addresses.to_vec(),
+                    })
+                })
+            })
+            .collect::<Result<Vec<_>, Error>>()?)
     }
 }
 

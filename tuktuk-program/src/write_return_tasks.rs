@@ -68,7 +68,7 @@ where
     };
 
     let mut total_tasks = 0;
-    let mut has_unprocessed_tasks = true;
+    let mut has_unprocessed_tasks: bool;
     for AccountWithSeeds { account, seeds } in accounts.iter() {
         // Store original size before any reallocation
         original_sizes.push(account.data_len());

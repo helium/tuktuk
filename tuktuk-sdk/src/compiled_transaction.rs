@@ -6,7 +6,7 @@ use bytemuck::{bytes_of, Pod, Zeroable};
 use serde::Deserialize;
 use solana_client::client_error::reqwest;
 use solana_sdk::{
-    address_lookup_table::{state::AddressLookupTable, AddressLookupTableAccount},
+    address_lookup_table::AddressLookupTableAccount,
     ed25519_instruction::{DATA_START, PUBKEY_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE},
     ed25519_program,
     instruction::Instruction,
@@ -14,7 +14,10 @@ use solana_sdk::{
 };
 use tuktuk_program::{tuktuk, TaskQueueV0, TaskV0, TransactionSourceV0};
 
-use crate::{client::GetAnchorAccount, error::Error};
+use crate::{
+    client::{GetAnchorAccount, LookupTableResolver},
+    error::Error,
+};
 
 pub fn next_available_task_ids_excluding_in_progress(
     capacity: u16,
@@ -68,7 +71,8 @@ pub async fn run_ix_with_free_tasks(
     task: &TaskV0,
     payer: Pubkey,
     next_available: Vec<u16>,
-    lookup_tables: Vec<AddressLookupTableAccount>,
+    lookup_table_pubkeys: Vec<Pubkey>,
+    lut_resolver: &impl LookupTableResolver,
 ) -> Result<RunTaskResult, Error> {
     let transaction = &task.transaction;
 
@@ -125,6 +129,10 @@ pub async fn run_ix_with_free_tasks(
             ]
             .concat();
 
+            let lookup_tables = lut_resolver
+                .resolve_lookup_tables(lookup_table_pubkeys)
+                .await?;
+
             Ok(RunTaskResult {
                 instructions: vec![Instruction {
                     program_id: tuktuk_program::tuktuk::ID,
@@ -176,6 +184,10 @@ pub async fn run_ix_with_free_tasks(
             instruction_data.extend_from_slice(&signature);
             instruction_data.extend_from_slice(&message);
 
+            // Combine lookup table pubkeys from task queue and remote transaction
+            let all_lut_pubkeys = [lookup_table_pubkeys, remote_transaction.lookup_tables].concat();
+            let lookup_tables = lut_resolver.resolve_lookup_tables(all_lut_pubkeys).await?;
+
             Ok(RunTaskResult {
                 lookup_tables,
                 instructions: vec![
@@ -216,6 +228,7 @@ pub async fn run_ix_with_free_tasks(
 
 pub async fn run_ix(
     client: &impl GetAnchorAccount,
+    lut_resolver: &impl LookupTableResolver,
     task_key: Pubkey,
     payer: Pubkey,
     in_progress_task_ids: &HashSet<u16>,
@@ -239,22 +252,15 @@ pub async fn run_ix(
         rand::random_range(0..task_queue.task_bitmap.len()),
     )?;
 
-    let lookup_tables = client
-        .accounts(&task_queue.lookup_tables)
-        .await?
-        .into_iter()
-        .filter_map(|(addr, raw)| {
-            raw.map(|acc| {
-                let lut = AddressLookupTable::deserialize(&acc.data).map_err(Error::from)?;
-                Ok::<AddressLookupTableAccount, Error>(AddressLookupTableAccount {
-                    key: addr,
-                    addresses: lut.addresses.to_vec(),
-                })
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
-    run_ix_with_free_tasks(task_key, &task, payer, next_available, lookup_tables).await
+    run_ix_with_free_tasks(
+        task_key,
+        &task,
+        payer,
+        next_available,
+        task_queue.lookup_tables.clone(),
+        lut_resolver,
+    )
+    .await
 }
 
 #[derive(Default, Debug, Copy, Clone, Zeroable, Pod, Eq, PartialEq)]
@@ -281,12 +287,14 @@ struct RemoteResponse {
     transaction: String,
     remaining_accounts: Vec<RemoteAccountMeta>,
     signature: String,
+    lookup_tables: Option<Vec<String>>,
 }
 
 struct FetchedRemoteResponse {
     transaction: Vec<u8>,
     remaining_accounts: Vec<AccountMeta>,
     signature: Vec<u8>,
+    lookup_tables: Vec<Pubkey>,
 }
 
 async fn fetch_remote_transaction(
@@ -327,9 +335,17 @@ async fn fetch_remote_transaction(
         .decode(&json.signature)
         .map_err(Error::from)?;
 
+    let lookup_tables = json
+        .lookup_tables
+        .unwrap_or_default()
+        .into_iter()
+        .map(|key| Pubkey::from_str(&key).map_err(Error::from))
+        .collect::<Result<Vec<_>, Error>>()?;
+
     Ok(FetchedRemoteResponse {
         transaction: transaction_bytes,
         remaining_accounts,
         signature: signature_bytes,
+        lookup_tables,
     })
 }
