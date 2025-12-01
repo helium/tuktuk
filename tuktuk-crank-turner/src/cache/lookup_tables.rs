@@ -7,6 +7,7 @@ use solana_sdk::{
 };
 use tokio_graceful_shutdown::SubsystemHandle;
 use tracing::info;
+use tuktuk_sdk::client::LookupTableResolver;
 
 use crate::{cache::LookupTableRequest, sync};
 
@@ -23,6 +24,18 @@ impl LookupTablesSender {
             resp,
         })
         .await
+    }
+}
+
+#[async_trait::async_trait]
+impl LookupTableResolver for LookupTablesSender {
+    async fn resolve_lookup_tables(
+        &self,
+        lookup_tables: Vec<Pubkey>,
+    ) -> Result<Vec<AddressLookupTableAccount>, tuktuk_sdk::error::Error> {
+        self.get_lookup_tables(lookup_tables).await.map_err(|_| {
+            tuktuk_sdk::error::Error::InvalidTransaction("lookup tables channel closed")
+        })
     }
 }
 

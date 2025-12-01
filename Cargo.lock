@@ -586,9 +586,9 @@ dependencies = [
 
 [[package]]
 name = "async-trait"
-version = "0.1.88"
+version = "0.1.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e539d3fca749fcee5236ab05e93a52867dd549cc157c8cb7f99595f3cedffdb5"
+checksum = "9035ad2d096bed7955a320ee7e2230574d28fd3c3a0f186cbea1ff3c7eed5dbb"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6820,7 +6820,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tuktuk-cli"
-version = "0.2.13"
+version = "0.2.14"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -6851,11 +6851,12 @@ dependencies = [
 
 [[package]]
 name = "tuktuk-crank-turner"
-version = "0.2.24"
+version = "0.2.25"
 dependencies = [
  "anchor-client",
  "anchor-lang",
  "anyhow",
+ "async-trait",
  "bincode",
  "clap",
  "config",
@@ -6892,7 +6893,7 @@ dependencies = [
 
 [[package]]
 name = "tuktuk-sdk"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "anchor-lang",
  "async-trait",
