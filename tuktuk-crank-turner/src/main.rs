@@ -32,6 +32,7 @@ pub mod cache;
 mod metrics;
 pub mod profitability;
 pub mod settings;
+pub mod setup;
 mod sync;
 pub mod task_completion_processor;
 pub mod task_context;
@@ -46,8 +47,34 @@ pub struct Cli {
     /// Optional configuration file to use. If present the toml file at the
     /// given path will be loaded. Environment variables can override the
     /// settings in the given file.
-    #[clap(short = 'c')]
+    #[clap(
+        short = 'c',
+        long,
+        default_value = "~/.config/helium/cli/tuktuk-crank-turner/config.toml"
+    )]
     pub config: Option<path::PathBuf>,
+
+    /// RPC endpoint URL
+    #[clap(short = 'u', long)]
+    pub rpc_url: Option<String>,
+
+    /// Path to Solana keypair file
+    #[clap(short = 'k', long)]
+    pub key_path: Option<String>,
+
+    /// Minimum crank fee in lamports
+    #[clap(short = 'm', long)]
+    pub min_crank_fee: Option<u64>,
+}
+
+impl Cli {
+    fn get_expanded_config_path(&self) -> Option<path::PathBuf> {
+        self.config.as_ref().map(|p| {
+            shellexpand::full(&p.to_string_lossy())
+                .map(|expanded| path::PathBuf::from(expanded.as_ref()))
+                .unwrap_or_else(|_| p.clone())
+        })
+    }
 }
 
 async fn metrics_handler() -> Result<impl Reply, Rejection> {
@@ -89,7 +116,19 @@ const PACKED_TX_CHANNEL_CAPACITY: usize = 32;
 impl Cli {
     pub async fn run(&self) -> Result<()> {
         register_custom_metrics();
-        let settings = Settings::new(self.config.as_ref())?;
+        let mut settings = Settings::new(self.get_expanded_config_path().as_ref())?;
+
+        // Apply CLI overrides
+        if let Some(rpc_url) = &self.rpc_url {
+            settings.rpc_url = rpc_url.clone();
+        }
+        if let Some(key_path) = &self.key_path {
+            settings.key_path = key_path.clone();
+        }
+        if let Some(min_crank_fee) = self.min_crank_fee {
+            settings.min_crank_fee = min_crank_fee;
+        }
+
         tracing_subscriber::registry()
             .with(tracing_subscriber::EnvFilter::new(&settings.log))
             .with(tracing_subscriber::fmt::layer().with_span_events(FmtSpan::CLOSE))
@@ -295,6 +334,9 @@ impl Cli {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Create default config if it doesn't exist
+    setup::create_config_if_missing()?;
+
     let cli = Cli::parse();
     cli.run().await
 }
