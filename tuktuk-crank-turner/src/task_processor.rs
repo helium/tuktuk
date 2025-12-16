@@ -285,8 +285,7 @@ impl TimedTask {
                         .await
                         .ok()
                         .flatten()
-                        .map(|acc| acc.queued_at != self.task.queued_at)
-                        .unwrap_or(false) =>
+                        .is_some_and(|acc| acc.queued_at != self.task.queued_at) =>
                 {
                     info!(?self.task_key, "task was already replaced, skipping");
                 }
