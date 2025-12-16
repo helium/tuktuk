@@ -5,9 +5,10 @@ use solana_sdk::{instruction::InstructionError, signer::Signer, transaction::Tra
 use solana_transaction_utils::{error::Error as TransactionQueueError, queue::TransactionTask};
 use tokio_graceful_shutdown::SubsystemHandle;
 use tracing::{debug, info};
-use tuktuk_program::TaskQueueV0;
-use tuktuk_sdk::compiled_transaction::{
-    next_available_task_ids_excluding_in_progress, run_ix_with_free_tasks,
+use tuktuk_program::{TaskQueueV0, TaskV0};
+use tuktuk_sdk::{
+    client::GetAnchorAccount,
+    compiled_transaction::{next_available_task_ids_excluding_in_progress, run_ix_with_free_tasks},
 };
 
 use crate::{
@@ -270,6 +271,24 @@ impl TimedTask {
                     InstructionError::Custom(code),
                 )) if code == 3012 && ctx.rpc_client.get_account(&self.task_key).await.is_err() => {
                     info!(?self.task_key, "task not found, removing from queue");
+                }
+                // Handle task not ready
+                // There's a race condition where the task was already completed and replaced with a new one,
+                // yet we're still trying to process the old task.
+                TransactionQueueError::TransactionError(TransactionError::InstructionError(
+                    _,
+                    InstructionError::Custom(code),
+                )) if code == 6005
+                    && ctx
+                        .rpc_client
+                        .anchor_account::<TaskV0>(&self.task_key)
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|acc| acc.queued_at != self.task.queued_at)
+                        .unwrap_or(false) =>
+                {
+                    info!(?self.task_key, "task was already replaced, skipping");
                 }
                 TransactionQueueError::RawTransactionError(_)
                 | TransactionQueueError::SimulatedTransactionError(_)
