@@ -289,6 +289,19 @@ impl TimedTask {
                 {
                     info!(?self.task_key, "task was already replaced, skipping");
                 }
+                TransactionQueueError::SimulatedTransactionError(
+                    TransactionError::InstructionError(_, InstructionError::Custom(code)),
+                ) if code == 6005
+                    && ctx
+                        .rpc_client
+                        .anchor_account::<TaskV0>(&self.task_key)
+                        .await
+                        .ok()
+                        .flatten()
+                        .is_some_and(|acc| acc.queued_at != self.task.queued_at) =>
+                {
+                    info!(?self.task_key, "task was already replaced, skipping");
+                }
                 TransactionQueueError::RawTransactionError(_)
                 | TransactionQueueError::SimulatedTransactionError(_)
                 | TransactionQueueError::TransactionError(_)
