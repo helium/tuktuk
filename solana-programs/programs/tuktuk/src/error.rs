@@ -54,4 +54,12 @@ pub enum ErrorCode {
     InvalidAccountKey,
     #[msg("Invalid crank reward")]
     InvalidCrankReward,
+    // Reserved so the follow-up hardening PR can add these without renumbering the codes
+    // above, which clients match on.
+    #[msg("Signer seeds do not resolve to a valid PDA")]
+    InvalidSignerSeeds,
+    #[msg("Instruction references an account index that was not provided")]
+    InvalidAccountIndex,
+    #[msg("Returned tasks account is not owned by the program that returned it")]
+    InvalidTasksAccountOwner,
 }
