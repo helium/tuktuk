@@ -1,6 +1,13 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { cronJobKey, cronJobNameMappingKey, cronJobTransactionKey, init as initCron, userCronJobsKey, createCronJob } from "@helium/cron-sdk";
+import {
+  cronJobKey,
+  cronJobNameMappingKey,
+  cronJobTransactionKey,
+  init as initCron,
+  userCronJobsKey,
+  createCronJob,
+} from "@helium/cron-sdk";
 import {
   createAtaAndMint,
   createMint,
@@ -25,7 +32,7 @@ import {
 import {
   createAssociatedTokenAccountIdempotentInstruction,
   createTransferInstruction,
-  getAssociatedTokenAddressSync
+  getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 import {
   AccountMeta,
@@ -68,7 +75,7 @@ describe("cron", () => {
       name = makeid(10);
       if (
         !(await tuktukProgram.account.tuktukConfigV0.fetchNullable(
-          tuktukConfig
+          tuktukConfig,
         ))
       ) {
         await tuktukProgram.methods
@@ -80,9 +87,8 @@ describe("cron", () => {
           })
           .rpc();
       }
-      const config = await tuktukProgram.account.tuktukConfigV0.fetch(
-        tuktukConfig
-      );
+      const config =
+        await tuktukProgram.account.tuktukConfigV0.fetch(tuktukConfig);
       const nextTaskQueueId = config.nextTaskQueueId;
       taskQueue = taskQueueKey(tuktukConfig, nextTaskQueueId)[0];
       await tuktukProgram.methods
@@ -120,12 +126,22 @@ describe("cron", () => {
         }),
       ]);
       const mint = await createMint(provider, 0, me, me);
-      const lazySignerAta = await createAtaAndMint(provider, mint, 10000, wallet);
+      const lazySignerAta = await createAtaAndMint(
+        provider,
+        mint,
+        10000,
+        wallet,
+      );
       const myAta = getAssociatedTokenAddressSync(mint, me);
 
       // Transfer some tokens from lazy signer to me
       const instructions: TransactionInstruction[] = [
-        createAssociatedTokenAccountIdempotentInstruction(wallet, myAta, me, mint),
+        createAssociatedTokenAccountIdempotentInstruction(
+          wallet,
+          myAta,
+          me,
+          mint,
+        ),
         createTransferInstruction(lazySignerAta, myAta, wallet, 10),
       ];
 
@@ -133,18 +149,19 @@ describe("cron", () => {
       bumpBuffer.writeUint8(bump);
       ({ transaction, remainingAccounts } = await compileTransaction(
         instructions,
-        [[Buffer.from("test"), bumpBuffer]]
+        [[Buffer.from("test"), bumpBuffer]],
       ));
     });
 
     it("initializes a cron job and runs the task on a schedule", async () => {
       const name = makeid(10);
       let userCronJobs = userCronJobsKey(me)[0];
-      const userCronJobsAcc = await cronProgram.account.userCronJobsV0.fetchNullable(userCronJobs);
+      const userCronJobsAcc =
+        await cronProgram.account.userCronJobsV0.fetchNullable(userCronJobs);
       const crankTurner = Keypair.generate();
       const task = taskKey(taskQueue, 0)[0];
       const cronJob = cronJobKey(me, userCronJobsAcc?.nextCronJobId ?? 0)[0];
-      const cronJobNameMapping = cronJobNameMappingKey(me, name)[0]
+      const cronJobNameMapping = cronJobNameMappingKey(me, name)[0];
 
       // Fund accounts
       await sendInstructions(provider, [
@@ -217,8 +234,8 @@ describe("cron", () => {
             instructions: ixs,
             connection: provider.connection,
             computeUnits: 1000000,
-          })
-        })
+          }),
+        }),
       );
 
       await tx.sign([crankTurner]);
@@ -230,7 +247,7 @@ describe("cron", () => {
           skipPreflight: true,
           maxRetries: 0,
         },
-        "confirmed"
+        "confirmed",
       );
 
       // Wait for next scheduled execution
@@ -239,10 +256,16 @@ describe("cron", () => {
       // Run the scheduled task
       const task2 = taskKey(taskQueue, 1)[0];
       const task3 = taskKey(taskQueue, 2)[0];
-      const taskQueueAcc = await tuktukProgram.account.taskQueueV0.fetch(taskQueue);
+      const taskQueueAcc =
+        await tuktukProgram.account.taskQueueV0.fetch(taskQueue);
       const task2Acc = await tuktukProgram.account.taskV0.fetch(task2);
       const task3Acc = await tuktukProgram.account.taskV0.fetch(task3);
-      const nextAvailable = nextAvailableTaskIds(taskQueueAcc.taskBitmap, task2Acc.freeTasks + task3Acc.freeTasks);
+      const nextAvailable = nextAvailableTaskIds(
+        taskQueueAcc.taskBitmap,
+        task2Acc.freeTasks + task3Acc.freeTasks,
+        true,
+        taskQueueAcc.capacity,
+      );
       const ixs2 = await runTask({
         program: tuktukProgram,
         task: task2,
@@ -254,7 +277,10 @@ describe("cron", () => {
         program: tuktukProgram,
         task: task3,
         crankTurner: crankTurner.publicKey,
-        nextAvailableTaskIds: nextAvailable.slice(task2Acc.freeTasks, task2Acc.freeTasks + task3Acc.freeTasks),
+        nextAvailableTaskIds: nextAvailable.slice(
+          task2Acc.freeTasks,
+          task2Acc.freeTasks + task3Acc.freeTasks,
+        ),
       });
       const tx2 = toVersionedTx(
         await populateMissingDraftInfo(provider.connection, {
@@ -263,22 +289,26 @@ describe("cron", () => {
             instructions: [...ixs2, ...ixs3],
             connection: provider.connection,
             computeUnits: 1000000,
-          })
-        })
+          }),
+        }),
       );
       await tx2.sign([crankTurner]);
-      console.log(await sendAndConfirmWithRetry(
-        provider.connection,
-        Buffer.from(tx2.serialize()),
-        {
-          skipPreflight: true,
-          maxRetries: 0,
-        },
-        "confirmed"
-      ));
+      console.log(
+        await sendAndConfirmWithRetry(
+          provider.connection,
+          Buffer.from(tx2.serialize()),
+          {
+            skipPreflight: true,
+            maxRetries: 0,
+          },
+          "confirmed",
+        ),
+      );
 
       const cronJobV0 = await cronProgram.account.cronJobV0.fetch(cronJob);
-      const nextScheduleTask = await tuktukProgram.account.taskV0.fetchNullable(cronJobV0.nextScheduleTask);
+      const nextScheduleTask = await tuktukProgram.account.taskV0.fetchNullable(
+        cronJobV0.nextScheduleTask,
+      );
       expect(nextScheduleTask).to.not.be.null;
     });
   });

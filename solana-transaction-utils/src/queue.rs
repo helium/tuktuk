@@ -49,7 +49,8 @@ struct SimulationOutcome {
     err: Option<TransactionError>,
     fee: u64,
     /// How many lamports the payer lost over the simulated transaction, excluding the tx
-    /// fee (simulation does not charge it). 0 if the payer came out even or ahead.
+    /// fee (simulation debits the fee like real execution, so the expected fee is
+    /// subtracted back out). 0 if the payer came out even or ahead.
     payer_balance_drop: u64,
 }
 
@@ -109,10 +110,11 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
         let tasks = bundle.tasks;
         let result = async {
             let payer_pubkey = payer.pubkey();
-            let (blockhash, payer_balance_before) = tokio::try_join!(
+            let (blockhash, payer_balance_response) = tokio::try_join!(
                 rpc_client.get_latest_blockhash(),
-                rpc_client.get_balance(&payer_pubkey)
+                rpc_client.get_balance_with_commitment(&payer_pubkey, rpc_client.commitment())
             )?;
+            let payer_balance_before = payer_balance_response.value;
             let message = v0::Message::try_compile(
                 &payer.pubkey(),
                 &bundle.tx.instructions,
@@ -120,36 +122,48 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                 blockhash,
             )?;
 
-            let sim_result = rpc_client
-                .simulate_transaction_with_config(
-                    &VersionedTransaction::try_new(VersionedMessage::V0(message), &[&*payer])
-                        .map_err(Error::signer)?,
+            let tx =
+                VersionedTransaction::try_new(VersionedMessage::V0(message.clone()), &[&*payer])
+                    .map_err(Error::signer)?;
+            let (sim_result, expected_fee) = tokio::try_join!(
+                rpc_client.simulate_transaction_with_config(
+                    &tx,
                     RpcSimulateTransactionConfig {
                         // Ask for the payer's post-simulation state so we can detect a
-                        // transaction that drains us. Simulation does not deduct the tx fee,
-                        // so any drop we see comes from the instructions themselves.
+                        // transaction that drains us.
                         accounts: Some(RpcSimulateTransactionAccountsConfig {
                             addresses: vec![payer.pubkey().to_string()],
                             encoding: Some(UiAccountEncoding::Base64),
                         }),
                         commitment: Some(rpc_client.commitment()),
+                        // Simulate against a bank at least as fresh as the balance snapshot,
+                        // otherwise another of our bundles landing in between manufactures a
+                        // phantom balance drop.
+                        min_context_slot: Some(payer_balance_response.context.slot),
                         ..Default::default()
                     },
-                )
-                .await?;
+                ),
+                rpc_client.get_fee_for_message(&message)
+            )?;
 
             if let Some(ref err) = sim_result.value.err {
                 info!(?err, ?sim_result.value.logs, "simulation error");
             }
 
             // Saturating: a balance increase (the normal case, we get paid) is a drop of 0.
+            // Simulation debits the tx fee from the payer just like real execution, so
+            // subtract the expected fee to isolate what the instructions themselves take.
             let payer_balance_drop = sim_result
                 .value
                 .accounts
                 .as_ref()
                 .and_then(|accounts| accounts.first())
                 .and_then(|account| account.as_ref())
-                .map(|account| payer_balance_before.saturating_sub(account.lamports))
+                .map(|account| {
+                    payer_balance_before
+                        .saturating_sub(account.lamports)
+                        .saturating_sub(expected_fee)
+                })
                 .unwrap_or(0);
 
             // Scale up by 1.2 just to be sure it'll succeed.

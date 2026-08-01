@@ -260,10 +260,26 @@ impl TimedTask {
                         })
                         .await?;
                 }
-                // This task spends the crank turner's lamports. Drop it rather than retry --
-                // it will do the same thing next time, and it is almost certainly malicious.
+                // This task spends the crank turner's lamports. A drop can also be manufactured
+                // by simulation racing our own in-flight bundles, so retry a few times before
+                // concluding the task is genuinely draining the payer and dropping it.
                 TransactionQueueError::PayerBalanceDropTooHigh { .. } => {
-                    warn!(?self.task_key, ?err, "task would drain payer, dropping");
+                    if self.total_retries < self.max_retries {
+                        info!(?self.task_key, ?err, "payer balance drop too high, retrying");
+                        let now = *ctx.now_rx.borrow();
+                        ctx.task_queue
+                            .add_task(TimedTask {
+                                task: self.task.clone(),
+                                total_retries: self.total_retries + 1,
+                                in_flight_task_ids: vec![],
+                                profitability_delayed: self.profitability_delayed,
+                                task_time: now + rand::random_range(10..30),
+                                ..self.clone()
+                            })
+                            .await?;
+                    } else {
+                        warn!(?self.task_key, ?err, "task would drain payer, dropping");
+                    }
                 }
                 // Handle task not found (simulated)
                 TransactionQueueError::SimulatedTransactionError(

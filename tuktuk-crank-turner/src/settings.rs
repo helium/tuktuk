@@ -93,7 +93,16 @@ impl Settings {
         // Add in settings from the environment (with a prefix of APP)
         // Eg.. `TUKTUK_DEBUG=1 ./target/app` would set the `debug` key
         let mut settings: Settings = builder
-            .add_source(Environment::with_prefix("TUKTUK").separator("__"))
+            .add_source(
+                Environment::with_prefix("TUKTUK")
+                    .separator("__")
+                    // Allow the list-valued queue filters to be set from a single env var,
+                    // e.g. TUKTUK__ALLOWED_TASK_QUEUES="addr1,addr2"
+                    .try_parsing(true)
+                    .list_separator(",")
+                    .with_list_parse_key("allowed_task_queues")
+                    .with_list_parse_key("denied_task_queues"),
+            )
             .build()
             .and_then(|config| config.try_deserialize())?;
 
