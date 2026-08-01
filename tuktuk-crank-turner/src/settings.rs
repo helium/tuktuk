@@ -1,7 +1,8 @@
-use std::{path::Path, time::Duration};
+use std::{collections::HashSet, path::Path, str::FromStr, time::Duration};
 
 use config::{Config, Environment, File};
 use serde::Deserialize;
+use solana_sdk::pubkey::Pubkey;
 
 #[derive(Debug, Deserialize)]
 pub struct Settings {
@@ -18,6 +19,18 @@ pub struct Settings {
     pub batch_duration: Duration,
     #[serde(default = "default_max_sol_fee")]
     pub max_sol_fee: u64,
+    /// Maximum amount the payer's balance is allowed to drop over a simulated transaction,
+    /// on top of fees. Cranking should only ever pay the payer, so 0 is correct; raise it
+    /// only if you knowingly run tasks that spend from the crank turner's wallet.
+    #[serde(default)]
+    pub max_sol_balance_drop: u64,
+    /// If non-empty, only task queues in this list are cranked. Empty means "all queues",
+    /// which means running arbitrary code queued by anyone -- prefer an explicit list.
+    #[serde(default)]
+    pub allowed_task_queues: Vec<String>,
+    /// Task queues to never crank. Applied after `allowed_task_queues`.
+    #[serde(default)]
+    pub denied_task_queues: Vec<String>,
     pub min_crank_fee: u64,
     #[serde(default = "default_pubsub_repoll")]
     pub pubsub_repoll: Duration,
@@ -90,5 +103,46 @@ impl Settings {
             .into_owned();
 
         Ok(settings)
+    }
+
+    pub fn task_queue_filter(&self) -> Result<TaskQueueFilter, config::ConfigError> {
+        let parse = |keys: &[String]| -> Result<Vec<Pubkey>, config::ConfigError> {
+            keys.iter()
+                .map(|k| {
+                    Pubkey::from_str(k).map_err(|e| {
+                        config::ConfigError::Message(format!("Invalid task queue pubkey {k}: {e}"))
+                    })
+                })
+                .collect()
+        };
+
+        let allowed = parse(&self.allowed_task_queues)?;
+        Ok(TaskQueueFilter {
+            allowed: if allowed.is_empty() {
+                None
+            } else {
+                Some(allowed.into_iter().collect())
+            },
+            denied: parse(&self.denied_task_queues)?.into_iter().collect(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TaskQueueFilter {
+    /// None means every queue is permitted.
+    allowed: Option<HashSet<Pubkey>>,
+    denied: HashSet<Pubkey>,
+}
+
+impl TaskQueueFilter {
+    pub fn permits(&self, task_queue: &Pubkey) -> bool {
+        if self.denied.contains(task_queue) {
+            return false;
+        }
+        match &self.allowed {
+            Some(allowed) => allowed.contains(task_queue),
+            None => true,
+        }
     }
 }

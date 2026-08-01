@@ -44,9 +44,10 @@ pub fn handler(ctx: Context<CloseTaskQueueV0>) -> Result<()> {
         ctx.accounts.tuktuk_config.min_task_queue_id = ctx.accounts.task_queue.id + 1;
     }
 
-    if ctx.accounts.task_queue.id == ctx.accounts.tuktuk_config.next_task_queue_id - 1 {
-        ctx.accounts.tuktuk_config.next_task_queue_id -= 1;
-    }
+    // next_task_queue_id is deliberately never decremented. Reusing an id would let a different
+    // update authority re-create the same task queue PDA, so anything keying off the queue
+    // address -- indexers, crank turner allowlists -- could silently be pointed at a new owner.
+    // The skipped id costs nothing.
 
     Ok(())
 }

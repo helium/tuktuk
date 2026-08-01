@@ -172,6 +172,82 @@ describe("tuktuk", () => {
       expect(taskAcc.crankReward.toString()).to.eq(crankReward.toString());
     });
 
+    it("does not let a task borrow the crank turner's signature", async () => {
+      const crankTurner = Keypair.generate();
+      const attacker = Keypair.generate();
+      const stolen = 500000000;
+      await sendInstructions(provider, [
+        SystemProgram.transfer({
+          fromPubkey: me,
+          toPubkey: crankTurner.publicKey,
+          lamports: 2000000000,
+        }),
+      ]);
+
+      // A task whose compiled transaction drains whoever cranks it.
+      const { transaction: drainTx, remainingAccounts: drainAccounts } =
+        await compileTransaction(
+          [
+            SystemProgram.transfer({
+              fromPubkey: crankTurner.publicKey,
+              toPubkey: attacker.publicKey,
+              lamports: stolen,
+            }),
+          ],
+          []
+        );
+
+      const task = taskKey(taskQueue, 1)[0];
+      await program.methods
+        .queueTaskV0({
+          id: 1,
+          trigger: { now: {} },
+          transaction: { compiledV0: [drainTx] },
+          crankReward: null,
+          freeTasks: 0,
+          description: "drain",
+        })
+        .remainingAccounts(drainAccounts)
+        .accounts({ payer: me, taskQueue, task })
+        .rpc();
+
+      const balanceBefore = await provider.connection.getBalance(
+        crankTurner.publicKey
+      );
+
+      const ixs = await runTask({
+        program,
+        task,
+        crankTurner: crankTurner.publicKey,
+      });
+      const tx = toVersionedTx(
+        await populateMissingDraftInfo(provider.connection, {
+          feePayer: crankTurner.publicKey,
+          instructions: ixs,
+        })
+      );
+      await tx.sign([crankTurner]);
+
+      let failed = false;
+      try {
+        await sendAndConfirmWithRetry(
+          provider.connection,
+          Buffer.from(tx.serialize()),
+          { skipPreflight: true, maxRetries: 0 },
+          "confirmed"
+        );
+      } catch (e) {
+        failed = true;
+      }
+      expect(failed).to.be.true;
+
+      const balanceAfter = await provider.connection.getBalance(
+        crankTurner.publicKey
+      );
+      expect(balanceBefore - balanceAfter).to.be.lessThan(stolen);
+      expect(await provider.connection.getBalance(attacker.publicKey)).to.eq(0);
+    });
+
     it("allows closing a task queue", async () => {
       await program.methods
         .removeQueueAuthorityV0()
@@ -234,7 +310,7 @@ describe("tuktuk", () => {
 
       it("allows running a task", async () => {
         const taskAcc = await program.account.taskV0.fetch(task);
-        
+
         const ixs = await runTask({
           program,
           task,
@@ -256,10 +332,7 @@ describe("tuktuk", () => {
               remoteTaskTransaction: serialized,
               remainingAccounts: remainingAccounts,
               signature: Buffer.from(
-                sign.detached(
-                  Uint8Array.from(serialized),
-                  signer.secretKey
-                )
+                sign.detached(Uint8Array.from(serialized), signer.secretKey)
               ),
             };
           },
@@ -364,13 +437,15 @@ describe("tuktuk", () => {
 
         // Calculate expected balance change
         const expectedBalanceChange = expectedReward - txFee;
-        const actualBalanceChange = crankTurnerBalanceAfter - crankTurnerBalanceBefore;
+        const actualBalanceChange =
+          crankTurnerBalanceAfter - crankTurnerBalanceBefore;
 
-        expect(actualBalanceChange).to.equal(expectedBalanceChange, 
+        expect(actualBalanceChange).to.equal(
+          expectedBalanceChange,
           `Crank turner balance change incorrect. Expected change: ${expectedBalanceChange}, ` +
-          `Actual change: ${actualBalanceChange}, ` +
-          `Reward: ${expectedReward}, ` +
-          `TX fee: ${txFee}`
+            `Actual change: ${actualBalanceChange}, ` +
+            `Reward: ${expectedReward}, ` +
+            `TX fee: ${txFee}`
         );
       });
 
@@ -435,14 +510,14 @@ describe("tuktuk", () => {
           taskQueueNameMapping: taskQueueNameMappingKey(tuktukConfig, name)[0],
         })
         .rpc();
-        await program.methods
-          .addQueueAuthorityV0()
-          .accounts({
-            payer: me,
-            queueAuthority,
-            taskQueue,
-          })
-          .rpc();
+      await program.methods
+        .addQueueAuthorityV0()
+        .accounts({
+          payer: me,
+          queueAuthority,
+          taskQueue,
+        })
+        .rpc();
     });
     it("allows scheduling a task", async () => {
       const freeTask1 = taskKey(taskQueue, 0)[0];

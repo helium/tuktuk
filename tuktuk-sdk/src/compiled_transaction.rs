@@ -279,7 +279,6 @@ pub struct Ed25519SignatureOffsets {
 struct RemoteAccountMeta {
     pubkey: String,
     is_writable: bool,
-    is_signer: bool,
 }
 
 #[derive(Deserialize)]
@@ -323,7 +322,10 @@ async fn fetch_remote_transaction(
             Ok(AccountMeta {
                 pubkey: Pubkey::from_str(&acc.pubkey).map_err(Error::from)?,
                 is_writable: acc.is_writable,
-                is_signer: acc.is_signer,
+                // Never let the remote server request signer privilege. It would only ever
+                // resolve against the crank turner's own key, and the program derives real
+                // signers from signer_seeds, not from the outer account metas.
+                is_signer: false,
             })
         })
         .collect::<Result<Vec<_>, Error>>()?;

@@ -5880,6 +5880,7 @@ dependencies = [
  "futures-util",
  "indicatif",
  "itertools 0.13.0",
+ "solana-account-decoder-client-types",
  "solana-client",
  "solana-program",
  "solana-quic-client",

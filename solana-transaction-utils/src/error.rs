@@ -26,6 +26,8 @@ pub enum Error {
     RawTransactionError(String),
     #[error("Fee too high")]
     FeeTooHigh,
+    #[error("Payer balance would drop by {drop} lamports, max is {max}")]
+    PayerBalanceDropTooHigh { drop: u64, max: u64 },
     #[error("Transaction has failed too many retries and gone stale")]
     StaleTransaction,
     #[error("message channel closed")]

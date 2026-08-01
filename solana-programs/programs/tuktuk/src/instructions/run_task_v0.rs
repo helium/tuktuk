@@ -176,9 +176,10 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             .iter()
             .map(|s| {
                 let seeds: Vec<&[u8]> = s.iter().map(|v| v.as_slice()).collect();
-                Pubkey::create_program_address(&seeds, ctx.program_id).unwrap()
+                Pubkey::create_program_address(&seeds, ctx.program_id)
+                    .map_err(|_| error!(ErrorCode::InvalidSignerSeeds))
             })
-            .collect();
+            .collect::<Result<_>>()?;
 
         Ok(Self {
             ctx,
@@ -204,9 +205,16 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         msg!("Signer addresses: {:?}", self.signer_addresses);
 
         for i in &ix.accounts {
-            let acct = remaining_accounts[*i as usize].clone();
-            let mut acct = acct.clone();
-            let is_signer = acct.is_signer || self.signer_addresses.contains(&acct.key());
+            // ok_or_else, not ok_or: `error!` allocates two Strings, and the BPF bump heap is
+            // never reclaimed, so building one per account here exhausts it.
+            let mut acct = remaining_accounts
+                .get(*i as usize)
+                .ok_or_else(|| error!(ErrorCode::InvalidAccountIndex))?
+                .clone();
+            // A task may only sign for this queue's own `b"custom"` PDAs. Signer privilege is
+            // never inherited from the outer transaction: the crank turner is an arbitrary,
+            // untrusted account, and forwarding its signature would let any task drain it.
+            let is_signer = self.signer_addresses.contains(&acct.key());
             if is_signer {
                 acct.is_signer = true;
             }
@@ -220,7 +228,10 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         }
 
         // Pass free tasks as remaining accounts so the task can know which IDs will be used
-        let program_id = remaining_accounts[ix.program_id_index as usize].key;
+        let program_id = remaining_accounts
+            .get(ix.program_id_index as usize)
+            .ok_or_else(|| error!(ErrorCode::InvalidAccountIndex))?
+            .key;
         // Ignore memo program because it expects every account passed to be a signer.
         if *program_id != MEMO_PROGRAM_ID {
             let free_tasks = &self.ctx.remaining_accounts[self.free_task_index..];
@@ -252,11 +263,19 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         )?;
         msg!("Invoked");
 
-        if let Some((_, return_data)) = solana_program::program::get_return_data() {
-            match self.process_return_data(&return_data, &accounts) {
-                Ok(_) => (),
+        if let Some((return_program_id, return_data)) = solana_program::program::get_return_data() {
+            // Return data that isn't a task list is perfectly normal -- plenty of programs set
+            // return data for their own purposes -- so a deserialization failure is ignored.
+            // Once we know the callee *is* returning tasks, any subsequent failure must abort:
+            // create_new_task assigns accounts and moves lamports before it can fail, and a
+            // swallowed error there would leave a task ID marked as used with no usable task
+            // account behind it, permanently burning the slot and its rent.
+            match RunTaskReturnV0::deserialize(&mut &return_data[..]) {
+                Ok(queue_task_return) => {
+                    self.process_return_data(&return_program_id, queue_task_return, &accounts)?
+                }
                 Err(e) => {
-                    msg!("Error processing return data: {:?}", e);
+                    msg!("Return data is not a task list, ignoring: {:?}", e);
                 }
             }
         }
@@ -266,11 +285,10 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
 
     fn process_return_data(
         &mut self,
-        return_data: &[u8],
+        return_program_id: &Pubkey,
+        queue_task_return: RunTaskReturnV0,
         accounts: &[AccountInfo<'info>],
     ) -> Result<()> {
-        let queue_task_return = RunTaskReturnV0::deserialize(&mut &return_data[..])?;
-
         let accounts_set = queue_task_return
             .tasks_accounts
             .into_iter()
@@ -286,13 +304,25 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         }
 
         for account in tasks_accounts {
-            self.process_tasks_account(account)?;
+            self.process_tasks_account(return_program_id, account)?;
         }
 
         Ok(())
     }
 
-    fn process_tasks_account(&mut self, account: &AccountInfo<'info>) -> Result<()> {
+    fn process_tasks_account(
+        &mut self,
+        return_program_id: &Pubkey,
+        account: &AccountInfo<'info>,
+    ) -> Result<()> {
+        // A program may only hand us task lists out of accounts it owns. Without this, a program
+        // could name any account in the instruction and have its raw bytes reinterpreted as tasks.
+        require_keys_eq!(
+            *account.owner,
+            *return_program_id,
+            ErrorCode::InvalidTasksAccountOwner
+        );
+
         let data = account
             .data
             .try_borrow_mut()
@@ -332,7 +362,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         let task_id = self
             .free_task_ids
             .pop()
-            .ok_or(error!(ErrorCode::TooManyReturnedTasks))?;
+            .ok_or_else(|| error!(ErrorCode::TooManyReturnedTasks))?;
 
         // Verify the account is empty
         require!(
@@ -434,7 +464,9 @@ pub fn handler<'info>(
     // Check for duplicate task IDs
     let mut seen_ids = std::collections::HashSet::new();
     for id in args.free_task_ids.clone() {
-        require_gte!(task_queue.header().capacity, id, ErrorCode::InvalidTaskId);
+        // Strictly less than: id == capacity indexes one byte past the bitmap, which lands on
+        // the name length prefix and shifts every offset the wrapper parses after it.
+        require_gt!(task_queue.header().capacity, id, ErrorCode::InvalidTaskId);
         // Ensure ID is not already in use in the task queue
         require!(!task_queue.task_exists(id), ErrorCode::TaskIdAlreadyInUse);
         // Check for duplicates in provided IDs
@@ -448,8 +480,12 @@ pub fn handler<'info>(
         TransactionSourceV0::RemoteV0 { signer, .. } => {
             let ix_index =
                 load_current_index_checked(&ctx.accounts.sysvar_instructions.to_account_info())?;
+            // The ed25519 verification instruction must immediately precede this one.
+            let sig_ix_index = ix_index
+                .checked_sub(1)
+                .ok_or_else(|| error!(ErrorCode::SigVerificationFailed))?;
             let ix: Instruction = load_instruction_at_checked(
-                ix_index.checked_sub(1).unwrap() as usize,
+                sig_ix_index as usize,
                 &ctx.accounts.sysvar_instructions,
             )?;
             let data = utils::ed25519::verify_ed25519_ix(&ix, signer.to_bytes().as_slice())?;
@@ -473,7 +509,7 @@ pub fn handler<'info>(
                         .map(|ix| &ix.program_id_index),
                 )
                 .max()
-                .unwrap()
+                .ok_or_else(|| error!(ErrorCode::MalformedRemoteTransaction))?
                 + 1;
 
             let verification_hash = hash(

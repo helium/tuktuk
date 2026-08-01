@@ -4,7 +4,7 @@ use futures::{Stream, StreamExt, TryStreamExt};
 use solana_sdk::{instruction::InstructionError, signer::Signer, transaction::TransactionError};
 use solana_transaction_utils::{error::Error as TransactionQueueError, queue::TransactionTask};
 use tokio_graceful_shutdown::SubsystemHandle;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use tuktuk_program::{TaskQueueV0, TaskV0};
 use tuktuk_sdk::{
     client::GetAnchorAccount,
@@ -229,6 +229,7 @@ impl TimedTask {
                 TransactionQueueError::TransactionError(_) => "Transaction",
                 TransactionQueueError::RawTransactionError(_) => "RawTransaction",
                 TransactionQueueError::FeeTooHigh => "FeeTooHigh",
+                TransactionQueueError::PayerBalanceDropTooHigh { .. } => "PayerBalanceDropTooHigh",
                 TransactionQueueError::IxGroupTooLarge => "IxGroupTooLarge",
                 TransactionQueueError::RawSimulatedTransactionError(_) => "RawSimulated",
                 TransactionQueueError::RpcError(_) => "RpcError",
@@ -258,6 +259,11 @@ impl TimedTask {
                             ..self.clone()
                         })
                         .await?;
+                }
+                // This task spends the crank turner's lamports. Drop it rather than retry --
+                // it will do the same thing next time, and it is almost certainly malicious.
+                TransactionQueueError::PayerBalanceDropTooHigh { .. } => {
+                    warn!(?self.task_key, ?err, "task would drain payer, dropping");
                 }
                 // Handle task not found (simulated)
                 TransactionQueueError::SimulatedTransactionError(

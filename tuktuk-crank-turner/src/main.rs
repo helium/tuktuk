@@ -157,6 +157,7 @@ impl Cli {
             solana_url.clone(),
             CommitmentConfig::confirmed(),
         ));
+        let task_queue_filter = Arc::new(settings.task_queue_filter()?);
         let payer_path = settings.key_path;
         let payer = Arc::new(
             Keypair::read_from_file(payer_path).map_err(|e| anyhow::anyhow!(e.to_string()))?,
@@ -191,6 +192,7 @@ impl Cli {
             now: now_rx.clone(),
             task_queue: task_queue_arc.clone(),
             min_crank_fee: settings.min_crank_fee,
+            task_queue_filter,
         };
 
         let handles = create_transaction_queue_handles(1000);
@@ -258,6 +260,7 @@ impl Cli {
                         receiver: handles.receiver,
                         result_sender: handles.result_sender,
                         max_sol_fee: settings.max_sol_fee,
+                        max_sol_balance_drop: settings.max_sol_balance_drop,
                         send_in_parallel: true,
                         packed_tx_sender,
                     })

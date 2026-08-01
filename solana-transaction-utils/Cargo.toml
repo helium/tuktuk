@@ -33,6 +33,7 @@ solana-tpu-client = { version = "2.2.3" }
 indicatif = "0.17.11"
 tokio-graceful-shutdown = { workspace = true }
 tracing = { workspace = true }
+solana-account-decoder-client-types = "2.2.3"
 
 [features]
 default = []

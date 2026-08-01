@@ -39,6 +39,10 @@ pub async fn get_and_watch_task_queues(
     for (task_queue_key, maybe_task_queue) in task_queues {
         let args = args.clone();
         if let Some(task_queue) = maybe_task_queue {
+            if !args.task_queue_filter.permits(&task_queue_key) {
+                tracing::info!(%task_queue_key, "skipping task queue, not permitted by filter");
+                continue;
+            }
             if task_queue.min_crank_reward >= args.min_crank_fee {
                 handle.start(SubsystemBuilder::new("task-queue-watcher", {
                     let queues_store = queues_store.clone();
@@ -56,6 +60,10 @@ pub async fn get_and_watch_task_queues(
             for (task_queue_key, task_queue_account) in update.task_queues {
                 if let Some(task_queue) = task_queue_account {
                     let args = args.clone();
+                    if !args.task_queue_filter.permits(&task_queue_key) {
+                        tracing::info!(%task_queue_key, "skipping new task queue, not permitted by filter");
+                        continue;
+                    }
                     handle.start(SubsystemBuilder::new("task-queue-watcher", {
                         let queues_store = queues_store.clone();
                         move |handle| {

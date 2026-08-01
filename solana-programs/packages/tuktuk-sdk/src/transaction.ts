@@ -238,7 +238,10 @@ async function defaultFetcher({
     return {
       pubkey: new PublicKey(acc.pubkey),
       isWritable: acc.is_writable,
-      isSigner: acc.is_signer,
+      // Never let the remote server request signer privilege. It would only ever resolve
+      // against the crank turner's own key, and the program derives real signers from
+      // signerSeeds, not from the outer account metas.
+      isSigner: false,
     };
   });
   return {

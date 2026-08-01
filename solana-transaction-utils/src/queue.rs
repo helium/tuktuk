@@ -2,7 +2,11 @@ use std::{sync::Arc, time::Duration};
 
 use futures::stream::{FuturesUnordered, StreamExt};
 use itertools::Itertools;
-use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_account_decoder_client_types::UiAccountEncoding;
+use solana_client::{
+    nonblocking::rpc_client::RpcClient,
+    rpc_config::{RpcSimulateTransactionAccountsConfig, RpcSimulateTransactionConfig},
+};
 use solana_sdk::{
     address_lookup_table::AddressLookupTableAccount,
     instruction::Instruction,
@@ -40,6 +44,15 @@ pub struct CompletedTransactionTask<T: Send + Clone> {
     pub task: TransactionTask<T>,
 }
 
+struct SimulationOutcome {
+    instructions: Vec<Instruction>,
+    err: Option<TransactionError>,
+    fee: u64,
+    /// How many lamports the payer lost over the simulated transaction, excluding the tx
+    /// fee (simulation does not charge it). 0 if the payer came out even or ahead.
+    payer_balance_drop: u64,
+}
+
 pub struct TransactionQueueArgs<T: Send + Clone> {
     pub rpc_client: Arc<RpcClient>,
     pub ws_url: String,
@@ -49,6 +62,8 @@ pub struct TransactionQueueArgs<T: Send + Clone> {
     pub result_sender: Sender<CompletedTransactionTask<T>>,
     pub packed_tx_sender: Sender<PackedTransactionWithTasks<T>>,
     pub max_sol_fee: u64,
+    /// Maximum lamports the payer may lose over a simulated transaction, on top of fees.
+    pub max_sol_balance_drop: u64,
     pub send_in_parallel: bool,
 }
 
@@ -90,13 +105,14 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
         bundle: TaskBundle<T>,
         rpc_client: Arc<RpcClient>,
         payer: Arc<Keypair>,
-    ) -> (
-        Vec<TransactionTask<T>>,
-        Result<(Vec<Instruction>, Option<TransactionError>, u64), Error>,
-    ) {
+    ) -> (Vec<TransactionTask<T>>, Result<SimulationOutcome, Error>) {
         let tasks = bundle.tasks;
         let result = async {
-            let blockhash = rpc_client.get_latest_blockhash().await?;
+            let payer_pubkey = payer.pubkey();
+            let (blockhash, payer_balance_before) = tokio::try_join!(
+                rpc_client.get_latest_blockhash(),
+                rpc_client.get_balance(&payer_pubkey)
+            )?;
             let message = v0::Message::try_compile(
                 &payer.pubkey(),
                 &bundle.tx.instructions,
@@ -105,15 +121,36 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
             )?;
 
             let sim_result = rpc_client
-                .simulate_transaction(
+                .simulate_transaction_with_config(
                     &VersionedTransaction::try_new(VersionedMessage::V0(message), &[&*payer])
                         .map_err(Error::signer)?,
+                    RpcSimulateTransactionConfig {
+                        // Ask for the payer's post-simulation state so we can detect a
+                        // transaction that drains us. Simulation does not deduct the tx fee,
+                        // so any drop we see comes from the instructions themselves.
+                        accounts: Some(RpcSimulateTransactionAccountsConfig {
+                            addresses: vec![payer.pubkey().to_string()],
+                            encoding: Some(UiAccountEncoding::Base64),
+                        }),
+                        commitment: Some(rpc_client.commitment()),
+                        ..Default::default()
+                    },
                 )
                 .await?;
 
             if let Some(ref err) = sim_result.value.err {
                 info!(?err, ?sim_result.value.logs, "simulation error");
             }
+
+            // Saturating: a balance increase (the normal case, we get paid) is a drop of 0.
+            let payer_balance_drop = sim_result
+                .value
+                .accounts
+                .as_ref()
+                .and_then(|accounts| accounts.first())
+                .and_then(|account| account.as_ref())
+                .map(|account| payer_balance_before.saturating_sub(account.lamports))
+                .unwrap_or(0);
 
             // Scale up by 1.2 just to be sure it'll succeed.
             let compute_units =
@@ -144,7 +181,12 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                 fee
             };
 
-            Ok((updated_instructions, sim_result.value.err, fee))
+            Ok(SimulationOutcome {
+                instructions: updated_instructions,
+                err: sim_result.value.err,
+                fee,
+                payer_balance_drop,
+            })
         }
         .await;
 
@@ -222,7 +264,7 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
 
             Some((tasks, result)) = simulation_queue.next() => {
                 match result {
-                    Ok((instructions, error, fee)) => {
+                    Ok(SimulationOutcome { instructions, err: error, fee, payer_balance_drop }) => {
                         // Notify tasks they failed
                         if let Some(e) = error {
                             match e {
@@ -287,6 +329,20 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                         }).await?;
                                     }
                                 }
+                            }
+                        } else if payer_balance_drop > args.max_sol_balance_drop {
+                            // The transaction takes lamports off the payer beyond fees. Cranking
+                            // should only ever pay us, so this is a task trying to spend our money.
+                            info!(payer_balance_drop, max = args.max_sol_balance_drop, "rejecting bundle, payer balance drop too high");
+                            for task in tasks {
+                                args.result_sender.send(CompletedTransactionTask {
+                                    err: Some(Error::PayerBalanceDropTooHigh {
+                                        drop: payer_balance_drop,
+                                        max: args.max_sol_balance_drop,
+                                    }),
+                                    task,
+                                    fee: 0,
+                                }).await?;
                             }
                         } else if fee > args.max_sol_fee || fee > tasks.iter().map(|t| t.worth).sum::<u64>() {
                             // Fee too high, notify tasks
