@@ -206,10 +206,11 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         for i in &ix.accounts {
             let acct = remaining_accounts[*i as usize].clone();
             let mut acct = acct.clone();
-            let is_signer = acct.is_signer || self.signer_addresses.contains(&acct.key());
-            if is_signer {
-                acct.is_signer = true;
-            }
+            // A task may only sign for this queue's own `b"custom"` PDAs. Signer privilege is
+            // never inherited from the outer transaction: the crank turner is an arbitrary,
+            // untrusted account, and forwarding its signature would let any task drain it.
+            let is_signer = self.signer_addresses.contains(&acct.key());
+            acct.is_signer = is_signer;
 
             account_infos.push(AccountMeta {
                 pubkey: acct.key(),
@@ -252,8 +253,8 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         )?;
         msg!("Invoked");
 
-        if let Some((_, return_data)) = solana_program::program::get_return_data() {
-            match self.process_return_data(&return_data, &accounts) {
+        if let Some((return_program_id, return_data)) = solana_program::program::get_return_data() {
+            match self.process_return_data(&return_program_id, &return_data, &accounts) {
                 Ok(_) => (),
                 Err(e) => {
                     msg!("Error processing return data: {:?}", e);
@@ -266,6 +267,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
 
     fn process_return_data(
         &mut self,
+        return_program_id: &Pubkey,
         return_data: &[u8],
         accounts: &[AccountInfo<'info>],
     ) -> Result<()> {
@@ -286,13 +288,25 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         }
 
         for account in tasks_accounts {
-            self.process_tasks_account(account)?;
+            self.process_tasks_account(return_program_id, account)?;
         }
 
         Ok(())
     }
 
-    fn process_tasks_account(&mut self, account: &AccountInfo<'info>) -> Result<()> {
+    fn process_tasks_account(
+        &mut self,
+        return_program_id: &Pubkey,
+        account: &AccountInfo<'info>,
+    ) -> Result<()> {
+        // A program may only hand us task lists out of accounts it owns. Without this, a program
+        // could name any account in the instruction and have its raw bytes reinterpreted as tasks.
+        require_keys_eq!(
+            *account.owner,
+            *return_program_id,
+            ErrorCode::InvalidTasksAccountOwner
+        );
+
         let data = account
             .data
             .try_borrow_mut()
@@ -434,7 +448,9 @@ pub fn handler<'info>(
     // Check for duplicate task IDs
     let mut seen_ids = std::collections::HashSet::new();
     for id in args.free_task_ids.clone() {
-        require_gte!(task_queue.header().capacity, id, ErrorCode::InvalidTaskId);
+        // Strictly less than: id == capacity indexes one byte past the bitmap, which lands on
+        // the name length prefix and shifts every offset the wrapper parses after it.
+        require_gt!(task_queue.header().capacity, id, ErrorCode::InvalidTaskId);
         // Ensure ID is not already in use in the task queue
         require!(!task_queue.task_exists(id), ErrorCode::TaskIdAlreadyInUse);
         // Check for duplicates in provided IDs

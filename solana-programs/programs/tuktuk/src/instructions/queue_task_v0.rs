@@ -55,13 +55,14 @@ pub fn handler(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
     let mut task_queue = TaskQueueDataWrapper::new(*task_queue_data)?;
 
     // Validate constraints that were removed from the account struct
-    require!(
-        !task_queue.task_exists(args.id),
-        ErrorCode::TaskAlreadyExists
-    );
+    // Range check first -- task_exists indexes the bitmap unchecked.
     require!(
         args.id < task_queue.header().capacity,
         ErrorCode::InvalidTaskId
+    );
+    require!(
+        !task_queue.task_exists(args.id),
+        ErrorCode::TaskAlreadyExists
     );
 
     require_gte!(
