@@ -48,8 +48,8 @@ export async function createCronJob(
   const nextTaskId = nextAvailableTaskIds(
     taskQueueAcc.taskBitmap,
     1,
-    false,
     taskQueueAcc.capacity,
+    false,
   )[0];
   return program.methods
     .initializeCronJobV0(args)

@@ -89,6 +89,7 @@ pub fn create_transaction_queue_handles<T: Send + Clone>(
 }
 
 const MAX_PACKABLE_TX_SIZE: usize = 800;
+const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
 
 pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
     args: TransactionQueueArgs<T>,
@@ -122,11 +123,14 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                 blockhash,
             )?;
 
-            let tx =
-                VersionedTransaction::try_new(VersionedMessage::V0(message.clone()), &[&*payer])
-                    .map_err(Error::signer)?;
-            let (sim_result, expected_fee) = tokio::try_join!(
-                rpc_client.simulate_transaction_with_config(
+            // The base fee is deterministic (5000 lamports per required signature), so
+            // compute it locally rather than spending an RPC round-trip on it.
+            let expected_fee =
+                LAMPORTS_PER_SIGNATURE * message.header.num_required_signatures as u64;
+            let tx = VersionedTransaction::try_new(VersionedMessage::V0(message), &[&*payer])
+                .map_err(Error::signer)?;
+            let sim_result = rpc_client
+                .simulate_transaction_with_config(
                     &tx,
                     RpcSimulateTransactionConfig {
                         // Ask for the payer's post-simulation state so we can detect a
@@ -142,9 +146,8 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                         min_context_slot: Some(payer_balance_response.context.slot),
                         ..Default::default()
                     },
-                ),
-                rpc_client.get_fee_for_message(&message)
-            )?;
+                )
+                .await?;
 
             if let Some(ref err) = sim_result.value.err {
                 info!(?err, ?sim_result.value.logs, "simulation error");

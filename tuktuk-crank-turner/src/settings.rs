@@ -125,13 +125,8 @@ impl Settings {
                 .collect()
         };
 
-        let allowed = parse(&self.allowed_task_queues)?;
         Ok(TaskQueueFilter {
-            allowed: if allowed.is_empty() {
-                None
-            } else {
-                Some(allowed.into_iter().collect())
-            },
+            allowed: parse(&self.allowed_task_queues)?.into_iter().collect(),
             denied: parse(&self.denied_task_queues)?.into_iter().collect(),
         })
     }
@@ -139,19 +134,14 @@ impl Settings {
 
 #[derive(Debug, Clone, Default)]
 pub struct TaskQueueFilter {
-    /// None means every queue is permitted.
-    allowed: Option<HashSet<Pubkey>>,
+    /// Empty means every queue is permitted.
+    allowed: HashSet<Pubkey>,
     denied: HashSet<Pubkey>,
 }
 
 impl TaskQueueFilter {
     pub fn permits(&self, task_queue: &Pubkey) -> bool {
-        if self.denied.contains(task_queue) {
-            return false;
-        }
-        match &self.allowed {
-            Some(allowed) => allowed.contains(task_queue),
-            None => true,
-        }
+        !self.denied.contains(task_queue)
+            && (self.allowed.is_empty() || self.allowed.contains(task_queue))
     }
 }

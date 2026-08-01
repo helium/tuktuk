@@ -9,45 +9,12 @@ import {
 import { Tuktuk } from "@helium/tuktuk-idls/lib/types/tuktuk";
 import { MethodsBuilder } from "@coral-xyz/anchor/dist/cjs/program/namespace/methods";
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
-import { compileTransaction } from "./transaction";
+import { compileTransaction, nextAvailableTaskIds } from "./transaction";
 
 export { init } from "./init";
 export * from "./constants";
 export * from "./pdas";
 export * from "./transaction";
-
-export function nextAvailableTaskIds(
-  taskBitmap: Buffer,
-  n: number,
-  random: boolean = true,
-  capacity: number = taskBitmap.length * 8,
-): number[] {
-  if (n === 0) {
-    return [];
-  }
-
-  const availableTaskIds: number[] = [];
-  const randStart = random ? Math.floor(Math.random() * taskBitmap.length) : 0;
-  for (let byteOffset = 0; byteOffset < taskBitmap.length; byteOffset++) {
-    const byteIdx = (byteOffset + randStart) % taskBitmap.length;
-    const byte = taskBitmap[byteIdx];
-    if (byte !== 0xff) {
-      // If byte is not all 1s
-      for (let bitIdx = 0; bitIdx < 8; bitIdx++) {
-        const id = byteIdx * 8 + bitIdx;
-        // The bitmap is padded to a whole byte; padding bits beyond capacity are not
-        // real task ids and the program rejects them with InvalidTaskId.
-        if (id < capacity && (byte & (1 << bitIdx)) === 0) {
-          availableTaskIds.push(id);
-          if (availableTaskIds.length === n) {
-            return availableTaskIds;
-          }
-        }
-      }
-    }
-  }
-  return availableTaskIds;
-}
 
 export const TUKTUK_CONFIG = tuktukConfigKey()[0];
 
@@ -108,7 +75,6 @@ export async function queueTask(
   const taskId = nextAvailableTaskIds(
     taskQueueAcc.taskBitmap,
     1,
-    true,
     taskQueueAcc.capacity,
   )[0];
   const task = taskKey(taskQueue, taskId)[0];

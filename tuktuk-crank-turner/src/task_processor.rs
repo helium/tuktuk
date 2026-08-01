@@ -64,6 +64,25 @@ impl TimedTask {
         Ok(next_available)
     }
 
+    /// Requeue this task to run `delay` seconds from now, releasing any reserved task ids.
+    async fn requeue(
+        &self,
+        ctx: &Arc<TaskContext>,
+        delay: u64,
+        total_retries: u8,
+    ) -> anyhow::Result<()> {
+        let now = *ctx.now_rx.borrow();
+        ctx.task_queue
+            .add_task(TimedTask {
+                total_retries,
+                in_flight_task_ids: vec![],
+                task_time: now + delay,
+                ..self.clone()
+            })
+            .await?;
+        Ok(())
+    }
+
     async fn handle_ix_err(
         &self,
         ctx: Arc<TaskContext>,
@@ -128,20 +147,9 @@ impl TimedTask {
                     ?self.task_key,
                     "failed to get available task ids, requeuing task"
                 );
-                let now = *ctx.now_rx.borrow();
                 let base_delay = 30 * (1 << self.total_retries);
                 let jitter = rand::random_range(0..60); // Jitter up to 1 minute to prevent conflicts with other turners
-                let retry_delay = base_delay + jitter;
-                ctx.task_queue
-                    .add_task(TimedTask {
-                        task: self.task.clone(),
-                        total_retries: self.total_retries + 1,
-                        in_flight_task_ids: vec![],
-                        profitability_delayed: self.profitability_delayed,
-                        // Try again in 10-30 seconds
-                        task_time: now + retry_delay,
-                        ..self.clone()
-                    })
+                self.requeue(&ctx, base_delay + jitter, self.total_retries + 1)
                     .await?;
                 TASKS_IN_PROGRESS
                     .with_label_values(&[self.task_queue_name.as_str()])
@@ -247,17 +255,8 @@ impl TimedTask {
             match err {
                 TransactionQueueError::FeeTooHigh => {
                     info!(?self.task_key, ?err, "task fee too high");
-                    let now = *ctx.now_rx.borrow();
-                    ctx.task_queue
-                        .add_task(TimedTask {
-                            task: self.task.clone(),
-                            total_retries: self.total_retries,
-                            in_flight_task_ids: vec![],
-                            profitability_delayed: self.profitability_delayed,
-                            // Try again in 10-30 seconds
-                            task_time: now + rand::random_range(10..30),
-                            ..self.clone()
-                        })
+                    // Try again in 10-30 seconds
+                    self.requeue(&ctx, rand::random_range(10..30), self.total_retries)
                         .await?;
                 }
                 // This task spends the crank turner's lamports. A drop can also be manufactured
@@ -266,16 +265,7 @@ impl TimedTask {
                 TransactionQueueError::PayerBalanceDropTooHigh { .. } => {
                     if self.total_retries < self.max_retries {
                         info!(?self.task_key, ?err, "payer balance drop too high, retrying");
-                        let now = *ctx.now_rx.borrow();
-                        ctx.task_queue
-                            .add_task(TimedTask {
-                                task: self.task.clone(),
-                                total_retries: self.total_retries + 1,
-                                in_flight_task_ids: vec![],
-                                profitability_delayed: self.profitability_delayed,
-                                task_time: now + rand::random_range(10..30),
-                                ..self.clone()
-                            })
+                        self.requeue(&ctx, rand::random_range(10..30), self.total_retries + 1)
                             .await?;
                     } else {
                         warn!(?self.task_key, ?err, "task would drain payer, dropping");
@@ -377,18 +367,8 @@ impl TimedTask {
                 }
                 TransactionQueueError::StaleTransaction => {
                     info!(?self.task_key, ?err, "task stale, trying again");
-                    let now = *ctx.now_rx.borrow();
-                    ctx.task_queue
-                        .add_task(TimedTask {
-                            task: self.task.clone(),
-                            total_retries: self.total_retries,
-                            in_flight_task_ids: vec![],
-                            profitability_delayed: self.profitability_delayed,
-                            // Try again immediately
-                            task_time: now,
-                            ..self.clone()
-                        })
-                        .await?;
+                    // Try again immediately
+                    self.requeue(&ctx, 0, self.total_retries).await?;
                 }
                 _ => {
                     info!(?self.task_key, ?err, "task failed");

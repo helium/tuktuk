@@ -23,7 +23,17 @@ pub async fn get_and_watch_task_queues(
         .await?
         .ok_or(anyhow::anyhow!("Tuktuk config not found"))?;
 
-    let task_queue_keys = task_queue::keys(&config_key, &config)?;
+    // Filter before fetching so we don't pull accounts for queues we'll never crank.
+    let task_queue_keys: Vec<_> = task_queue::keys(&config_key, &config)?
+        .into_iter()
+        .filter(|key| {
+            let permitted = args.task_queue_filter.permits(key);
+            if !permitted {
+                tracing::info!(task_queue_key = %key, "skipping task queue, not permitted by filter");
+            }
+            permitted
+        })
+        .collect();
     let task_queues = rpc_client
         .anchor_accounts::<TaskQueueV0>(&task_queue_keys)
         .await?;
@@ -37,13 +47,9 @@ pub async fn get_and_watch_task_queues(
     .await?;
 
     for (task_queue_key, maybe_task_queue) in task_queues {
-        let args = args.clone();
         if let Some(task_queue) = maybe_task_queue {
-            if !args.task_queue_filter.permits(&task_queue_key) {
-                tracing::info!(%task_queue_key, "skipping task queue, not permitted by filter");
-                continue;
-            }
             if task_queue.min_crank_reward >= args.min_crank_fee {
+                let args = args.clone();
                 handle.start(SubsystemBuilder::new("task-queue-watcher", {
                     let queues_store = queues_store.clone();
                     move |handle| {
@@ -59,11 +65,11 @@ pub async fn get_and_watch_task_queues(
         .try_for_each(|update| {
             for (task_queue_key, task_queue_account) in update.task_queues {
                 if let Some(task_queue) = task_queue_account {
-                    let args = args.clone();
                     if !args.task_queue_filter.permits(&task_queue_key) {
                         tracing::info!(%task_queue_key, "skipping new task queue, not permitted by filter");
                         continue;
                     }
+                    let args = args.clone();
                     handle.start(SubsystemBuilder::new("task-queue-watcher", {
                         let queues_store = queues_store.clone();
                         move |handle| {

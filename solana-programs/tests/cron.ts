@@ -263,7 +263,6 @@ describe("cron", () => {
       const nextAvailable = nextAvailableTaskIds(
         taskQueueAcc.taskBitmap,
         task2Acc.freeTasks + task3Acc.freeTasks,
-        true,
         taskQueueAcc.capacity,
       );
       const ixs2 = await runTask({

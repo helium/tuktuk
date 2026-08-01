@@ -215,8 +215,6 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             // never inherited from the outer transaction: the crank turner is an arbitrary,
             // untrusted account, and forwarding its signature would let any task drain it.
             let is_signer = self.signer_addresses.contains(&acct.key());
-            // Unconditional assignment: an account cloned from the outer transaction (e.g. the
-            // crank turner) may already carry is_signer = true, which must be cleared.
             acct.is_signer = is_signer;
 
             account_infos.push(AccountMeta {
@@ -355,8 +353,6 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             ErrorCode::FreeTasksGreaterThanCapacity
         );
 
-        // .get, not indexing: a callee returning more tasks than free task accounts must fail
-        // with a clean error, not an index-out-of-bounds panic.
         let free_task_account = self
             .ctx
             .remaining_accounts
