@@ -2,11 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use futures::stream::{FuturesUnordered, StreamExt};
 use itertools::Itertools;
-use solana_account_decoder_client_types::UiAccountEncoding;
-use solana_client::{
-    nonblocking::rpc_client::RpcClient,
-    rpc_config::{RpcSimulateTransactionAccountsConfig, RpcSimulateTransactionConfig},
-};
+use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
     address_lookup_table::AddressLookupTableAccount,
     instruction::Instruction,
@@ -44,16 +40,6 @@ pub struct CompletedTransactionTask<T: Send + Clone> {
     pub task: TransactionTask<T>,
 }
 
-struct SimulationOutcome {
-    instructions: Vec<Instruction>,
-    err: Option<TransactionError>,
-    fee: u64,
-    /// How many lamports the payer lost over the simulated transaction, excluding the tx
-    /// fee (simulation debits the fee like real execution, so the expected fee is
-    /// subtracted back out). 0 if the payer came out even or ahead.
-    payer_balance_drop: u64,
-}
-
 pub struct TransactionQueueArgs<T: Send + Clone> {
     pub rpc_client: Arc<RpcClient>,
     pub ws_url: String,
@@ -63,8 +49,6 @@ pub struct TransactionQueueArgs<T: Send + Clone> {
     pub result_sender: Sender<CompletedTransactionTask<T>>,
     pub packed_tx_sender: Sender<PackedTransactionWithTasks<T>>,
     pub max_sol_fee: u64,
-    /// Maximum lamports the payer may lose over a simulated transaction, on top of fees.
-    pub max_sol_balance_drop: u64,
     pub send_in_parallel: bool,
 }
 
@@ -89,7 +73,6 @@ pub fn create_transaction_queue_handles<T: Send + Clone>(
 }
 
 const MAX_PACKABLE_TX_SIZE: usize = 800;
-const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
 
 pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
     args: TransactionQueueArgs<T>,
@@ -107,15 +90,13 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
         bundle: TaskBundle<T>,
         rpc_client: Arc<RpcClient>,
         payer: Arc<Keypair>,
-    ) -> (Vec<TransactionTask<T>>, Result<SimulationOutcome, Error>) {
+    ) -> (
+        Vec<TransactionTask<T>>,
+        Result<(Vec<Instruction>, Option<TransactionError>, u64), Error>,
+    ) {
         let tasks = bundle.tasks;
         let result = async {
-            let payer_pubkey = payer.pubkey();
-            let (blockhash, payer_balance_response) = tokio::try_join!(
-                rpc_client.get_latest_blockhash(),
-                rpc_client.get_balance_with_commitment(&payer_pubkey, rpc_client.commitment())
-            )?;
-            let payer_balance_before = payer_balance_response.value;
+            let blockhash = rpc_client.get_latest_blockhash().await?;
             let message = v0::Message::try_compile(
                 &payer.pubkey(),
                 &bundle.tx.instructions,
@@ -123,51 +104,16 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                 blockhash,
             )?;
 
-            // The base fee is deterministic (5000 lamports per required signature), so
-            // compute it locally rather than spending an RPC round-trip on it.
-            let expected_fee =
-                LAMPORTS_PER_SIGNATURE * message.header.num_required_signatures as u64;
-            let tx = VersionedTransaction::try_new(VersionedMessage::V0(message), &[&*payer])
-                .map_err(Error::signer)?;
             let sim_result = rpc_client
-                .simulate_transaction_with_config(
-                    &tx,
-                    RpcSimulateTransactionConfig {
-                        // Ask for the payer's post-simulation state so we can detect a
-                        // transaction that drains us.
-                        accounts: Some(RpcSimulateTransactionAccountsConfig {
-                            addresses: vec![payer.pubkey().to_string()],
-                            encoding: Some(UiAccountEncoding::Base64),
-                        }),
-                        commitment: Some(rpc_client.commitment()),
-                        // Simulate against a bank at least as fresh as the balance snapshot,
-                        // otherwise another of our bundles landing in between manufactures a
-                        // phantom balance drop.
-                        min_context_slot: Some(payer_balance_response.context.slot),
-                        ..Default::default()
-                    },
+                .simulate_transaction(
+                    &VersionedTransaction::try_new(VersionedMessage::V0(message), &[&*payer])
+                        .map_err(Error::signer)?,
                 )
                 .await?;
 
             if let Some(ref err) = sim_result.value.err {
                 info!(?err, ?sim_result.value.logs, "simulation error");
             }
-
-            // Saturating: a balance increase (the normal case, we get paid) is a drop of 0.
-            // Simulation debits the tx fee from the payer just like real execution, so
-            // subtract the expected fee to isolate what the instructions themselves take.
-            let payer_balance_drop = sim_result
-                .value
-                .accounts
-                .as_ref()
-                .and_then(|accounts| accounts.first())
-                .and_then(|account| account.as_ref())
-                .map(|account| {
-                    payer_balance_before
-                        .saturating_sub(account.lamports)
-                        .saturating_sub(expected_fee)
-                })
-                .unwrap_or(0);
 
             // Scale up by 1.2 just to be sure it'll succeed.
             let compute_units =
@@ -198,12 +144,7 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                 fee
             };
 
-            Ok(SimulationOutcome {
-                instructions: updated_instructions,
-                err: sim_result.value.err,
-                fee,
-                payer_balance_drop,
-            })
+            Ok((updated_instructions, sim_result.value.err, fee))
         }
         .await;
 
@@ -281,7 +222,7 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
 
             Some((tasks, result)) = simulation_queue.next() => {
                 match result {
-                    Ok(SimulationOutcome { instructions, err: error, fee, payer_balance_drop }) => {
+                    Ok((instructions, error, fee)) => {
                         // Notify tasks they failed
                         if let Some(e) = error {
                             match e {
@@ -346,20 +287,6 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                                         }).await?;
                                     }
                                 }
-                            }
-                        } else if payer_balance_drop > args.max_sol_balance_drop {
-                            // The transaction takes lamports off the payer beyond fees. Cranking
-                            // should only ever pay us, so this is a task trying to spend our money.
-                            info!(payer_balance_drop, max = args.max_sol_balance_drop, "rejecting bundle, payer balance drop too high");
-                            for task in tasks {
-                                args.result_sender.send(CompletedTransactionTask {
-                                    err: Some(Error::PayerBalanceDropTooHigh {
-                                        drop: payer_balance_drop,
-                                        max: args.max_sol_balance_drop,
-                                    }),
-                                    task,
-                                    fee: 0,
-                                }).await?;
                             }
                         } else if fee > args.max_sol_fee || fee > tasks.iter().map(|t| t.worth).sum::<u64>() {
                             // Fee too high, notify tasks

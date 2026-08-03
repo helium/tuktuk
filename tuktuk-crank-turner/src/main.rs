@@ -258,7 +258,6 @@ impl Cli {
                         receiver: handles.receiver,
                         result_sender: handles.result_sender,
                         max_sol_fee: settings.max_sol_fee,
-                        max_sol_balance_drop: settings.max_sol_balance_drop,
                         send_in_parallel: true,
                         packed_tx_sender,
                     })

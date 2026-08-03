@@ -18,11 +18,6 @@ pub struct Settings {
     pub batch_duration: Duration,
     #[serde(default = "default_max_sol_fee")]
     pub max_sol_fee: u64,
-    /// Maximum amount the payer's balance is allowed to drop over a simulated transaction,
-    /// on top of fees. Cranking should only ever pay the payer, so 0 is correct; raise it
-    /// only if you knowingly run tasks that spend from the crank turner's wallet.
-    #[serde(default)]
-    pub max_sol_balance_drop: u64,
     pub min_crank_fee: u64,
     #[serde(default = "default_pubsub_repoll")]
     pub pubsub_repoll: Duration,
