@@ -3,6 +3,18 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## 0.0.11 (2026-08-03)
+
+
+### Bug Fixes
+
+* address code review findings ([2bcb205](https://github.com/helium/tuktuk/commit/2bcb2053d3504527eef9cc4aa8739b95e64af7d7))
+* never propagate outer-transaction signer privilege to tasks ([9c384ed](https://github.com/helium/tuktuk/commit/9c384edddfc305e0e89f32861693d40504a0d51e))
+
+
+
+
+
 ## 0.0.10 (2025-11-17)
 
 **Note:** Version bump only for package @helium/tuktuk-sdk
