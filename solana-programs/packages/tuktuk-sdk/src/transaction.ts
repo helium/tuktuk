@@ -21,7 +21,7 @@ import { taskKey } from "./pdas";
 export function verificationHash(
   task: PublicKey,
   taskQueuedAt: BN,
-  remainingAccounts: AccountMeta[]
+  remainingAccounts: AccountMeta[],
 ): Buffer {
   let taskQueuedAtBuf = Buffer.alloc(8);
   taskQueuedAtBuf.writeBigInt64LE(BigInt(taskQueuedAt.toString()));
@@ -35,12 +35,12 @@ export function verificationHash(
             Buffer.concat([
               acc.pubkey.toBuffer(),
               Buffer.from([acc.isWritable ? 1 : 0, acc.isSigner ? 1 : 0]),
-            ])
-          )
+            ]),
+          ),
         ),
-      ])
+      ]),
     ),
-    "hex"
+    "hex",
   );
 }
 
@@ -70,14 +70,14 @@ export class RemoteTaskTransactionV0 {
           isWritable,
           isSigner: false,
         };
-      })
+      }),
     );
     this.transaction = { ...fields.transaction, accounts: [] };
   }
 
   static async serialize(
     coder: AccountsCoder,
-    value: RemoteTaskTransactionV0
+    value: RemoteTaskTransactionV0,
   ): Promise<Buffer> {
     return coder.encode("remoteTaskTransactionV0", value);
   }
@@ -91,12 +91,12 @@ function sighash(nameSpace: string, name: string): Buffer {
 export type CompiledTransactionV0 = IdlTypes<Tuktuk>["compiledTransactionV0"];
 
 export type CustomAccountResolverFactory<T extends Idl> = (
-  programId: PublicKey
+  programId: PublicKey,
 ) => CustomAccountResolver<T>;
 
 export function compileTransaction(
   instructions: TransactionInstruction[],
-  signerSeeds: Buffer[][]
+  signerSeeds: Buffer[][],
 ): { transaction: CompiledTransactionV0; remainingAccounts: AccountMeta[] } {
   let pubkeysToMetadata: Record<
     string,
@@ -158,10 +158,13 @@ export function compileTransaction(
       numRw++;
     }
   });
-  const accountsToIndex = sortedAccounts.reduce((acc, k, i) => {
-    acc[k] = i;
-    return acc;
-  }, {} as Record<string, number>);
+  const accountsToIndex = sortedAccounts.reduce(
+    (acc, k, i) => {
+      acc[k] = i;
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
 
   return {
     remainingAccounts: sortedAccounts.map((k) => {
@@ -179,7 +182,7 @@ export function compileTransaction(
         return {
           programIdIndex: accountsToIndex[ix.programId.toBase58()],
           accounts: Buffer.from(
-            ix.keys.map((k) => accountsToIndex[k.pubkey.toBase58()])
+            ix.keys.map((k) => accountsToIndex[k.pubkey.toBase58()]),
           ),
           data: Buffer.from(ix.data),
         };
@@ -238,7 +241,7 @@ async function defaultFetcher({
     return {
       pubkey: new PublicKey(acc.pubkey),
       isWritable: acc.is_writable,
-      isSigner: acc.is_signer,
+      isSigner: false,
     };
   });
   return {
@@ -322,13 +325,23 @@ export async function runTask({
       isSigner: false,
     }));
 
-    const { remoteTaskTransaction, remainingAccounts, signature } =
-      await fetcher({
-        task,
-        taskQueuedAt: queuedAt,
-        url: transaction.remoteV0.url,
-        taskQueue,
-      });
+    const {
+      remoteTaskTransaction,
+      remainingAccounts: fetchedAccounts,
+      signature,
+    } = await fetcher({
+      task,
+      taskQueuedAt: queuedAt,
+      url: transaction.remoteV0.url,
+      taskQueue,
+    });
+    // Never forward signer privilege requested by a fetcher, regardless of which fetcher
+    // produced the metas. It would only ever resolve against the crank turner's own key,
+    // and the program derives real signers from signerSeeds, not the outer account metas.
+    const remainingAccounts = fetchedAccounts.map((acc) => ({
+      ...acc,
+      isSigner: false,
+    }));
 
     return [
       Ed25519Program.createInstructionWithPublicKey({
