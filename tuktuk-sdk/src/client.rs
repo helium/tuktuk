@@ -48,7 +48,11 @@ impl GetAccount for SolanaRpcClient {
             pubkeys: &[Pubkey],
         ) -> Result<Vec<(Pubkey, Option<Account>)>, Error> {
             let accounts = client.get_multiple_accounts(pubkeys).await?;
-            Ok(pubkeys.iter().cloned().zip(accounts).collect_vec())
+            Ok(pubkeys
+                .iter()
+                .cloned()
+                .zip(accounts.into_iter())
+                .collect_vec())
         }
 
         stream::iter(pubkeys.to_vec())

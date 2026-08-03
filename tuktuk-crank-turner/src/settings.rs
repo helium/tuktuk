@@ -1,8 +1,7 @@
-use std::{collections::HashSet, path::Path, str::FromStr, time::Duration};
+use std::{path::Path, time::Duration};
 
 use config::{Config, Environment, File};
 use serde::Deserialize;
-use solana_sdk::pubkey::Pubkey;
 
 #[derive(Debug, Deserialize)]
 pub struct Settings {
@@ -24,13 +23,6 @@ pub struct Settings {
     /// only if you knowingly run tasks that spend from the crank turner's wallet.
     #[serde(default)]
     pub max_sol_balance_drop: u64,
-    /// If non-empty, only task queues in this list are cranked. Empty means "all queues",
-    /// which means running arbitrary code queued by anyone -- prefer an explicit list.
-    #[serde(default)]
-    pub allowed_task_queues: Vec<String>,
-    /// Task queues to never crank. Applied after `allowed_task_queues`.
-    #[serde(default)]
-    pub denied_task_queues: Vec<String>,
     pub min_crank_fee: u64,
     #[serde(default = "default_pubsub_repoll")]
     pub pubsub_repoll: Duration,
@@ -93,16 +85,7 @@ impl Settings {
         // Add in settings from the environment (with a prefix of APP)
         // Eg.. `TUKTUK_DEBUG=1 ./target/app` would set the `debug` key
         let mut settings: Settings = builder
-            .add_source(
-                Environment::with_prefix("TUKTUK")
-                    .separator("__")
-                    // Allow the list-valued queue filters to be set from a single env var,
-                    // e.g. TUKTUK__ALLOWED_TASK_QUEUES="addr1,addr2"
-                    .try_parsing(true)
-                    .list_separator(",")
-                    .with_list_parse_key("allowed_task_queues")
-                    .with_list_parse_key("denied_task_queues"),
-            )
+            .add_source(Environment::with_prefix("TUKTUK").separator("__"))
             .build()
             .and_then(|config| config.try_deserialize())?;
 
@@ -112,36 +95,5 @@ impl Settings {
             .into_owned();
 
         Ok(settings)
-    }
-
-    pub fn task_queue_filter(&self) -> Result<TaskQueueFilter, config::ConfigError> {
-        let parse = |keys: &[String]| -> Result<Vec<Pubkey>, config::ConfigError> {
-            keys.iter()
-                .map(|k| {
-                    Pubkey::from_str(k).map_err(|e| {
-                        config::ConfigError::Message(format!("Invalid task queue pubkey {k}: {e}"))
-                    })
-                })
-                .collect()
-        };
-
-        Ok(TaskQueueFilter {
-            allowed: parse(&self.allowed_task_queues)?.into_iter().collect(),
-            denied: parse(&self.denied_task_queues)?.into_iter().collect(),
-        })
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct TaskQueueFilter {
-    /// Empty means every queue is permitted.
-    allowed: HashSet<Pubkey>,
-    denied: HashSet<Pubkey>,
-}
-
-impl TaskQueueFilter {
-    pub fn permits(&self, task_queue: &Pubkey) -> bool {
-        !self.denied.contains(task_queue)
-            && (self.allowed.is_empty() || self.allowed.contains(task_queue))
     }
 }

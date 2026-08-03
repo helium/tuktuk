@@ -193,29 +193,19 @@ export function compileTransaction(
   };
 }
 
-export function nextAvailableTaskIds(
-  taskBitmap: Buffer,
-  n: number,
-  capacity: number,
-  random: boolean = true,
-): number[] {
+function nextAvailableTaskIds(taskBitmap: Buffer, n: number): number[] {
   if (n === 0) {
     return [];
   }
 
   const availableTaskIds: number[] = [];
-  const randStart = random ? Math.floor(Math.random() * taskBitmap.length) : 0;
-  for (let byteOffset = 0; byteOffset < taskBitmap.length; byteOffset++) {
-    const byteIdx = (byteOffset + randStart) % taskBitmap.length;
+  for (let byteIdx = 0; byteIdx < taskBitmap.length; byteIdx++) {
     const byte = taskBitmap[byteIdx];
     if (byte !== 0xff) {
       // If byte is not all 1s
       for (let bitIdx = 0; bitIdx < 8; bitIdx++) {
-        const id = byteIdx * 8 + bitIdx;
-        // The bitmap is padded to a whole byte; padding bits beyond capacity are not
-        // real task ids and the program rejects them with InvalidTaskId.
-        if (id < capacity && (byte & (1 << bitIdx)) === 0) {
-          availableTaskIds.push(id);
+        if ((byte & (1 << bitIdx)) === 0) {
+          availableTaskIds.push(byteIdx * 8 + bitIdx);
           if (availableTaskIds.length === n) {
             return availableTaskIds;
           }
@@ -290,24 +280,6 @@ export async function runTask({
   const { taskQueue, freeTasks, transaction, queuedAt } =
     await program.account.taskV0.fetch(task);
   const taskQueueAcc = await program.account.taskQueueV0.fetch(taskQueue);
-  const nextAvailable =
-    argsNextAvailableTaskIds?.slice(0, freeTasks) ||
-    nextAvailableTaskIds(
-      taskQueueAcc.taskBitmap,
-      freeTasks,
-      taskQueueAcc.capacity,
-      false,
-    );
-  if (nextAvailable.some((id) => id >= taskQueueAcc.capacity)) {
-    throw new Error(
-      `Free task ids must be less than the queue capacity (${taskQueueAcc.capacity})`,
-    );
-  }
-  const freeTasksAccounts = nextAvailable.map((id) => ({
-    pubkey: taskKey(taskQueue, id)[0],
-    isWritable: true,
-    isSigner: false,
-  }));
   if (transaction.compiledV0) {
     const { numRwSigners, numRoSigners, numRw, accounts } =
       transaction.compiledV0[0];
@@ -322,6 +294,15 @@ export async function runTask({
       };
     });
 
+    const nextAvailable =
+      argsNextAvailableTaskIds?.slice(0, freeTasks) ||
+      nextAvailableTaskIds(taskQueueAcc.taskBitmap, freeTasks);
+    const freeTasksAccounts = nextAvailable.map((id) => ({
+      pubkey: taskKey(taskQueue, id)[0],
+      isWritable: true,
+      isSigner: false,
+    }));
+
     return [
       await program.methods
         .runTaskV0({
@@ -335,6 +316,15 @@ export async function runTask({
         .instruction(),
     ];
   } else {
+    const nextAvailable =
+      argsNextAvailableTaskIds?.slice(0, freeTasks) ||
+      nextAvailableTaskIds(taskQueueAcc.taskBitmap, freeTasks);
+    const freeTasksAccounts = nextAvailable.map((id) => ({
+      pubkey: taskKey(taskQueue, id)[0],
+      isWritable: true,
+      isSigner: false,
+    }));
+
     const {
       remoteTaskTransaction,
       remainingAccounts: fetchedAccounts,

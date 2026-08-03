@@ -176,10 +176,9 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             .iter()
             .map(|s| {
                 let seeds: Vec<&[u8]> = s.iter().map(|v| v.as_slice()).collect();
-                Pubkey::create_program_address(&seeds, ctx.program_id)
-                    .map_err(|_| error!(ErrorCode::InvalidSignerSeeds))
+                Pubkey::create_program_address(&seeds, ctx.program_id).unwrap()
             })
-            .collect::<Result<_>>()?;
+            .collect();
 
         Ok(Self {
             ctx,
@@ -205,12 +204,8 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         msg!("Signer addresses: {:?}", self.signer_addresses);
 
         for i in &ix.accounts {
-            // ok_or_else, not ok_or: `error!` allocates two Strings, and the BPF bump heap is
-            // never reclaimed, so building one per account here exhausts it.
-            let mut acct = remaining_accounts
-                .get(*i as usize)
-                .ok_or_else(|| error!(ErrorCode::InvalidAccountIndex))?
-                .clone();
+            let acct = remaining_accounts[*i as usize].clone();
+            let mut acct = acct.clone();
             // A task may only sign for this queue's own `b"custom"` PDAs. Signer privilege is
             // never inherited from the outer transaction: the crank turner is an arbitrary,
             // untrusted account, and forwarding its signature would let any task drain it.
@@ -226,10 +221,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         }
 
         // Pass free tasks as remaining accounts so the task can know which IDs will be used
-        let program_id = remaining_accounts
-            .get(ix.program_id_index as usize)
-            .ok_or_else(|| error!(ErrorCode::InvalidAccountIndex))?
-            .key;
+        let program_id = remaining_accounts[ix.program_id_index as usize].key;
         // Ignore memo program because it expects every account passed to be a signer.
         if *program_id != MEMO_PROGRAM_ID {
             let free_tasks = &self.ctx.remaining_accounts[self.free_task_index..];
@@ -262,18 +254,10 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         msg!("Invoked");
 
         if let Some((return_program_id, return_data)) = solana_program::program::get_return_data() {
-            // Return data that isn't a task list is perfectly normal -- plenty of programs set
-            // return data for their own purposes -- so a deserialization failure is ignored.
-            // Once we know the callee *is* returning tasks, any subsequent failure must abort:
-            // create_new_task assigns accounts and moves lamports before it can fail, and a
-            // swallowed error there would leave a task ID marked as used with no usable task
-            // account behind it, permanently burning the slot and its rent.
-            match RunTaskReturnV0::deserialize(&mut &return_data[..]) {
-                Ok(queue_task_return) => {
-                    self.process_return_data(&return_program_id, queue_task_return, &accounts)?
-                }
+            match self.process_return_data(&return_program_id, &return_data, &accounts) {
+                Ok(_) => (),
                 Err(e) => {
-                    msg!("Return data is not a task list, ignoring: {:?}", e);
+                    msg!("Error processing return data: {:?}", e);
                 }
             }
         }
@@ -284,9 +268,11 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
     fn process_return_data(
         &mut self,
         return_program_id: &Pubkey,
-        queue_task_return: RunTaskReturnV0,
+        return_data: &[u8],
         accounts: &[AccountInfo<'info>],
     ) -> Result<()> {
+        let queue_task_return = RunTaskReturnV0::deserialize(&mut &return_data[..])?;
+
         let accounts_set = queue_task_return
             .tasks_accounts
             .into_iter()
@@ -353,18 +339,14 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             ErrorCode::FreeTasksGreaterThanCapacity
         );
 
-        let free_task_account = self
-            .ctx
-            .remaining_accounts
-            .get(self.free_task_index)
-            .ok_or_else(|| error!(ErrorCode::TooManyReturnedTasks))?;
+        let free_task_account = &self.ctx.remaining_accounts[self.free_task_index];
         self.free_task_index += 1;
         let task_queue_key = self.ctx.accounts.task_queue.key();
 
         let task_id = self
             .free_task_ids
             .pop()
-            .ok_or_else(|| error!(ErrorCode::TooManyReturnedTasks))?;
+            .ok_or(error!(ErrorCode::TooManyReturnedTasks))?;
 
         // Verify the account is empty
         require!(
@@ -482,12 +464,8 @@ pub fn handler<'info>(
         TransactionSourceV0::RemoteV0 { signer, .. } => {
             let ix_index =
                 load_current_index_checked(&ctx.accounts.sysvar_instructions.to_account_info())?;
-            // The ed25519 verification instruction must immediately precede this one.
-            let sig_ix_index = ix_index
-                .checked_sub(1)
-                .ok_or_else(|| error!(ErrorCode::SigVerificationFailed))?;
             let ix: Instruction = load_instruction_at_checked(
-                sig_ix_index as usize,
+                ix_index.checked_sub(1).unwrap() as usize,
                 &ctx.accounts.sysvar_instructions,
             )?;
             let data = utils::ed25519::verify_ed25519_ix(&ix, signer.to_bytes().as_slice())?;
@@ -511,7 +489,7 @@ pub fn handler<'info>(
                         .map(|ix| &ix.program_id_index),
                 )
                 .max()
-                .ok_or_else(|| error!(ErrorCode::MalformedRemoteTransaction))?
+                .unwrap()
                 + 1;
 
             let verification_hash = hash(

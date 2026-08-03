@@ -37,22 +37,13 @@ tuktuk-crank-turner
 ### Protecting your wallet
 
 A task queue can contain arbitrary instructions queued by anyone. The crank turner defends against
-tasks that try to spend your keypair's lamports rather than pay you:
-
-- `max_sol_balance_drop` (default `0`) is the most lamports your payer is allowed to lose over a
-  simulated transaction, on top of fees. Any bundle that drops your balance by more is discarded and
-  never sent. Only raise this if you knowingly run tasks that spend from your wallet.
-- `allowed_task_queues` restricts cranking to an explicit list of task queue addresses. When empty,
-  every queue is cranked, which means running code queued by anyone. Prefer an explicit list.
-- `denied_task_queues` blocks specific queues. Applied after `allowed_task_queues`.
-
-Both lists can also be set from the environment as comma-separated values, e.g.
-`TUKTUK__ALLOWED_TASK_QUEUES="<address1>,<address2>"`.
+tasks that try to spend your keypair's lamports rather than pay you: `max_sol_balance_drop`
+(default `0`) is the most lamports your payer is allowed to lose over a simulated transaction, on
+top of fees. Any bundle that drops your balance by more is discarded and never sent. Only raise
+this if you knowingly run tasks that spend from your wallet.
 
 ```toml
 max_sol_balance_drop = 0
-allowed_task_queues = ["<task queue address>"]
-denied_task_queues = []
 ```
 
 ### Requirements
