@@ -4,18 +4,24 @@ env:
   SOLANA_CLI_VERSION: 2.1.6
   NODE_VERSION: 20.18.1
 
+# Trusted publishing allows one workflow file per package, so the canary
+# release job lives here too instead of its own workflow.
 permissions:
   id-token: write # for npm trusted publishing (OIDC)
   contents: read
+  pull-requests: write # for canary release comments
 
 on:
   push:
     # Sequence of patterns matched against refs/tags
     tags:
       - "v*" # Push events to matching v*, i.e. v0.0.1
+  issue_comment:
+    types: [created]
 
 jobs:
   release:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -52,3 +58,106 @@ jobs:
               (cd "$dir" && npm publish)
             fi
           done
+
+  canary-release:
+    name: canary-release
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'issue_comment' &&
+      (github.event.comment.author_association == 'COLLABORATOR' || github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'CONTRIBUTOR') &&
+      startsWith(github.event.comment.body, '/canary-release')
+    defaults:
+      run:
+        working-directory: solana-programs
+    steps:
+      - name: get pr information
+        uses: actions/github-script@v4
+        id: pr
+        with:
+          script: |
+            const request = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            }
+            core.info(`Getting PR #${request.pull_number} from ${request.owner}/${request.repo}`)
+            try {
+              const result = await github.pulls.get(request)
+              core.info(`Got PR: ${JSON.stringify(result.data)}`)
+              return result.data
+            } catch (err) {
+              core.setFailed(`Request failed with error ${err}`)
+            }
+      - name: checkout
+        uses: actions/checkout@v2
+        with:
+          ref: ${{ fromJSON(steps.pr.outputs.result).head.ref }}
+          repository: ${{ fromJSON(steps.pr.outputs.result).head.repo.full_name }}
+          fetch-depth: 0
+      - uses: ./.github/actions/setup/
+      - uses: ./.github/actions/setup-anchor/
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: ./.github/actions/build-anchor/
+        with:
+          testing: false
+          devnet: false
+      - uses: ./.github/actions/setup-ts/
+      # Trusted publishing needs npm >= 11.5.1
+      - name: Update npm
+        run: npm install -g npm@11
+      - name: Publish canary
+        run: |
+          sha=$(git rev-parse --short HEAD)
+          # Rewrite versions to <version>-next.<sha> and point inter-package
+          # deps at the canary versions, like lerna publish --canary did
+          node -e '
+            const fs = require("fs"), path = require("path");
+            const sha = process.argv[1];
+            const dirs = fs.readdirSync("packages")
+              .map(d => path.join("packages", d))
+              .filter(d => fs.existsSync(path.join(d, "package.json")));
+            const pkgs = dirs.map(d => ({ d, j: JSON.parse(fs.readFileSync(path.join(d, "package.json"))) }));
+            const canary = {};
+            for (const p of pkgs) {
+              if (p.j.private) continue;
+              canary[p.j.name] = `${p.j.version}-next.${sha}`;
+            }
+            for (const p of pkgs) {
+              if (p.j.private) continue;
+              p.j.version = canary[p.j.name];
+              for (const f of ["dependencies", "devDependencies", "peerDependencies"]) {
+                if (!p.j[f]) continue;
+                for (const n of Object.keys(p.j[f])) {
+                  if (canary[n]) p.j[f][n] = canary[n];
+                }
+              }
+              fs.writeFileSync(path.join(p.d, "package.json"), JSON.stringify(p.j, null, 2) + "\n");
+            }
+          ' "$sha"
+          for pkg in packages/*/package.json; do
+            dir=$(dirname "$pkg")
+            name=$(node -p "require('./$pkg').name")
+            ver=$(node -p "require('./$pkg').version")
+            private=$(node -p "require('./$pkg').private || false")
+            if [ "$private" = "true" ]; then
+              echo "skipping private package $name"
+              continue
+            fi
+            if npm view "$name@$ver" version >/dev/null 2>&1; then
+              echo "$name@$ver already published, skipping"
+            else
+              echo "publishing $name@$ver"
+              (cd "$dir" && npm publish --tag next)
+            fi
+          done
+      - uses: actions/github-script@v4
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            github.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '🎉 Canary Release. You can install canary version via `npm install package@next`'
+            })
