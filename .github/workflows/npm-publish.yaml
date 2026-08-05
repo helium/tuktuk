@@ -2,7 +2,11 @@ name: NPM Publish
 
 env:
   SOLANA_CLI_VERSION: 2.1.6
-  NODE_VERSION: 18.12.1
+  NODE_VERSION: 20.18.1
+
+permissions:
+  id-token: write # for npm trusted publishing (OIDC)
+  contents: read
 
 on:
   push:
@@ -22,20 +26,29 @@ jobs:
       - uses: ./.github/actions/setup-anchor/
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: re create .npmrc file
-        run: |
-          cat << EOF > "$HOME/.npmrc"
-            //registry.npmjs.org/:_authToken=$NPM_TOKEN
-          EOF
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       - uses: ./.github/actions/build-anchor/
         with:
           testing: false
           devnet: false
       - uses: ./.github/actions/setup-ts/
-      - name: Lerna Publish
-        run: yarn release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # Trusted publishing needs npm >= 11.5.1
+      - name: Update npm
+        run: npm install -g npm@11
+      - name: Publish
+        run: |
+          for pkg in packages/*/package.json; do
+            dir=$(dirname "$pkg")
+            name=$(node -p "require('./$pkg').name")
+            ver=$(node -p "require('./$pkg').version")
+            private=$(node -p "require('./$pkg').private || false")
+            if [ "$private" = "true" ]; then
+              echo "skipping private package $name"
+              continue
+            fi
+            if npm view "$name@$ver" version >/dev/null 2>&1; then
+              echo "$name@$ver already published, skipping"
+            else
+              echo "publishing $name@$ver"
+              (cd "$dir" && npm publish)
+            fi
+          done
