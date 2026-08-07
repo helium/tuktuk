@@ -62,4 +62,6 @@ pub enum ErrorCode {
     InvalidAccountIndex,
     #[msg("Returned tasks account is not owned by the program that returned it")]
     InvalidTasksAccountOwner,
+    #[msg("Returned task crank reward exceeds the task queue's min crank reward")]
+    CrankRewardExceedsMax,
 }

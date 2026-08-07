@@ -333,6 +333,15 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             self.min_crank_reward,
             ErrorCode::InvalidCrankReward
         );
+        // A returned task is funded by the task queue, so `min_crank_reward` is its ceiling as well
+        // as its floor. `queue_task_v0` is uncapped because the payer funds that reward from their
+        // own account. Errors here are swallowed by the return-data handler: the task is not
+        // created, but the transaction still succeeds.
+        require_gte!(
+            self.min_crank_reward,
+            task.crank_reward.unwrap_or(self.min_crank_reward),
+            ErrorCode::CrankRewardExceedsMax
+        );
         require_gte!(
             self.capacity,
             (task.free_tasks + 1) as u16,
@@ -445,6 +454,14 @@ pub fn handler<'info>(
 
     task_queue.header_mut().updated_at = now;
 
+    // A task may spawn no more children than it declared when it was queued. `free_task_ids` is
+    // supplied by the crank turner, so the task's own declaration is the authoritative bound.
+    require_gte!(
+        ctx.accounts.task.free_tasks as usize,
+        args.free_task_ids.len(),
+        ErrorCode::TooManyReturnedTasks
+    );
+
     // Check for duplicate task IDs
     let mut seen_ids = std::collections::HashSet::new();
     for id in args.free_task_ids.clone() {
@@ -545,10 +562,12 @@ pub fn handler<'info>(
 
     // Validate that all free task accounts are empty and are valid PDAs
     let free_tasks_start_index = transaction.accounts.len();
-    // Validate number of free task accounts matches number of task IDs
+    // Validate number of free task accounts matches number of task IDs. Stated as a sum rather
+    // than a difference: the crank turner chooses how many accounts to pass, and too few would
+    // underflow the subtraction.
     require_eq!(
-        args.free_task_ids.len(),
-        ctx.remaining_accounts.len() - free_tasks_start_index,
+        ctx.remaining_accounts.len(),
+        free_tasks_start_index + args.free_task_ids.len(),
         ErrorCode::MismatchedFreeTaskCounts
     );
 

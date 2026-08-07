@@ -172,6 +172,110 @@ describe("tuktuk", () => {
       expect(taskAcc.crankReward.toString()).to.eq(crankReward.toString());
     });
 
+    // The compiled-transaction account list a crank turner passes to runTaskV0, with the
+    // writability the program recomputes from the compiled header.
+    function taskAccounts(): AccountMeta[] {
+      const { numRwSigners, numRoSigners, numRw } = transaction;
+      return remainingAccounts.map((acc, index) => ({
+        pubkey: acc.pubkey,
+        isWritable:
+          index < numRwSigners ||
+          (index >= numRwSigners + numRoSigners &&
+            index < numRwSigners + numRoSigners + numRw),
+        isSigner: false,
+      }));
+    }
+
+    async function queueTask(id: number, freeTasks: number) {
+      const task = taskKey(taskQueue, id)[0];
+      await program.methods
+        .queueTaskV0({
+          id,
+          trigger: { now: {} },
+          transaction: { compiledV0: [transaction] },
+          crankReward: null,
+          freeTasks,
+          description: "test",
+        })
+        .remainingAccounts(remainingAccounts)
+        .accounts({ payer: me, taskQueue, task })
+        .rpc();
+      return task;
+    }
+
+    function runTaskWithIds(task: PublicKey, freeTaskIds: number[]) {
+      return program.methods
+        .runTaskV0({ freeTaskIds })
+        .accounts({ task, crankTurner: me })
+        .remainingAccounts([
+          ...taskAccounts(),
+          ...freeTaskIds.map((id) => ({
+            pubkey: taskKey(taskQueue, id)[0],
+            isWritable: true,
+            isSigner: false,
+          })),
+        ])
+        .rpc();
+    }
+
+    it("rejects more free task ids than the task declared", async () => {
+      const task = await queueTask(2, 0);
+
+      let code: string | undefined;
+      try {
+        await runTaskWithIds(task, [100]);
+      } catch (e: any) {
+        code = e?.error?.errorCode?.code ?? JSON.stringify(e);
+      }
+      expect(code).to.eq("TooManyReturnedTasks");
+    });
+
+    it("accepts exactly as many free task ids as the task declared", async () => {
+      const task = await queueTask(3, 6);
+
+      await runTaskWithIds(task, [100, 101, 102, 103, 104, 105]);
+
+      // The task ran to completion and closed itself out.
+      expect(await program.account.taskV0.fetchNullable(task)).to.be.null;
+    });
+
+    it("rejects fewer accounts than the task's transaction needs", async () => {
+      const task = await queueTask(5, 0);
+
+      let code: string | undefined;
+      try {
+        // One short of the compiled transaction's own account list, with no free tasks.
+        await program.methods
+          .runTaskV0({ freeTaskIds: [] })
+          .accounts({ task, crankTurner: me })
+          .remainingAccounts(taskAccounts().slice(0, -1))
+          .rpc();
+      } catch (e: any) {
+        code = e?.error?.errorCode?.code ?? JSON.stringify(e);
+      }
+      expect(code).to.eq("MismatchedFreeTaskCounts");
+    });
+
+    it("allows a payer funded task above the queue minimum reward", async () => {
+      const task = taskKey(taskQueue, 4)[0];
+      const aboveMin = crankReward.muln(2);
+      await program.methods
+        .queueTaskV0({
+          id: 4,
+          trigger: { now: {} },
+          transaction: { compiledV0: [transaction] },
+          crankReward: aboveMin,
+          freeTasks: 0,
+          description: "test",
+        })
+        .remainingAccounts(remainingAccounts)
+        .accounts({ payer: me, taskQueue, task })
+        .rpc();
+
+      const taskAcc = await program.account.taskV0.fetch(task);
+      expect(taskAcc.crankReward.toString()).to.eq(aboveMin.toString());
+    });
+
     it("does not let a task borrow the crank turner's signature", async () => {
       const crankTurner = Keypair.generate();
       const attacker = Keypair.generate();
@@ -701,6 +805,127 @@ describe("tuktuk", () => {
         },
         "confirmed"
       );
+    });
+
+    describe("returned task reward bounds", () => {
+      // Matches the min_crank_reward the surrounding beforeEach gives this queue.
+      const minCrankReward = new BN(10000);
+      let crankTurner: Keypair;
+
+      beforeEach(async () => {
+        crankTurner = Keypair.generate();
+        await sendInstructions(provider, [
+          SystemProgram.transfer({
+            fromPubkey: me,
+            toPubkey: taskQueue!,
+            lamports: 1000000000,
+          }),
+          SystemProgram.transfer({
+            fromPubkey: me,
+            toPubkey: crankTurner.publicKey,
+            lamports: 1000000000,
+          }),
+          SystemProgram.transfer({
+            fromPubkey: me,
+            toPubkey: queueAuthority!,
+            lamports: 1000000000,
+          }),
+        ]);
+      });
+
+      async function crank(task: PublicKey) {
+        const ixs = await runTask({
+          program,
+          task,
+          crankTurner: crankTurner.publicKey,
+        });
+        const tx = toVersionedTx(
+          await populateMissingDraftInfo(provider.connection, {
+            feePayer: crankTurner.publicKey,
+            instructions: ixs,
+          })
+        );
+        await tx.sign([crankTurner]);
+        await sendAndConfirmWithRetry(
+          provider.connection,
+          Buffer.from(tx.serialize()),
+          { skipPreflight: true, maxRetries: 0 },
+          "confirmed"
+        );
+      }
+
+      // A parent task returning one child with the given reward. `viaAccount` selects the
+      // return-account path rather than the return-data path; both create returned tasks.
+      async function scheduleReturning(
+        returnCrankReward: BN,
+        viaAccount: boolean
+      ) {
+        const parent = taskKey(taskQueue, 0)[0];
+        const args = {
+          taskId: 0,
+          freeTasks: 1,
+          returnCrankReward,
+          returnFreeTasks: 0,
+        };
+        const accounts = {
+          taskQueue,
+          task: parent,
+          taskQueueAuthority: taskQueueAuthorityKey(
+            taskQueue,
+            queueAuthority
+          )[0],
+        };
+        await (viaAccount
+          ? cpiProgram.methods.scheduleReturningViaAccount(args)
+          : cpiProgram.methods.scheduleReturning(args)
+        )
+          .accounts(accounts)
+          .rpc({ skipPreflight: true });
+        return { parent, child: taskKey(taskQueue, 1)[0] };
+      }
+
+      it("creates a returned task at exactly the queue minimum reward", async () => {
+        const { parent, child } = await scheduleReturning(
+          minCrankReward,
+          false
+        );
+
+        await crank(parent);
+
+        const childAcc = await program.account.taskV0.fetch(child);
+        expect(childAcc.crankReward.toString()).to.eq(
+          minCrankReward.toString()
+        );
+      });
+
+      it("rejects a returned task with a reward above the queue minimum", async () => {
+        const { parent, child } = await scheduleReturning(
+          minCrankReward.muln(2),
+          false
+        );
+
+        const before = await provider.connection.getBalance(taskQueue);
+        await crank(parent);
+        const after = await provider.connection.getBalance(taskQueue);
+
+        expect(await program.account.taskV0.fetchNullable(child)).to.be.null;
+        // Rent refunds go to the task's payer, so an untouched queue is exactly unchanged.
+        expect(after).to.eq(before);
+      });
+
+      it("rejects an above minimum returned task handed back in an account", async () => {
+        const { parent, child } = await scheduleReturning(
+          minCrankReward.muln(2),
+          true
+        );
+
+        const before = await provider.connection.getBalance(taskQueue);
+        await crank(parent);
+        const after = await provider.connection.getBalance(taskQueue);
+
+        expect(await program.account.taskV0.fetchNullable(child)).to.be.null;
+        expect(after).to.eq(before);
+      });
     });
   });
 });
