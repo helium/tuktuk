@@ -146,6 +146,12 @@ struct TaskProcessor<'a, 'info> {
     // Changes to make to task queue
     tasks_to_set: Vec<u16>, // Task IDs to set as existing
     queue_lamports_needed: u64,
+    // Set when a returned task could not be created because of the free-task id or account the
+    // crank turner supplied. Errors raised while processing return data are swallowed, so this
+    // is carried out to `handler` and failed there. The turner picks both, and a task's children
+    // must not be droppable by picking them badly; a reward or description the returning program
+    // chose is that program's fault and is still dropped silently.
+    bad_free_task_input: bool,
 }
 
 impl<'a, 'info> TaskProcessor<'a, 'info> {
@@ -190,6 +196,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             capacity,
             tasks_to_set: Vec::new(),
             queue_lamports_needed: 0,
+            bad_free_task_input: false,
         })
     }
 
@@ -333,30 +340,48 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             self.min_crank_reward,
             ErrorCode::InvalidCrankReward
         );
+        // A returned task is funded by the task queue, so `min_crank_reward` is its ceiling as
+        // well as its floor: together with the check above, a returned reward is either `None` or
+        // exactly `min_crank_reward`. Errors here are swallowed by the return-data handler, so the
+        // task is not created but the transaction still succeeds.
+        require_gte!(
+            self.min_crank_reward,
+            task.crank_reward.unwrap_or(self.min_crank_reward),
+            ErrorCode::CrankRewardExceedsMax
+        );
         require_gte!(
             self.capacity,
-            (task.free_tasks + 1) as u16,
+            task.free_tasks as u16 + 1,
             ErrorCode::FreeTasksGreaterThanCapacity
         );
+
+        // Take the id before the account. Ids and free-task accounts are consumed one per created
+        // task and their counts are equal, so an exhausted id list is what says there is no
+        // account left to take either.
+        let task_id = match self.free_task_ids.pop() {
+            Some(id) => id,
+            None => {
+                self.bad_free_task_input = true;
+                return Err(error!(ErrorCode::TooManyReturnedTasks));
+            }
+        };
 
         let free_task_account = &self.ctx.remaining_accounts[self.free_task_index];
         self.free_task_index += 1;
         let task_queue_key = self.ctx.accounts.task_queue.key();
 
-        let task_id = self
-            .free_task_ids
-            .pop()
-            .ok_or(error!(ErrorCode::TooManyReturnedTasks))?;
-
         // Verify the account is empty
-        require!(
-            free_task_account.data_is_empty(),
-            ErrorCode::FreeTaskAccountNotEmpty
-        );
+        if !free_task_account.data_is_empty() {
+            self.bad_free_task_input = true;
+            return Err(error!(ErrorCode::FreeTaskAccountNotEmpty));
+        }
 
         let seeds = [b"task", task_queue_key.as_ref(), &task_id.to_le_bytes()];
         let (key, bump_seed) = Pubkey::find_program_address(&seeds, self.ctx.program_id);
-        require_eq!(key, free_task_account.key(), ErrorCode::InvalidTaskPDA);
+        if key != free_task_account.key() {
+            self.bad_free_task_input = true;
+            return Err(error!(ErrorCode::InvalidTaskPDA));
+        }
 
         let mut task_data = TaskV0 {
             description: task.description,
@@ -418,6 +443,10 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         task_data.try_serialize(&mut data.as_mut())
     }
 
+    fn had_bad_free_task_input(&self) -> bool {
+        self.bad_free_task_input
+    }
+
     fn get_tasks_to_set(&self) -> &[u16] {
         &self.tasks_to_set
     }
@@ -444,6 +473,14 @@ pub fn handler<'info>(
     let mut task_queue = TaskQueueDataWrapper::new(*task_queue_data)?;
 
     task_queue.header_mut().updated_at = now;
+
+    // A task may spawn no more children than it declared when it was queued. `free_task_ids` is
+    // supplied by the crank turner, so the task's own declaration is the authoritative bound.
+    require_gte!(
+        ctx.accounts.task.free_tasks as usize,
+        args.free_task_ids.len(),
+        ErrorCode::TooManyReturnedTasks
+    );
 
     // Check for duplicate task IDs
     let mut seen_ids = std::collections::HashSet::new();
@@ -491,6 +528,14 @@ pub fn handler<'info>(
                 .max()
                 .unwrap()
                 + 1;
+
+            // The crank turner chooses how many accounts to pass, and the slice below indexes
+            // this many of them.
+            require_gte!(
+                remaining_accounts.len(),
+                num_accounts as usize,
+                ErrorCode::MismatchedFreeTaskCounts
+            );
 
             let verification_hash = hash(
                 &[
@@ -545,10 +590,12 @@ pub fn handler<'info>(
 
     // Validate that all free task accounts are empty and are valid PDAs
     let free_tasks_start_index = transaction.accounts.len();
-    // Validate number of free task accounts matches number of task IDs
+    // Validate number of free task accounts matches number of task IDs. Stated as a sum rather
+    // than a difference: the crank turner chooses how many accounts to pass, and too few would
+    // underflow the subtraction.
     require_eq!(
-        args.free_task_ids.len(),
-        ctx.remaining_accounts.len() - free_tasks_start_index,
+        ctx.remaining_accounts.len(),
+        free_tasks_start_index + args.free_task_ids.len(),
         ErrorCode::MismatchedFreeTaskCounts
     );
 
@@ -581,6 +628,12 @@ pub fn handler<'info>(
         for ix in &transaction.instructions {
             processor.process_instruction(ix, remaining_accounts)?;
         }
+
+        // A child that failed on the turner's own id or account choice is not one they may drop.
+        require!(
+            !processor.had_bad_free_task_input(),
+            ErrorCode::InvalidTaskPDA
+        );
 
         // Get the changes we need to make
         let tasks_to_set = processor.get_tasks_to_set().to_vec();

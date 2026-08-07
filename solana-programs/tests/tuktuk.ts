@@ -67,9 +67,8 @@ describe("tuktuk", () => {
         .rpc();
     }
 
-    const tuktukConfigAcc = await program.account.tuktukConfigV0.fetch(
-      tuktukConfig
-    );
+    const tuktukConfigAcc =
+      await program.account.tuktukConfigV0.fetch(tuktukConfig);
     expect(tuktukConfigAcc.authority.toBase58()).to.eq(me.toBase58());
   });
 
@@ -143,7 +142,7 @@ describe("tuktuk", () => {
       bumpBuffer.writeUint8(bump);
       ({ transaction, remainingAccounts } = await compileTransaction(
         instructions,
-        [[Buffer.from("test"), bumpBuffer]]
+        [[Buffer.from("test"), bumpBuffer]],
       ));
     });
     it("allows creating tasks", async () => {
@@ -172,6 +171,135 @@ describe("tuktuk", () => {
       expect(taskAcc.crankReward.toString()).to.eq(crankReward.toString());
     });
 
+    // The compiled-transaction account list a crank turner passes to runTaskV0, with the
+    // writability the program recomputes from the compiled header.
+    function taskAccounts(): AccountMeta[] {
+      const { numRwSigners, numRoSigners, numRw } = transaction;
+      return remainingAccounts.map((acc, index) => ({
+        pubkey: acc.pubkey,
+        isWritable:
+          index < numRwSigners ||
+          (index >= numRwSigners + numRoSigners &&
+            index < numRwSigners + numRoSigners + numRw),
+        isSigner: false,
+      }));
+    }
+
+    async function queueTask(id: number, freeTasks: number) {
+      const task = taskKey(taskQueue, id)[0];
+      await program.methods
+        .queueTaskV0({
+          id,
+          trigger: { now: {} },
+          transaction: { compiledV0: [transaction] },
+          crankReward: null,
+          freeTasks,
+          description: "test",
+        })
+        .remainingAccounts(remainingAccounts)
+        .accounts({ payer: me, taskQueue, task })
+        .rpc();
+      return task;
+    }
+
+    function runTaskWithIds(task: PublicKey, freeTaskIds: number[]) {
+      return program.methods
+        .runTaskV0({ freeTaskIds })
+        .accounts({ task, crankTurner: me })
+        .remainingAccounts([
+          ...taskAccounts(),
+          ...freeTaskIds.map((id) => ({
+            pubkey: taskKey(taskQueue, id)[0],
+            isWritable: true,
+            isSigner: false,
+          })),
+        ])
+        .rpc();
+    }
+
+    it("rejects more free task ids than the task declared", async () => {
+      const task = await queueTask(2, 0);
+
+      let code: string | undefined;
+      try {
+        await runTaskWithIds(task, [100]);
+      } catch (e: any) {
+        code = e?.error?.errorCode?.code ?? JSON.stringify(e);
+      }
+      expect(code).to.eq("TooManyReturnedTasks");
+    });
+
+    it("accepts exactly as many free task ids as the task declared", async () => {
+      const task = await queueTask(3, 6);
+
+      await runTaskWithIds(task, [100, 101, 102, 103, 104, 105]);
+
+      // The task ran to completion and closed itself out.
+      expect(await program.account.taskV0.fetchNullable(task)).to.be.null;
+    });
+
+    it("rejects fewer accounts than the task's transaction needs", async () => {
+      const task = await queueTask(5, 0);
+
+      let code: string | undefined;
+      try {
+        // One short of the compiled transaction's own account list, with no free tasks.
+        await program.methods
+          .runTaskV0({ freeTaskIds: [] })
+          .accounts({ task, crankTurner: me })
+          .remainingAccounts(taskAccounts().slice(0, -1))
+          .rpc();
+      } catch (e: any) {
+        code = e?.error?.errorCode?.code ?? JSON.stringify(e);
+      }
+      expect(code).to.eq("MismatchedFreeTaskCounts");
+    });
+
+    it("rejects more accounts than the task's transaction and ids need", async () => {
+      const task = await queueTask(6, 0);
+
+      let code: string | undefined;
+      try {
+        // Surplus accounts are forwarded to every inner CPI, so the count is exact in both
+        // directions rather than a lower bound.
+        await program.methods
+          .runTaskV0({ freeTaskIds: [] })
+          .accounts({ task, crankTurner: me })
+          .remainingAccounts([
+            ...taskAccounts(),
+            {
+              pubkey: taskKey(taskQueue, 200)[0],
+              isWritable: true,
+              isSigner: false,
+            },
+          ])
+          .rpc();
+      } catch (e: any) {
+        code = e?.error?.errorCode?.code ?? JSON.stringify(e);
+      }
+      expect(code).to.eq("MismatchedFreeTaskCounts");
+    });
+
+    it("allows a payer funded task above the queue minimum reward", async () => {
+      const task = taskKey(taskQueue, 4)[0];
+      const aboveMin = crankReward.muln(2);
+      await program.methods
+        .queueTaskV0({
+          id: 4,
+          trigger: { now: {} },
+          transaction: { compiledV0: [transaction] },
+          crankReward: aboveMin,
+          freeTasks: 0,
+          description: "test",
+        })
+        .remainingAccounts(remainingAccounts)
+        .accounts({ payer: me, taskQueue, task })
+        .rpc();
+
+      const taskAcc = await program.account.taskV0.fetch(task);
+      expect(taskAcc.crankReward.toString()).to.eq(aboveMin.toString());
+    });
+
     it("does not let a task borrow the crank turner's signature", async () => {
       const crankTurner = Keypair.generate();
       const attacker = Keypair.generate();
@@ -194,7 +322,7 @@ describe("tuktuk", () => {
               lamports: stolen,
             }),
           ],
-          []
+          [],
         );
 
       const task = taskKey(taskQueue, 1)[0];
@@ -212,7 +340,7 @@ describe("tuktuk", () => {
         .rpc();
 
       const balanceBefore = await provider.connection.getBalance(
-        crankTurner.publicKey
+        crankTurner.publicKey,
       );
 
       const ixs = await runTask({
@@ -224,7 +352,7 @@ describe("tuktuk", () => {
         await populateMissingDraftInfo(provider.connection, {
           feePayer: crankTurner.publicKey,
           instructions: ixs,
-        })
+        }),
       );
       await tx.sign([crankTurner]);
 
@@ -234,7 +362,7 @@ describe("tuktuk", () => {
           provider.connection,
           Buffer.from(tx.serialize()),
           { skipPreflight: true, maxRetries: 0 },
-          "confirmed"
+          "confirmed",
         );
       } catch (e) {
         failed = true;
@@ -242,7 +370,7 @@ describe("tuktuk", () => {
       expect(failed).to.be.true;
 
       const balanceAfter = await provider.connection.getBalance(
-        crankTurner.publicKey
+        crankTurner.publicKey,
       );
       expect(balanceBefore - balanceAfter).to.be.lessThan(stolen);
       expect(await provider.connection.getBalance(attacker.publicKey)).to.eq(0);
@@ -265,9 +393,8 @@ describe("tuktuk", () => {
           taskQueueNameMapping: taskQueueNameMappingKey(tuktukConfig, name)[0],
         })
         .rpc({ skipPreflight: true });
-      const taskQueueAcc = await program.account.taskQueueV0.fetchNullable(
-        taskQueue
-      );
+      const taskQueueAcc =
+        await program.account.taskQueueV0.fetchNullable(taskQueue);
       expect(taskQueueAcc).to.be.null;
     });
 
@@ -326,13 +453,13 @@ describe("tuktuk", () => {
             });
             const serialized = await RemoteTaskTransactionV0.serialize(
               program.coder.accounts,
-              remoteTx
+              remoteTx,
             );
             return {
               remoteTaskTransaction: serialized,
               remainingAccounts: remainingAccounts,
               signature: Buffer.from(
-                sign.detached(Uint8Array.from(serialized), signer.secretKey)
+                sign.detached(Uint8Array.from(serialized), signer.secretKey),
               ),
             };
           },
@@ -341,7 +468,7 @@ describe("tuktuk", () => {
           await populateMissingDraftInfo(provider.connection, {
             feePayer: crankTurner.publicKey,
             instructions: ixs,
-          })
+          }),
         );
         await tx.sign([crankTurner]);
         await sendAndConfirmWithRetry(
@@ -351,7 +478,7 @@ describe("tuktuk", () => {
             skipPreflight: true,
             maxRetries: 0,
           },
-          "confirmed"
+          "confirmed",
         );
       });
     });
@@ -394,7 +521,7 @@ describe("tuktuk", () => {
         ]);
 
         const crankTurnerBalanceBefore = await provider.connection.getBalance(
-          crankTurner.publicKey
+          crankTurner.publicKey,
         );
 
         const ixs = await runTask({
@@ -406,7 +533,7 @@ describe("tuktuk", () => {
           await populateMissingDraftInfo(provider.connection, {
             feePayer: crankTurner.publicKey,
             instructions: ixs,
-          })
+          }),
         );
         await tx.sign([crankTurner]);
         const taskAcc = await program.account.taskV0.fetch(task);
@@ -417,11 +544,11 @@ describe("tuktuk", () => {
             skipPreflight: true,
             maxRetries: 0,
           },
-          "confirmed"
+          "confirmed",
         );
 
         const crankTurnerBalanceAfter = await provider.connection.getBalance(
-          crankTurner.publicKey
+          crankTurner.publicKey,
         );
 
         // Get the transaction fee
@@ -445,7 +572,7 @@ describe("tuktuk", () => {
           `Crank turner balance change incorrect. Expected change: ${expectedBalanceChange}, ` +
             `Actual change: ${actualBalanceChange}, ` +
             `Reward: ${expectedReward}, ` +
-            `TX fee: ${txFee}`
+            `TX fee: ${txFee}`,
         );
       });
 
@@ -467,18 +594,18 @@ describe("tuktuk", () => {
     let taskQueue: PublicKey;
     const queueAuthority = PublicKey.findProgramAddressSync(
       [Buffer.from("queue_authority")],
-      new PublicKey("cpic9j9sjqvhn2ZX3mqcCgzHKCwiiBTyEszyCwN7MBC")
+      new PublicKey("cpic9j9sjqvhn2ZX3mqcCgzHKCwiiBTyEszyCwN7MBC"),
     )[0];
 
     beforeEach(async () => {
       const idl = await Program.fetchIdl(
         new PublicKey("cpic9j9sjqvhn2ZX3mqcCgzHKCwiiBTyEszyCwN7MBC"),
-        provider
+        provider,
       );
 
       cpiProgram = new Program<CpiExample>(
         idl as CpiExample,
-        provider
+        provider,
       ) as Program<CpiExample>;
       if (!(await program.account.tuktukConfigV0.fetchNullable(tuktukConfig))) {
         await program.methods
@@ -556,7 +683,7 @@ describe("tuktuk", () => {
         await populateMissingDraftInfo(provider.connection, {
           feePayer: crankTurner.publicKey,
           instructions: ixs,
-        })
+        }),
       );
       await tx.sign([crankTurner]);
       await sendAndConfirmWithRetry(
@@ -566,7 +693,7 @@ describe("tuktuk", () => {
           skipPreflight: true,
           maxRetries: 0,
         },
-        "confirmed"
+        "confirmed",
       );
       await sleep(1000);
       const ixs2 = await runTask({
@@ -578,7 +705,7 @@ describe("tuktuk", () => {
         await populateMissingDraftInfo(provider.connection, {
           feePayer: crankTurner.publicKey,
           instructions: ixs2,
-        })
+        }),
       );
       await tx2.sign([crankTurner]);
       await sendAndConfirmWithRetry(
@@ -588,7 +715,7 @@ describe("tuktuk", () => {
           skipPreflight: true,
           maxRetries: 0,
         },
-        "confirmed"
+        "confirmed",
       );
     });
 
@@ -605,7 +732,7 @@ describe("tuktuk", () => {
           task: freeTasks[0],
           taskQueueAuthority: taskQueueAuthorityKey(
             taskQueue,
-            queueAuthority
+            queueAuthority,
           )[0],
         });
       await sendInstructions(provider, [
@@ -641,7 +768,7 @@ describe("tuktuk", () => {
             feePayer: crankTurner.publicKey,
             computeUnits: 1000000000,
           }),
-        })
+        }),
       );
       await tx.sign([crankTurner]);
       await sendAndConfirmWithRetry(
@@ -651,7 +778,7 @@ describe("tuktuk", () => {
           skipPreflight: true,
           maxRetries: 0,
         },
-        "confirmed"
+        "confirmed",
       );
       await sleep(1000);
       const ixs2 = await runTask({
@@ -668,7 +795,7 @@ describe("tuktuk", () => {
             feePayer: crankTurner.publicKey,
             computeUnits: 1000000000,
           }),
-        })
+        }),
       );
       await tx2.sign([crankTurner]);
       await sendAndConfirmWithRetry(
@@ -678,7 +805,7 @@ describe("tuktuk", () => {
           skipPreflight: true,
           maxRetries: 0,
         },
-        "confirmed"
+        "confirmed",
       );
       const ixs3 = await runTask({
         program,
@@ -689,7 +816,7 @@ describe("tuktuk", () => {
         await populateMissingDraftInfo(provider.connection, {
           feePayer: crankTurner.publicKey,
           instructions: ixs3,
-        })
+        }),
       );
       await tx3.sign([crankTurner]);
       await sendAndConfirmWithRetry(
@@ -699,8 +826,213 @@ describe("tuktuk", () => {
           skipPreflight: true,
           maxRetries: 0,
         },
-        "confirmed"
+        "confirmed",
       );
+    });
+
+    describe("returned task reward bounds", () => {
+      // Matches the min_crank_reward the surrounding beforeEach gives this queue.
+      const minCrankReward = new BN(10000);
+      let crankTurner: Keypair;
+
+      beforeEach(async () => {
+        crankTurner = Keypair.generate();
+        await sendInstructions(provider, [
+          SystemProgram.transfer({
+            fromPubkey: me,
+            toPubkey: taskQueue!,
+            lamports: 1000000000,
+          }),
+          SystemProgram.transfer({
+            fromPubkey: me,
+            toPubkey: crankTurner.publicKey,
+            lamports: 1000000000,
+          }),
+          SystemProgram.transfer({
+            fromPubkey: me,
+            toPubkey: queueAuthority!,
+            lamports: 1000000000,
+          }),
+        ]);
+      });
+
+      async function crank(task: PublicKey) {
+        const ixs = await runTask({
+          program,
+          task,
+          crankTurner: crankTurner.publicKey,
+          // Pin the child's task id so the tests below can assert on taskKey(taskQueue, 1);
+          // by default runTask picks a random free id from the bitmap.
+          nextAvailableTaskIds: [1],
+        });
+        const tx = toVersionedTx(
+          await populateMissingDraftInfo(provider.connection, {
+            feePayer: crankTurner.publicKey,
+            instructions: ixs,
+          }),
+        );
+        await tx.sign([crankTurner]);
+        await sendAndConfirmWithRetry(
+          provider.connection,
+          Buffer.from(tx.serialize()),
+          { skipPreflight: true, maxRetries: 0 },
+          "confirmed",
+        );
+      }
+
+      // A parent task returning one child with the given reward. `viaAccount` selects the
+      // return-account path rather than the return-data path; both create returned tasks.
+      async function scheduleReturning(
+        returnCrankReward: BN,
+        viaAccount: boolean,
+        parentFreeTasks = 1,
+      ) {
+        const parent = taskKey(taskQueue, 0)[0];
+        const args = {
+          taskId: 0,
+          freeTasks: parentFreeTasks,
+          returnCrankReward,
+        };
+        const accounts = {
+          taskQueue,
+          task: parent,
+          taskQueueAuthority: taskQueueAuthorityKey(
+            taskQueue,
+            queueAuthority,
+          )[0],
+        };
+        await (
+          viaAccount
+            ? cpiProgram.methods.scheduleReturningViaAccount(args)
+            : cpiProgram.methods.scheduleReturning(args)
+        )
+          .accounts(accounts)
+          .rpc({ skipPreflight: true });
+        return { parent, child: taskKey(taskQueue, 1)[0] };
+      }
+
+      it("creates a returned task at exactly the queue minimum reward", async () => {
+        const { parent, child } = await scheduleReturning(
+          minCrankReward,
+          false,
+        );
+
+        await crank(parent);
+
+        const childAcc = await program.account.taskV0.fetch(child);
+        expect(childAcc.crankReward.toString()).to.eq(
+          minCrankReward.toString(),
+        );
+      });
+
+      it("rejects a returned task with a reward above the queue minimum", async () => {
+        const { parent, child } = await scheduleReturning(
+          minCrankReward.muln(2),
+          false,
+        );
+
+        const before = await provider.connection.getBalance(taskQueue);
+        await crank(parent);
+        const after = await provider.connection.getBalance(taskQueue);
+
+        expect(await program.account.taskV0.fetchNullable(child)).to.be.null;
+        // Rent refunds go to the task's payer, so an untouched queue is exactly unchanged.
+        expect(after).to.eq(before);
+      });
+
+      it("creates a returned task handed back in an account at the queue minimum", async () => {
+        const { parent, child } = await scheduleReturning(minCrankReward, true);
+
+        await crank(parent);
+
+        // The return-account path is a separate call site of create_new_task, so pin that it
+        // still creates. Without this, the rejection test below is equally satisfied by that
+        // path doing nothing at all.
+        const childAcc = await program.account.taskV0.fetch(child);
+        expect(childAcc.crankReward.toString()).to.eq(
+          minCrankReward.toString(),
+        );
+      });
+
+      it("fails the run when a returned task has no free task id left", async () => {
+        // The parent declares no free tasks but its program still returns one, so no id is left
+        // to give it. The turner picks how many ids to supply, so this must fail the run rather
+        // than drop the child: otherwise a turner could truncate a task's children — including
+        // a recurring task's own reschedule — and still be paid.
+        const { parent, child } = await scheduleReturning(
+          minCrankReward,
+          false,
+          0,
+        );
+
+        let failed = false;
+        try {
+          await crank(parent);
+        } catch (e) {
+          failed = true;
+        }
+        expect(failed).to.be.true;
+
+        // The run reverted, so the parent is still queued for an honest turner to run.
+        expect(await program.account.taskV0.fetchNullable(child)).to.be.null;
+        expect(await program.account.taskV0.fetchNullable(parent)).to.not.be
+          .null;
+      });
+
+      it("fails the run when the free task account is not the id's PDA", async () => {
+        // The turner picks the free-task accounts as well as the ids. Pairing a valid unused id
+        // with a different (empty) task PDA must fail the run, not drop the child and pay out.
+        const { parent, child } = await scheduleReturning(minCrankReward, false);
+
+        const ixs = await runTask({
+          program,
+          task: parent,
+          crankTurner: crankTurner.publicKey,
+          nextAvailableTaskIds: [1],
+        });
+        // Swap the free-task account for a different, still-empty task PDA.
+        const ix = ixs[0];
+        ix.keys[ix.keys.length - 1].pubkey = taskKey(taskQueue, 99)[0];
+        const tx = toVersionedTx(
+          await populateMissingDraftInfo(provider.connection, {
+            feePayer: crankTurner.publicKey,
+            instructions: ixs,
+          }),
+        );
+        await tx.sign([crankTurner]);
+
+        let failed = false;
+        try {
+          await sendAndConfirmWithRetry(
+            provider.connection,
+            Buffer.from(tx.serialize()),
+            { skipPreflight: true, maxRetries: 0 },
+            "confirmed",
+          );
+        } catch (e) {
+          failed = true;
+        }
+        expect(failed).to.be.true;
+
+        // Reverted, so the parent is still queued for an honest turner.
+        expect(await program.account.taskV0.fetchNullable(child)).to.be.null;
+        expect(await program.account.taskV0.fetchNullable(parent)).to.not.be
+          .null;
+      });
+
+      it("rejects an above minimum returned task handed back in an account", async () => {
+        const { parent, child } = await scheduleReturning(
+          minCrankReward.muln(2),
+          true,
+        );
+
+        const before = await provider.connection.getBalance(taskQueue);
+        await crank(parent);
+        const after = await provider.connection.getBalance(taskQueue);
+
+        expect(await program.account.taskV0.fetchNullable(child)).to.be.null;
+        expect(after).to.eq(before);
+      });
     });
   });
 });
