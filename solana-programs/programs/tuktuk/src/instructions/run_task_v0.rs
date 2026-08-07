@@ -146,11 +146,12 @@ struct TaskProcessor<'a, 'info> {
     // Changes to make to task queue
     tasks_to_set: Vec<u16>, // Task IDs to set as existing
     queue_lamports_needed: u64,
-    // Set when a returned task found no free task id left to take. Errors raised while
-    // processing return data are swallowed, so this is carried out to `handler` and failed
-    // there: the crank turner chooses how many ids to supply, and a task's children must not
-    // be droppable by supplying too few.
-    out_of_free_task_ids: bool,
+    // Set when a returned task could not be created because of the free-task id or account the
+    // crank turner supplied. Errors raised while processing return data are swallowed, so this
+    // is carried out to `handler` and failed there. The turner picks both, and a task's children
+    // must not be droppable by picking them badly; a reward or description the returning program
+    // chose is that program's fault and is still dropped silently.
+    bad_free_task_input: bool,
 }
 
 impl<'a, 'info> TaskProcessor<'a, 'info> {
@@ -195,7 +196,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             capacity,
             tasks_to_set: Vec::new(),
             queue_lamports_needed: 0,
-            out_of_free_task_ids: false,
+            bad_free_task_input: false,
         })
     }
 
@@ -360,7 +361,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         let task_id = match self.free_task_ids.pop() {
             Some(id) => id,
             None => {
-                self.out_of_free_task_ids = true;
+                self.bad_free_task_input = true;
                 return Err(error!(ErrorCode::TooManyReturnedTasks));
             }
         };
@@ -370,14 +371,17 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         let task_queue_key = self.ctx.accounts.task_queue.key();
 
         // Verify the account is empty
-        require!(
-            free_task_account.data_is_empty(),
-            ErrorCode::FreeTaskAccountNotEmpty
-        );
+        if !free_task_account.data_is_empty() {
+            self.bad_free_task_input = true;
+            return Err(error!(ErrorCode::FreeTaskAccountNotEmpty));
+        }
 
         let seeds = [b"task", task_queue_key.as_ref(), &task_id.to_le_bytes()];
         let (key, bump_seed) = Pubkey::find_program_address(&seeds, self.ctx.program_id);
-        require_eq!(key, free_task_account.key(), ErrorCode::InvalidTaskPDA);
+        if key != free_task_account.key() {
+            self.bad_free_task_input = true;
+            return Err(error!(ErrorCode::InvalidTaskPDA));
+        }
 
         let mut task_data = TaskV0 {
             description: task.description,
@@ -439,8 +443,8 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         task_data.try_serialize(&mut data.as_mut())
     }
 
-    fn ran_out_of_free_task_ids(&self) -> bool {
-        self.out_of_free_task_ids
+    fn had_bad_free_task_input(&self) -> bool {
+        self.bad_free_task_input
     }
 
     fn get_tasks_to_set(&self) -> &[u16] {
@@ -625,10 +629,10 @@ pub fn handler<'info>(
             processor.process_instruction(ix, remaining_accounts)?;
         }
 
-        // A returned task that found no id left is not a task the turner may simply drop.
+        // A child that failed on the turner's own id or account choice is not one they may drop.
         require!(
-            !processor.ran_out_of_free_task_ids(),
-            ErrorCode::TooManyReturnedTasks
+            !processor.had_bad_free_task_input(),
+            ErrorCode::InvalidTaskPDA
         );
 
         // Get the changes we need to make
