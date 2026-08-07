@@ -979,6 +979,47 @@ describe("tuktuk", () => {
           .null;
       });
 
+      it("fails the run when the free task account is not the id's PDA", async () => {
+        // The turner picks the free-task accounts as well as the ids. Pairing a valid unused id
+        // with a different (empty) task PDA must fail the run, not drop the child and pay out.
+        const { parent, child } = await scheduleReturning(minCrankReward, false);
+
+        const ixs = await runTask({
+          program,
+          task: parent,
+          crankTurner: crankTurner.publicKey,
+          nextAvailableTaskIds: [1],
+        });
+        // Swap the free-task account for a different, still-empty task PDA.
+        const ix = ixs[0];
+        ix.keys[ix.keys.length - 1].pubkey = taskKey(taskQueue, 99)[0];
+        const tx = toVersionedTx(
+          await populateMissingDraftInfo(provider.connection, {
+            feePayer: crankTurner.publicKey,
+            instructions: ixs,
+          }),
+        );
+        await tx.sign([crankTurner]);
+
+        let failed = false;
+        try {
+          await sendAndConfirmWithRetry(
+            provider.connection,
+            Buffer.from(tx.serialize()),
+            { skipPreflight: true, maxRetries: 0 },
+            "confirmed",
+          );
+        } catch (e) {
+          failed = true;
+        }
+        expect(failed).to.be.true;
+
+        // Reverted, so the parent is still queued for an honest turner.
+        expect(await program.account.taskV0.fetchNullable(child)).to.be.null;
+        expect(await program.account.taskV0.fetchNullable(parent)).to.not.be
+          .null;
+      });
+
       it("rejects an above minimum returned task handed back in an account", async () => {
         const { parent, child } = await scheduleReturning(
           minCrankReward.muln(2),
