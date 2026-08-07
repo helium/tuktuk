@@ -67,9 +67,8 @@ describe("tuktuk", () => {
         .rpc();
     }
 
-    const tuktukConfigAcc = await program.account.tuktukConfigV0.fetch(
-      tuktukConfig
-    );
+    const tuktukConfigAcc =
+      await program.account.tuktukConfigV0.fetch(tuktukConfig);
     expect(tuktukConfigAcc.authority.toBase58()).to.eq(me.toBase58());
   });
 
@@ -143,7 +142,7 @@ describe("tuktuk", () => {
       bumpBuffer.writeUint8(bump);
       ({ transaction, remainingAccounts } = await compileTransaction(
         instructions,
-        [[Buffer.from("test"), bumpBuffer]]
+        [[Buffer.from("test"), bumpBuffer]],
       ));
     });
     it("allows creating tasks", async () => {
@@ -298,7 +297,7 @@ describe("tuktuk", () => {
               lamports: stolen,
             }),
           ],
-          []
+          [],
         );
 
       const task = taskKey(taskQueue, 1)[0];
@@ -316,7 +315,7 @@ describe("tuktuk", () => {
         .rpc();
 
       const balanceBefore = await provider.connection.getBalance(
-        crankTurner.publicKey
+        crankTurner.publicKey,
       );
 
       const ixs = await runTask({
@@ -328,7 +327,7 @@ describe("tuktuk", () => {
         await populateMissingDraftInfo(provider.connection, {
           feePayer: crankTurner.publicKey,
           instructions: ixs,
-        })
+        }),
       );
       await tx.sign([crankTurner]);
 
@@ -338,7 +337,7 @@ describe("tuktuk", () => {
           provider.connection,
           Buffer.from(tx.serialize()),
           { skipPreflight: true, maxRetries: 0 },
-          "confirmed"
+          "confirmed",
         );
       } catch (e) {
         failed = true;
@@ -346,7 +345,7 @@ describe("tuktuk", () => {
       expect(failed).to.be.true;
 
       const balanceAfter = await provider.connection.getBalance(
-        crankTurner.publicKey
+        crankTurner.publicKey,
       );
       expect(balanceBefore - balanceAfter).to.be.lessThan(stolen);
       expect(await provider.connection.getBalance(attacker.publicKey)).to.eq(0);
@@ -369,9 +368,8 @@ describe("tuktuk", () => {
           taskQueueNameMapping: taskQueueNameMappingKey(tuktukConfig, name)[0],
         })
         .rpc({ skipPreflight: true });
-      const taskQueueAcc = await program.account.taskQueueV0.fetchNullable(
-        taskQueue
-      );
+      const taskQueueAcc =
+        await program.account.taskQueueV0.fetchNullable(taskQueue);
       expect(taskQueueAcc).to.be.null;
     });
 
@@ -430,13 +428,13 @@ describe("tuktuk", () => {
             });
             const serialized = await RemoteTaskTransactionV0.serialize(
               program.coder.accounts,
-              remoteTx
+              remoteTx,
             );
             return {
               remoteTaskTransaction: serialized,
               remainingAccounts: remainingAccounts,
               signature: Buffer.from(
-                sign.detached(Uint8Array.from(serialized), signer.secretKey)
+                sign.detached(Uint8Array.from(serialized), signer.secretKey),
               ),
             };
           },
@@ -445,7 +443,7 @@ describe("tuktuk", () => {
           await populateMissingDraftInfo(provider.connection, {
             feePayer: crankTurner.publicKey,
             instructions: ixs,
-          })
+          }),
         );
         await tx.sign([crankTurner]);
         await sendAndConfirmWithRetry(
@@ -455,7 +453,7 @@ describe("tuktuk", () => {
             skipPreflight: true,
             maxRetries: 0,
           },
-          "confirmed"
+          "confirmed",
         );
       });
     });
@@ -498,7 +496,7 @@ describe("tuktuk", () => {
         ]);
 
         const crankTurnerBalanceBefore = await provider.connection.getBalance(
-          crankTurner.publicKey
+          crankTurner.publicKey,
         );
 
         const ixs = await runTask({
@@ -510,7 +508,7 @@ describe("tuktuk", () => {
           await populateMissingDraftInfo(provider.connection, {
             feePayer: crankTurner.publicKey,
             instructions: ixs,
-          })
+          }),
         );
         await tx.sign([crankTurner]);
         const taskAcc = await program.account.taskV0.fetch(task);
@@ -521,11 +519,11 @@ describe("tuktuk", () => {
             skipPreflight: true,
             maxRetries: 0,
           },
-          "confirmed"
+          "confirmed",
         );
 
         const crankTurnerBalanceAfter = await provider.connection.getBalance(
-          crankTurner.publicKey
+          crankTurner.publicKey,
         );
 
         // Get the transaction fee
@@ -549,7 +547,7 @@ describe("tuktuk", () => {
           `Crank turner balance change incorrect. Expected change: ${expectedBalanceChange}, ` +
             `Actual change: ${actualBalanceChange}, ` +
             `Reward: ${expectedReward}, ` +
-            `TX fee: ${txFee}`
+            `TX fee: ${txFee}`,
         );
       });
 
@@ -571,18 +569,18 @@ describe("tuktuk", () => {
     let taskQueue: PublicKey;
     const queueAuthority = PublicKey.findProgramAddressSync(
       [Buffer.from("queue_authority")],
-      new PublicKey("cpic9j9sjqvhn2ZX3mqcCgzHKCwiiBTyEszyCwN7MBC")
+      new PublicKey("cpic9j9sjqvhn2ZX3mqcCgzHKCwiiBTyEszyCwN7MBC"),
     )[0];
 
     beforeEach(async () => {
       const idl = await Program.fetchIdl(
         new PublicKey("cpic9j9sjqvhn2ZX3mqcCgzHKCwiiBTyEszyCwN7MBC"),
-        provider
+        provider,
       );
 
       cpiProgram = new Program<CpiExample>(
         idl as CpiExample,
-        provider
+        provider,
       ) as Program<CpiExample>;
       if (!(await program.account.tuktukConfigV0.fetchNullable(tuktukConfig))) {
         await program.methods
@@ -660,7 +658,7 @@ describe("tuktuk", () => {
         await populateMissingDraftInfo(provider.connection, {
           feePayer: crankTurner.publicKey,
           instructions: ixs,
-        })
+        }),
       );
       await tx.sign([crankTurner]);
       await sendAndConfirmWithRetry(
@@ -670,7 +668,7 @@ describe("tuktuk", () => {
           skipPreflight: true,
           maxRetries: 0,
         },
-        "confirmed"
+        "confirmed",
       );
       await sleep(1000);
       const ixs2 = await runTask({
@@ -682,7 +680,7 @@ describe("tuktuk", () => {
         await populateMissingDraftInfo(provider.connection, {
           feePayer: crankTurner.publicKey,
           instructions: ixs2,
-        })
+        }),
       );
       await tx2.sign([crankTurner]);
       await sendAndConfirmWithRetry(
@@ -692,7 +690,7 @@ describe("tuktuk", () => {
           skipPreflight: true,
           maxRetries: 0,
         },
-        "confirmed"
+        "confirmed",
       );
     });
 
@@ -709,7 +707,7 @@ describe("tuktuk", () => {
           task: freeTasks[0],
           taskQueueAuthority: taskQueueAuthorityKey(
             taskQueue,
-            queueAuthority
+            queueAuthority,
           )[0],
         });
       await sendInstructions(provider, [
@@ -745,7 +743,7 @@ describe("tuktuk", () => {
             feePayer: crankTurner.publicKey,
             computeUnits: 1000000000,
           }),
-        })
+        }),
       );
       await tx.sign([crankTurner]);
       await sendAndConfirmWithRetry(
@@ -755,7 +753,7 @@ describe("tuktuk", () => {
           skipPreflight: true,
           maxRetries: 0,
         },
-        "confirmed"
+        "confirmed",
       );
       await sleep(1000);
       const ixs2 = await runTask({
@@ -772,7 +770,7 @@ describe("tuktuk", () => {
             feePayer: crankTurner.publicKey,
             computeUnits: 1000000000,
           }),
-        })
+        }),
       );
       await tx2.sign([crankTurner]);
       await sendAndConfirmWithRetry(
@@ -782,7 +780,7 @@ describe("tuktuk", () => {
           skipPreflight: true,
           maxRetries: 0,
         },
-        "confirmed"
+        "confirmed",
       );
       const ixs3 = await runTask({
         program,
@@ -793,7 +791,7 @@ describe("tuktuk", () => {
         await populateMissingDraftInfo(provider.connection, {
           feePayer: crankTurner.publicKey,
           instructions: ixs3,
-        })
+        }),
       );
       await tx3.sign([crankTurner]);
       await sendAndConfirmWithRetry(
@@ -803,7 +801,7 @@ describe("tuktuk", () => {
           skipPreflight: true,
           maxRetries: 0,
         },
-        "confirmed"
+        "confirmed",
       );
     });
 
@@ -838,19 +836,22 @@ describe("tuktuk", () => {
           program,
           task,
           crankTurner: crankTurner.publicKey,
+          // Pin the child's task id so the tests below can assert on taskKey(taskQueue, 1);
+          // by default runTask picks a random free id from the bitmap.
+          nextAvailableTaskIds: [1],
         });
         const tx = toVersionedTx(
           await populateMissingDraftInfo(provider.connection, {
             feePayer: crankTurner.publicKey,
             instructions: ixs,
-          })
+          }),
         );
         await tx.sign([crankTurner]);
         await sendAndConfirmWithRetry(
           provider.connection,
           Buffer.from(tx.serialize()),
           { skipPreflight: true, maxRetries: 0 },
-          "confirmed"
+          "confirmed",
         );
       }
 
@@ -858,7 +859,7 @@ describe("tuktuk", () => {
       // return-account path rather than the return-data path; both create returned tasks.
       async function scheduleReturning(
         returnCrankReward: BN,
-        viaAccount: boolean
+        viaAccount: boolean,
       ) {
         const parent = taskKey(taskQueue, 0)[0];
         const args = {
@@ -872,12 +873,13 @@ describe("tuktuk", () => {
           task: parent,
           taskQueueAuthority: taskQueueAuthorityKey(
             taskQueue,
-            queueAuthority
+            queueAuthority,
           )[0],
         };
-        await (viaAccount
-          ? cpiProgram.methods.scheduleReturningViaAccount(args)
-          : cpiProgram.methods.scheduleReturning(args)
+        await (
+          viaAccount
+            ? cpiProgram.methods.scheduleReturningViaAccount(args)
+            : cpiProgram.methods.scheduleReturning(args)
         )
           .accounts(accounts)
           .rpc({ skipPreflight: true });
@@ -887,21 +889,21 @@ describe("tuktuk", () => {
       it("creates a returned task at exactly the queue minimum reward", async () => {
         const { parent, child } = await scheduleReturning(
           minCrankReward,
-          false
+          false,
         );
 
         await crank(parent);
 
         const childAcc = await program.account.taskV0.fetch(child);
         expect(childAcc.crankReward.toString()).to.eq(
-          minCrankReward.toString()
+          minCrankReward.toString(),
         );
       });
 
       it("rejects a returned task with a reward above the queue minimum", async () => {
         const { parent, child } = await scheduleReturning(
           minCrankReward.muln(2),
-          false
+          false,
         );
 
         const before = await provider.connection.getBalance(taskQueue);
@@ -916,7 +918,7 @@ describe("tuktuk", () => {
       it("rejects an above minimum returned task handed back in an account", async () => {
         const { parent, child } = await scheduleReturning(
           minCrankReward.muln(2),
-          true
+          true,
         );
 
         const before = await provider.connection.getBalance(taskQueue);

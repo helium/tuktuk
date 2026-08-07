@@ -344,7 +344,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         );
         require_gte!(
             self.capacity,
-            (task.free_tasks + 1) as u16,
+            task.free_tasks as u16 + 1,
             ErrorCode::FreeTasksGreaterThanCapacity
         );
 
