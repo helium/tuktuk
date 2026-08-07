@@ -146,6 +146,11 @@ struct TaskProcessor<'a, 'info> {
     // Changes to make to task queue
     tasks_to_set: Vec<u16>, // Task IDs to set as existing
     queue_lamports_needed: u64,
+    // Set when a returned task found no free task id left to take. Errors raised while
+    // processing return data are swallowed, so this is carried out to `handler` and failed
+    // there: the crank turner chooses how many ids to supply, and a task's children must not
+    // be droppable by supplying too few.
+    out_of_free_task_ids: bool,
 }
 
 impl<'a, 'info> TaskProcessor<'a, 'info> {
@@ -190,6 +195,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             capacity,
             tasks_to_set: Vec::new(),
             queue_lamports_needed: 0,
+            out_of_free_task_ids: false,
         })
     }
 
@@ -333,10 +339,10 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             self.min_crank_reward,
             ErrorCode::InvalidCrankReward
         );
-        // A returned task is funded by the task queue, so `min_crank_reward` is its ceiling as well
-        // as its floor. `queue_task_v0` is uncapped because the payer funds that reward from their
-        // own account. Errors here are swallowed by the return-data handler: the task is not
-        // created, but the transaction still succeeds.
+        // A returned task is funded by the task queue, so `min_crank_reward` is its ceiling as
+        // well as its floor: together with the check above, a returned reward is either `None` or
+        // exactly `min_crank_reward`. Errors here are swallowed by the return-data handler, so the
+        // task is not created but the transaction still succeeds.
         require_gte!(
             self.min_crank_reward,
             task.crank_reward.unwrap_or(self.min_crank_reward),
@@ -351,10 +357,13 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         // Take the id before the account. Ids and free-task accounts are consumed one per created
         // task and their counts are equal, so an exhausted id list is what says there is no
         // account left to take either.
-        let task_id = self
-            .free_task_ids
-            .pop()
-            .ok_or(error!(ErrorCode::TooManyReturnedTasks))?;
+        let task_id = match self.free_task_ids.pop() {
+            Some(id) => id,
+            None => {
+                self.out_of_free_task_ids = true;
+                return Err(error!(ErrorCode::TooManyReturnedTasks));
+            }
+        };
 
         let free_task_account = &self.ctx.remaining_accounts[self.free_task_index];
         self.free_task_index += 1;
@@ -428,6 +437,10 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
 
         let mut data = free_task_account.try_borrow_mut_data()?;
         task_data.try_serialize(&mut data.as_mut())
+    }
+
+    fn ran_out_of_free_task_ids(&self) -> bool {
+        self.out_of_free_task_ids
     }
 
     fn get_tasks_to_set(&self) -> &[u16] {
@@ -511,6 +524,14 @@ pub fn handler<'info>(
                 .max()
                 .unwrap()
                 + 1;
+
+            // The crank turner chooses how many accounts to pass, and the slice below indexes
+            // this many of them.
+            require_gte!(
+                remaining_accounts.len(),
+                num_accounts as usize,
+                ErrorCode::MismatchedFreeTaskCounts
+            );
 
             let verification_hash = hash(
                 &[
@@ -603,6 +624,12 @@ pub fn handler<'info>(
         for ix in &transaction.instructions {
             processor.process_instruction(ix, remaining_accounts)?;
         }
+
+        // A returned task that found no id left is not a task the turner may simply drop.
+        require!(
+            !processor.ran_out_of_free_task_ids(),
+            ErrorCode::TooManyReturnedTasks
+        );
 
         // Get the changes we need to make
         let tasks_to_set = processor.get_tasks_to_set().to_vec();

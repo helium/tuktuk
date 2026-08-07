@@ -955,20 +955,29 @@ describe("tuktuk", () => {
         );
       });
 
-      it("drops a returned task the parent had no free task id for", async () => {
-        // The parent declares no free tasks but its program still returns one, so no id is
-        // left to give it. create_new_task errors, and the return-data handler swallows that:
-        // the child is not created and the run still succeeds.
+      it("fails the run when a returned task has no free task id left", async () => {
+        // The parent declares no free tasks but its program still returns one, so no id is left
+        // to give it. The turner picks how many ids to supply, so this must fail the run rather
+        // than drop the child: otherwise a turner could truncate a task's children — including
+        // a recurring task's own reschedule — and still be paid.
         const { parent, child } = await scheduleReturning(
           minCrankReward,
           false,
           0,
         );
 
-        await crank(parent);
+        let failed = false;
+        try {
+          await crank(parent);
+        } catch (e) {
+          failed = true;
+        }
+        expect(failed).to.be.true;
 
+        // The run reverted, so the parent is still queued for an honest turner to run.
         expect(await program.account.taskV0.fetchNullable(child)).to.be.null;
-        expect(await program.account.taskV0.fetchNullable(parent)).to.be.null;
+        expect(await program.account.taskV0.fetchNullable(parent)).to.not.be
+          .null;
       });
 
       it("rejects an above minimum returned task handed back in an account", async () => {
