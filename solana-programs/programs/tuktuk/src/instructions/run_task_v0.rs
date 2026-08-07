@@ -348,14 +348,17 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             ErrorCode::FreeTasksGreaterThanCapacity
         );
 
-        let free_task_account = &self.ctx.remaining_accounts[self.free_task_index];
-        self.free_task_index += 1;
-        let task_queue_key = self.ctx.accounts.task_queue.key();
-
+        // Take the id before the account. Ids and free-task accounts are consumed one per created
+        // task and their counts are equal, so an exhausted id list is what says there is no
+        // account left to take either.
         let task_id = self
             .free_task_ids
             .pop()
             .ok_or(error!(ErrorCode::TooManyReturnedTasks))?;
+
+        let free_task_account = &self.ctx.remaining_accounts[self.free_task_index];
+        self.free_task_index += 1;
+        let task_queue_key = self.ctx.accounts.task_queue.key();
 
         // Verify the account is empty
         require!(

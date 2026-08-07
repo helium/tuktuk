@@ -255,6 +255,31 @@ describe("tuktuk", () => {
       expect(code).to.eq("MismatchedFreeTaskCounts");
     });
 
+    it("rejects more accounts than the task's transaction and ids need", async () => {
+      const task = await queueTask(6, 0);
+
+      let code: string | undefined;
+      try {
+        // Surplus accounts are forwarded to every inner CPI, so the count is exact in both
+        // directions rather than a lower bound.
+        await program.methods
+          .runTaskV0({ freeTaskIds: [] })
+          .accounts({ task, crankTurner: me })
+          .remainingAccounts([
+            ...taskAccounts(),
+            {
+              pubkey: taskKey(taskQueue, 200)[0],
+              isWritable: true,
+              isSigner: false,
+            },
+          ])
+          .rpc();
+      } catch (e: any) {
+        code = e?.error?.errorCode?.code ?? JSON.stringify(e);
+      }
+      expect(code).to.eq("MismatchedFreeTaskCounts");
+    });
+
     it("allows a payer funded task above the queue minimum reward", async () => {
       const task = taskKey(taskQueue, 4)[0];
       const aboveMin = crankReward.muln(2);
@@ -860,11 +885,12 @@ describe("tuktuk", () => {
       async function scheduleReturning(
         returnCrankReward: BN,
         viaAccount: boolean,
+        parentFreeTasks = 1,
       ) {
         const parent = taskKey(taskQueue, 0)[0];
         const args = {
           taskId: 0,
-          freeTasks: 1,
+          freeTasks: parentFreeTasks,
           returnCrankReward,
           returnFreeTasks: 0,
         };
@@ -913,6 +939,36 @@ describe("tuktuk", () => {
         expect(await program.account.taskV0.fetchNullable(child)).to.be.null;
         // Rent refunds go to the task's payer, so an untouched queue is exactly unchanged.
         expect(after).to.eq(before);
+      });
+
+      it("creates a returned task handed back in an account at the queue minimum", async () => {
+        const { parent, child } = await scheduleReturning(minCrankReward, true);
+
+        await crank(parent);
+
+        // The return-account path is a separate call site of create_new_task, so pin that it
+        // still creates. Without this, the rejection test below is equally satisfied by that
+        // path doing nothing at all.
+        const childAcc = await program.account.taskV0.fetch(child);
+        expect(childAcc.crankReward.toString()).to.eq(
+          minCrankReward.toString(),
+        );
+      });
+
+      it("drops a returned task the parent had no free task id for", async () => {
+        // The parent declares no free tasks but its program still returns one, so no id is
+        // left to give it. create_new_task errors, and the return-data handler swallows that:
+        // the child is not created and the run still succeeds.
+        const { parent, child } = await scheduleReturning(
+          minCrankReward,
+          false,
+          0,
+        );
+
+        await crank(parent);
+
+        expect(await program.account.taskV0.fetchNullable(child)).to.be.null;
+        expect(await program.account.taskV0.fetchNullable(parent)).to.be.null;
       });
 
       it("rejects an above minimum returned task handed back in an account", async () => {
