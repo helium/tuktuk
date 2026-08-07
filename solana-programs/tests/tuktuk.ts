@@ -892,7 +892,6 @@ describe("tuktuk", () => {
           taskId: 0,
           freeTasks: parentFreeTasks,
           returnCrankReward,
-          returnFreeTasks: 0,
         };
         const accounts = {
           taskQueue,

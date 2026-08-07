@@ -15,14 +15,11 @@ pub struct ScheduleReturningArgsV0 {
     pub free_tasks: u8,
     /// Reward carried by the child task it returns.
     pub return_crank_reward: Option<u64>,
-    /// Spawn budget carried by the child task it returns.
-    pub return_free_tasks: u8,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
 pub struct ReturnTaskArgsV0 {
     pub crank_reward: Option<u64>,
-    pub free_tasks: u8,
 }
 
 /// Builds a terminal child task carrying the caller's chosen reward and spawn budget.
@@ -48,7 +45,8 @@ fn noop_task_return(
         trigger: TuktukTrigger::Now,
         transaction: TuktukTransactionSource::CompiledV0(compiled_tx),
         crank_reward: args.crank_reward,
-        free_tasks: args.free_tasks,
+        // Terminal: the child spawns nothing.
+        free_tasks: 0,
         description: "test".to_string(),
     })
 }
@@ -176,7 +174,6 @@ pub mod cpi_example {
                 data: crate::instruction::ReturnTask {
                     args: ReturnTaskArgsV0 {
                         crank_reward: args.return_crank_reward,
-                        free_tasks: args.return_free_tasks,
                     },
                 }
                 .data(),
@@ -251,7 +248,6 @@ pub mod cpi_example {
                 data: crate::instruction::ReturnTaskViaAccount {
                     args: ReturnTaskArgsV0 {
                         crank_reward: args.return_crank_reward,
-                        free_tasks: args.return_free_tasks,
                     },
                 }
                 .data(),
