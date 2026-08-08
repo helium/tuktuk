@@ -93,7 +93,7 @@ where
                 &program_id,
             )?;
         }
-        account.realloc(MAX_PERMITTED_DATA_INCREASE, false)?;
+        account.resize(MAX_PERMITTED_DATA_INCREASE)?;
         let mut data = account.data.borrow_mut();
 
         // Write tasks directly after header
@@ -133,7 +133,7 @@ where
             drop(data);
 
             // Resize account to actual size
-            account.realloc(total_size, false)?;
+            account.resize(total_size)?;
             let rent = Rent::get()?.minimum_balance(total_size);
             let current_lamports = account.lamports();
             let rent_to_pay = rent.saturating_sub(current_lamports);
@@ -148,7 +148,7 @@ where
                             for (account, original_size) in
                                 accounts.iter().zip(original_sizes.iter())
                             {
-                                account.account.realloc(*original_size, false)?;
+                                account.account.resize(*original_size)?;
                             }
                             return Err(error!(ErrorCode::ConstraintRentExempt));
                         }
@@ -170,7 +170,7 @@ where
                             for (account, original_size) in
                                 accounts.iter().zip(original_sizes.iter())
                             {
-                                account.account.realloc(*original_size, false)?;
+                                account.account.resize(*original_size)?;
                             }
                             return Err(error!(ErrorCode::ConstraintRentExempt));
                         }
@@ -195,7 +195,7 @@ where
                             for (account, original_size) in
                                 accounts.iter().zip(original_sizes.iter())
                             {
-                                account.account.realloc(*original_size, false)?;
+                                account.account.resize(*original_size)?;
                             }
                             return Err(error!(ErrorCode::ConstraintRentExempt));
                         }
@@ -216,7 +216,7 @@ where
             used_accounts.push(*account.key);
         } else {
             drop(data);
-            account.realloc(0, false)?;
+            account.resize(0)?;
         }
 
         // If we have no more tasks to process, we can exit
