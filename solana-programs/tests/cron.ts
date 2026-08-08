@@ -38,7 +38,7 @@ import {
 import chai from "chai";
 import { Cron } from "../target/types/cron";
 import { Tuktuk } from "../target/types/tuktuk";
-import { ensureIdls, makeid } from "./utils";
+import { ensureIdls, makeid, readyTasks } from "./utils";
 const { expect } = chai;
 
 describe("cron", () => {
@@ -236,13 +236,21 @@ describe("cron", () => {
       // Wait for next scheduled execution
       await sleep(2000);
 
-      // Run the scheduled task
-      const task2 = taskKey(taskQueue, 1)[0];
-      const task3 = taskKey(taskQueue, 2)[0];
+      // Run the scheduled tasks. A turner takes its free task ids from a randomized start so
+      // concurrent turners do not collide, so read back which tasks are due rather than
+      // assuming where they landed.
       const taskQueueAcc = await tuktukProgram.account.taskQueueV0.fetch(taskQueue);
+      const due = await readyTasks(tuktukProgram, taskQueue, 2);
+      expect(due).to.have.length(2);
+      const [task2, task3] = due;
       const task2Acc = await tuktukProgram.account.taskV0.fetch(task2);
       const task3Acc = await tuktukProgram.account.taskV0.fetch(task3);
-      const nextAvailable = nextAvailableTaskIds(taskQueueAcc.taskBitmap, task2Acc.freeTasks + task3Acc.freeTasks);
+      const nextAvailable = nextAvailableTaskIds(
+        taskQueueAcc.taskBitmap,
+        task2Acc.freeTasks + task3Acc.freeTasks,
+        true,
+        taskQueueAcc.capacity
+      );
       const ixs2 = await runTask({
         program: tuktukProgram,
         task: task2,
