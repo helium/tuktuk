@@ -14,6 +14,7 @@ import {
   customSignerKey,
   RemoteTaskTransactionV0,
   taskQueueAuthorityKey,
+  nextAvailableTaskIds,
 } from "@helium/tuktuk-sdk";
 import {
   AccountMeta,
@@ -32,7 +33,7 @@ import {
   toVersionedTx,
   withPriorityFees,
 } from "@helium/spl-utils";
-import { ensureIdls, makeid } from "./utils";
+import { ensureIdls, makeid, readyTasks } from "./utils";
 import {
   createAssociatedTokenAccountInstruction,
   createTransferInstruction,
@@ -40,6 +41,32 @@ import {
 } from "@solana/spl-token";
 import { sign } from "tweetnacl";
 const { expect } = chai;
+
+describe("nextAvailableTaskIds", () => {
+  // 100 ids need 13 bytes, so the final byte carries bits 100..103. They are zero and so read
+  // as unused, while the program refuses any id at or past capacity.
+  const capacity = 100;
+  const bitmap = Buffer.alloc(Math.ceil(capacity / 8));
+
+  it("never returns an id at or past capacity", () => {
+    // Fill every byte but the last, leaving only the trailing partial byte to pick from.
+    bitmap.fill(0xff, 0, bitmap.length - 1);
+    bitmap[bitmap.length - 1] = 0;
+
+    expect(nextAvailableTaskIds(bitmap, 8, false, capacity)).to.deep.eq([
+      96, 97, 98, 99,
+    ]);
+  });
+
+  it("offers exactly capacity ids when the whole queue is free", () => {
+    // Asking for more than exist forces the full scan, so the count is the bound itself
+    // rather than a sample that happens to avoid the tail.
+    bitmap.fill(0);
+    const ids = nextAvailableTaskIds(bitmap, capacity * 2, false, capacity);
+    expect(ids).to.have.length(capacity);
+    expect(Math.max(...ids)).to.eq(capacity - 1);
+  });
+});
 
 describe("tuktuk", () => {
   // Configure the client to use the local cluster.
@@ -648,7 +675,6 @@ describe("tuktuk", () => {
     });
     it("allows scheduling a task", async () => {
       const freeTask1 = taskKey(taskQueue, 0)[0];
-      const freeTask2 = taskKey(taskQueue, 1)[0];
       const crankTurner = Keypair.generate();
       const method = await cpiProgram.methods.schedule(0).accounts({
         taskQueue,
@@ -696,6 +722,8 @@ describe("tuktuk", () => {
         "confirmed",
       );
       await sleep(1000);
+      // The run above chose the child's id, so look it up instead of assuming it.
+      const freeTask2 = (await readyTasks(program, taskQueue))[0];
       const ixs2 = await runTask({
         program,
         task: freeTask2,
@@ -781,9 +809,11 @@ describe("tuktuk", () => {
         "confirmed",
       );
       await sleep(1000);
+      // Same here: the returned tasks landed on ids the run picked.
+      const nextTask = (await readyTasks(program, taskQueue))[0];
       const ixs2 = await runTask({
         program,
-        task: freeTasks[1],
+        task: nextTask,
         crankTurner: crankTurner.publicKey,
       });
       const tx2 = toVersionedTx(
@@ -807,9 +837,11 @@ describe("tuktuk", () => {
         },
         "confirmed",
       );
+      // Running the previous task queued one a second out, so take a task that is due now.
+      const thirdTask = (await readyTasks(program, taskQueue))[0];
       const ixs3 = await runTask({
         program,
-        task: freeTasks[2],
+        task: thirdTask,
         crankTurner: crankTurner.publicKey,
       });
       const tx3 = toVersionedTx(

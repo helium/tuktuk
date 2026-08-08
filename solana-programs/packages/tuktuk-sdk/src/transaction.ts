@@ -193,19 +193,39 @@ export function compileTransaction(
   };
 }
 
-function nextAvailableTaskIds(taskBitmap: Buffer, n: number): number[] {
+/**
+ * Pick up to `n` unused task ids from a task queue's bitmap.
+ *
+ * The bitmap is a whole number of bytes, so its final byte carries up to seven bits past
+ * `capacity`. Those bits read as unused while the program rejects any id at or beyond
+ * capacity, so the bound has to be applied here — it cannot be inferred from the buffer.
+ *
+ * `random` starts the scan at an arbitrary byte, which keeps concurrent crank turners from
+ * converging on the same ids. Both trailing arguments are required: a caller that omits
+ * `capacity` would otherwise compare every id against `undefined` and silently get nothing
+ * back, and callers written against the older two-and-a-flag signature should fail loudly.
+ */
+export function nextAvailableTaskIds(
+  taskBitmap: Buffer,
+  n: number,
+  random: boolean,
+  capacity: number
+): number[] {
   if (n === 0) {
     return [];
   }
 
   const availableTaskIds: number[] = [];
-  for (let byteIdx = 0; byteIdx < taskBitmap.length; byteIdx++) {
+  const randStart = random ? Math.floor(Math.random() * taskBitmap.length) : 0;
+  for (let byteOffset = 0; byteOffset < taskBitmap.length; byteOffset++) {
+    const byteIdx = (byteOffset + randStart) % taskBitmap.length;
     const byte = taskBitmap[byteIdx];
     if (byte !== 0xff) {
       // If byte is not all 1s
       for (let bitIdx = 0; bitIdx < 8; bitIdx++) {
-        if ((byte & (1 << bitIdx)) === 0) {
-          availableTaskIds.push(byteIdx * 8 + bitIdx);
+        const id = byteIdx * 8 + bitIdx;
+        if (id < capacity && (byte & (1 << bitIdx)) === 0) {
+          availableTaskIds.push(id);
           if (availableTaskIds.length === n) {
             return availableTaskIds;
           }
@@ -296,7 +316,12 @@ export async function runTask({
 
     const nextAvailable =
       argsNextAvailableTaskIds?.slice(0, freeTasks) ||
-      nextAvailableTaskIds(taskQueueAcc.taskBitmap, freeTasks);
+      nextAvailableTaskIds(
+        taskQueueAcc.taskBitmap,
+        freeTasks,
+        true,
+        taskQueueAcc.capacity
+      );
     const freeTasksAccounts = nextAvailable.map((id) => ({
       pubkey: taskKey(taskQueue, id)[0],
       isWritable: true,
@@ -318,7 +343,12 @@ export async function runTask({
   } else {
     const nextAvailable =
       argsNextAvailableTaskIds?.slice(0, freeTasks) ||
-      nextAvailableTaskIds(taskQueueAcc.taskBitmap, freeTasks);
+      nextAvailableTaskIds(
+        taskQueueAcc.taskBitmap,
+        freeTasks,
+        true,
+        taskQueueAcc.capacity
+      );
     const freeTasksAccounts = nextAvailable.map((id) => ({
       pubkey: taskKey(taskQueue, id)[0],
       isWritable: true,
