@@ -18,6 +18,7 @@ import {
   nextAvailableTaskIds,
   runTask,
   taskKey,
+  taskQueueAuthorityKey,
   taskQueueKey,
   taskQueueNameMappingKey,
   tuktukConfigKey,
@@ -38,7 +39,7 @@ import {
 import chai from "chai";
 import { Cron } from "../target/types/cron";
 import { Tuktuk } from "../target/types/tuktuk";
-import { ensureIdls, makeid } from "./utils";
+import { ensureIdls, makeid, usedTaskIds } from "./utils";
 const { expect } = chai;
 
 describe("cron", () => {
@@ -236,13 +237,18 @@ describe("cron", () => {
       // Wait for next scheduled execution
       await sleep(2000);
 
-      // Run the scheduled task
-      const task2 = taskKey(taskQueue, 1)[0];
-      const task3 = taskKey(taskQueue, 2)[0];
+      // Run the scheduled task. Crank turners choose their free task ids from a randomized
+      // start so that concurrent turners do not collide, so read back which ids were used
+      // rather than assuming them.
       const taskQueueAcc = await tuktukProgram.account.taskQueueV0.fetch(taskQueue);
+      const [task2, task3] = usedTaskIds(
+        taskQueueAcc.taskBitmap,
+        taskQueueAcc.capacity
+      ).map((id) => taskKey(taskQueue, id)[0]);
+      expect(task3).to.not.be.undefined;
       const task2Acc = await tuktukProgram.account.taskV0.fetch(task2);
       const task3Acc = await tuktukProgram.account.taskV0.fetch(task3);
-      const nextAvailable = nextAvailableTaskIds(taskQueueAcc.taskBitmap, task2Acc.freeTasks + task3Acc.freeTasks);
+      const nextAvailable = nextAvailableTaskIds(taskQueueAcc.taskBitmap, task2Acc.freeTasks + task3Acc.freeTasks, taskQueueAcc.capacity);
       const ixs2 = await runTask({
         program: tuktukProgram,
         task: task2,
@@ -280,6 +286,176 @@ describe("cron", () => {
       const cronJobV0 = await cronProgram.account.cronJobV0.fetch(cronJob);
       const nextScheduleTask = await tuktukProgram.account.taskV0.fetchNullable(cronJobV0.nextScheduleTask);
       expect(nextScheduleTask).to.not.be.null;
+    });
+
+    describe("requeueing", () => {
+      let cronJob: PublicKey;
+      let taskReturnAccount1: PublicKey;
+      let taskReturnAccount2: PublicKey;
+
+      beforeEach(async () => {
+        const cronName = makeid(10);
+        const userCronJobs = userCronJobsKey(me)[0];
+        const userCronJobsAcc =
+          await cronProgram.account.userCronJobsV0.fetchNullable(userCronJobs);
+        cronJob = cronJobKey(me, userCronJobsAcc?.nextCronJobId ?? 0)[0];
+
+        await sendInstructions(provider, [
+          SystemProgram.transfer({
+            fromPubkey: me,
+            toPubkey: taskQueue,
+            lamports: 1000000000,
+          }),
+          SystemProgram.transfer({
+            fromPubkey: me,
+            toPubkey: cronJob,
+            lamports: 10000000000,
+          }),
+        ]);
+
+        await cronProgram.methods
+          .initializeCronJobV0({
+            name: cronName,
+            schedule: "*/1 * * * * *",
+            freeTasksPerTransaction: 5,
+            numTasksPerQueueCall: 1,
+          })
+          .preInstructions([
+            ComputeBudgetProgram.setComputeUnitLimit({ units: 1000000 }),
+          ])
+          .accounts({
+            payer: me,
+            authority: me,
+            cronJobNameMapping: cronJobNameMappingKey(me, cronName)[0],
+            taskQueue,
+            cronJob,
+            task: taskKey(taskQueue, 0)[0],
+          })
+          .rpc({ skipPreflight: true });
+
+        await cronProgram.methods
+          .addCronTransactionV0({
+            index: 0,
+            transactionSource: { compiledV0: [transaction] },
+          })
+          .accounts({
+            payer: me,
+            cronJob,
+            cronJobTransaction: cronJobTransactionKey(cronJob, 0)[0],
+          })
+          .remainingAccounts(remainingAccounts)
+          .rpc({ skipPreflight: true });
+
+        taskReturnAccount1 = PublicKey.findProgramAddressSync(
+          [Buffer.from("task_return_account_1"), cronJob.toBuffer()],
+          cronProgram.programId
+        )[0];
+        taskReturnAccount2 = PublicKey.findProgramAddressSync(
+          [Buffer.from("task_return_account_2"), cronJob.toBuffer()],
+          cronProgram.programId
+        )[0];
+      });
+
+      const requeue = (taskId: number, nextScheduleTask: PublicKey) =>
+        cronProgram.methods
+          .requeueCronTaskV0({ taskId })
+          .preInstructions([
+            ComputeBudgetProgram.setComputeUnitLimit({ units: 1000000 }),
+          ])
+          .accounts({
+            payer: me,
+            authority: me,
+            queueAuthority: me,
+            taskQueueAuthority: taskQueueAuthorityKey(taskQueue, me)[0],
+            cronJob,
+            nextScheduleTask,
+            taskQueue,
+            task: taskKey(taskQueue, taskId)[0],
+            taskReturnAccount1,
+            taskReturnAccount2,
+            tuktukProgram: tuktukProgram.programId,
+          })
+          .rpc({ skipPreflight: true });
+
+      it("refuses to requeue while the schedule task is still live", async () => {
+        const cronJobV0 = await cronProgram.account.cronJobV0.fetch(cronJob);
+        // Initialization queued a real task, so the pointer has something behind it.
+        expect(
+          await tuktukProgram.account.taskV0.fetchNullable(
+            cronJobV0.nextScheduleTask
+          )
+        ).to.not.be.null;
+
+        let failed = false;
+        try {
+          await requeue(1, cronJobV0.nextScheduleTask);
+        } catch (e) {
+          failed = true;
+        }
+        expect(failed).to.be.true;
+      });
+
+      it("refuses a next schedule task that is not the one on the cron job", async () => {
+        // The emptiness test is only worth anything if it has to be applied to the account the
+        // cron job actually names. Any unrelated empty account would otherwise satisfy it.
+        const unrelated = Keypair.generate().publicKey;
+        expect(await provider.connection.getAccountInfo(unrelated)).to.be.null;
+
+        let failed = false;
+        try {
+          await requeue(1, unrelated);
+        } catch (e) {
+          failed = true;
+        }
+        expect(failed).to.be.true;
+      });
+
+      it("requeues when the schedule task pointer has no task behind it", async () => {
+        // Queueing names its successor from an account the caller passes, and that account is
+        // only ever created from the task's return data. Called on its own, nothing creates it.
+        const orphan = Keypair.generate().publicKey;
+        const queueIx = await cronProgram.methods
+          .queueCronTasksV0()
+          .accounts({
+            cronJob,
+            taskQueue,
+            taskReturnAccount1,
+            taskReturnAccount2,
+          })
+          .remainingAccounts([
+            {
+              pubkey: cronJobTransactionKey(cronJob, 0)[0],
+              isSigner: false,
+              isWritable: false,
+            },
+            { pubkey: orphan, isSigner: false, isWritable: false },
+          ])
+          .instruction();
+        // The task queue receives the crank reward, and this instruction is normally reached
+        // through tuktuk, which passes it writable. Its own account struct does not say so.
+        queueIx.keys.find((k) => k.pubkey.equals(taskQueue))!.isWritable = true;
+        await sendInstructions(provider, [
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 1000000 }),
+          queueIx,
+        ]);
+
+        const wedged = await cronProgram.account.cronJobV0.fetch(cronJob);
+        expect(wedged.nextScheduleTask.toBase58()).to.eq(orphan.toBase58());
+        expect(wedged.removedFromQueue).to.be.false;
+        expect(await provider.connection.getAccountInfo(orphan)).to.be.null;
+
+        await requeue(1, orphan);
+
+        const requeued = await cronProgram.account.cronJobV0.fetch(cronJob);
+        expect(requeued.nextScheduleTask.toBase58()).to.eq(
+          taskKey(taskQueue, 1)[0].toBase58()
+        );
+        expect(
+          await tuktukProgram.account.taskV0.fetchNullable(
+            requeued.nextScheduleTask
+          )
+        ).to.not.be.null;
+      });
     });
   });
 });

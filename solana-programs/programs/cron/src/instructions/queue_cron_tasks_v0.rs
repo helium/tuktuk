@@ -12,7 +12,10 @@ use tuktuk_program::{
     RunTaskReturnV0, TaskQueueV0, TaskReturnV0, TransactionSourceV0, TriggerV0,
 };
 
-use crate::state::{CronJobTransactionV0, CronJobV0};
+use crate::{
+    error::ErrorCode,
+    state::{CronJobTransactionV0, CronJobV0},
+};
 
 // Queue tasks 5 minutes before the cron job is scheduled to run
 // This way we don't take up space in the task queue for tasks that are running
@@ -80,6 +83,15 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
         });
     }
 
+    // The transaction accounts come first and the free tasks follow them, so the slot holding the
+    // next schedule task is the highest index read below. The caller supplies these, so the count
+    // is not fixed by the program. Checked before any state moves forward.
+    require_gt!(
+        ctx.remaining_accounts.len(),
+        cron_job.num_tasks_per_queue_call as usize,
+        ErrorCode::NotEnoughAccounts
+    );
+
     if now - cron_job.current_exec_ts > stale_task_age as i64 {
         msg!("Cron job is stale, resetting");
         cron_job.current_exec_ts = now;
@@ -96,14 +108,21 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
     // If we reached the end this time, reset to 0 and move the next execution time forward
     if cron_job.current_transaction_id == cron_job.next_transaction_id {
         cron_job.current_transaction_id = 0;
-        let schedule = Schedule::from_str(&cron_job.schedule).unwrap();
+        let schedule = Schedule::from_str(&cron_job.schedule)
+            .map_err(|_| error!(ErrorCode::InvalidSchedule))?;
         // Find the next execution time after the last one
         let ts = cron_job.current_exec_ts;
         let date_time_ts = &DateTime::<Utc>::from_naive_utc_and_offset(
-            DateTime::from_timestamp(ts, 0).unwrap().naive_utc(),
+            DateTime::from_timestamp(ts, 0)
+                .ok_or(error!(ErrorCode::InvalidSchedule))?
+                .naive_utc(),
             Utc,
         );
-        cron_job.current_exec_ts = schedule.next_after(date_time_ts).unwrap().timestamp();
+        // A schedule need not have another occurrence after the one that just finished.
+        cron_job.current_exec_ts = schedule
+            .next_after(date_time_ts)
+            .ok_or(error!(ErrorCode::NoNextExecutionTime))?
+            .timestamp();
         msg!(
             "Will have finished execution ts: {}, moving to {}",
             ts,

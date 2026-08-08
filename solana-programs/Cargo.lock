@@ -596,7 +596,7 @@ dependencies = [
 
 [[package]]
 name = "cron"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -2756,7 +2756,7 @@ dependencies = [
 
 [[package]]
 name = "tuktuk"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anchor-lang",
  "anchor-spl",

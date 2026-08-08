@@ -18,4 +18,12 @@ pub enum ErrorCode {
     InvalidNumTasksPerQueueCall,
     #[msg("Too early to queue tasks")]
     TooEarly,
+    #[msg("Next schedule task does not match the one recorded on the cron job")]
+    InvalidNextScheduleTask,
+    #[msg("Cron job already has a schedule task queued")]
+    TaskAlreadyScheduled,
+    #[msg("Schedule has no next execution time")]
+    NoNextExecutionTime,
+    #[msg("Not enough accounts were provided for the tasks to queue")]
+    NotEnoughAccounts,
 }
