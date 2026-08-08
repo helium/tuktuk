@@ -50,3 +50,23 @@ export function makeid(length: number) {
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+/**
+ * Ids the queue currently holds tasks for, ascending.
+ *
+ * Crank turners take their free task ids from a randomized start so that concurrent turners
+ * do not collide, so a test needing a task some run created has to read the id back rather
+ * than assume it.
+ */
+export function usedTaskIds(taskBitmap: Buffer, capacity: number): number[] {
+  const ids: number[] = [];
+  for (let byteIdx = 0; byteIdx < taskBitmap.length; byteIdx++) {
+    for (let bitIdx = 0; bitIdx < 8; bitIdx++) {
+      const id = byteIdx * 8 + bitIdx;
+      if (id < capacity && (taskBitmap[byteIdx] & (1 << bitIdx)) !== 0) {
+        ids.push(id);
+      }
+    }
+  }
+  return ids;
+}

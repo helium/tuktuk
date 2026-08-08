@@ -3,37 +3,12 @@ import { customSignerKey, taskKey, taskQueueKey, taskQueueNameMappingKey, tuktuk
 import { Tuktuk } from "@helium/tuktuk-idls/lib/types/tuktuk";
 import { MethodsBuilder } from "@coral-xyz/anchor/dist/cjs/program/namespace/methods";
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
-import { compileTransaction } from "./transaction";
+import { compileTransaction, nextAvailableTaskIds } from "./transaction";
 
 export { init } from "./init"
 export * from "./constants"
 export * from "./pdas"
 export * from "./transaction"
-
-export function nextAvailableTaskIds(taskBitmap: Buffer, n: number, random: boolean = true): number[] {
-  if (n === 0) {
-    return [];
-  }
-
-  const availableTaskIds: number[] = [];
-  const randStart = random ? Math.floor(Math.random() * taskBitmap.length) : 0;
-  for (let byteOffset = 0; byteOffset < taskBitmap.length; byteOffset++) {
-    const byteIdx = (byteOffset + randStart) % taskBitmap.length;
-    const byte = taskBitmap[byteIdx];
-    if (byte !== 0xff) {
-      // If byte is not all 1s
-      for (let bitIdx = 0; bitIdx < 8; bitIdx++) {
-        if ((byte & (1 << bitIdx)) === 0) {
-          availableTaskIds.push(byteIdx * 8 + bitIdx);
-          if (availableTaskIds.length === n) {
-            return availableTaskIds;
-          }
-        }
-      }
-    }
-  }
-  return availableTaskIds;
-}
 
 export const TUKTUK_CONFIG = tuktukConfigKey()[0];
 
@@ -78,7 +53,11 @@ export async function queueTask(program: Program<Tuktuk>, {
   args: Omit<QueueTaskArgsV0, "id">,
 }): Promise<MethodsBuilder<Tuktuk, Tuktuk["instructions"][6]>> {
   const taskQueueAcc = await program.account.taskQueueV0.fetch(taskQueue);
-  const taskId = nextAvailableTaskIds(taskQueueAcc.taskBitmap, 1)[0];
+  const taskId = nextAvailableTaskIds(
+    taskQueueAcc.taskBitmap,
+    1,
+    taskQueueAcc.capacity
+  )[0];
   const task = taskKey(taskQueue, taskId)[0];
 
   // Queue the task

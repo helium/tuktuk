@@ -34,7 +34,12 @@ export async function createCronJob(program: Program<Cron>, {
   const userCronJobs = await program.account.userCronJobsV0.fetchNullable(userCronJobsK);
   const nextCronJobId = userCronJobs?.nextCronJobId ?? 0;
   const taskQueueAcc = await tuktukProgram.account.taskQueueV0.fetch(taskQueue);
-  const nextTaskId = nextAvailableTaskIds(taskQueueAcc.taskBitmap, 1, false)[0];
+  const nextTaskId = nextAvailableTaskIds(
+    taskQueueAcc.taskBitmap,
+    1,
+    taskQueueAcc.capacity,
+    false
+  )[0];
   return program.methods
     .initializeCronJobV0(args)
     .preInstructions([
