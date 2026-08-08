@@ -178,13 +178,16 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             })
             .collect();
 
+        // Seeds past the prefix come from the task's transaction, so they are not guaranteed to
+        // resolve to a valid off-curve address.
         let signer_addresses = signers_inner_u8
             .iter()
             .map(|s| {
                 let seeds: Vec<&[u8]> = s.iter().map(|v| v.as_slice()).collect();
-                Pubkey::create_program_address(&seeds, ctx.program_id).unwrap()
+                Pubkey::create_program_address(&seeds, ctx.program_id)
+                    .map_err(|_| error!(ErrorCode::InvalidSignerSeeds))
             })
-            .collect();
+            .collect::<Result<_>>()?;
 
         Ok(Self {
             ctx,
@@ -205,14 +208,26 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         ix: &CompiledInstructionV0,
         remaining_accounts: &[AccountInfo<'info>],
     ) -> Result<()> {
-        let mut accounts = Vec::new();
-        let mut account_infos = Vec::new();
+        // The allocator never frees, so a Vec that grows leaks every intermediate buffer. Both of
+        // these end up holding the instruction's accounts plus the free tasks appended below.
+        let free_task_count = self
+            .ctx
+            .remaining_accounts
+            .len()
+            .saturating_sub(self.free_task_index);
+        let capacity = ix.accounts.len().saturating_add(free_task_count);
+        let mut accounts = Vec::with_capacity(capacity);
+        let mut account_infos = Vec::with_capacity(capacity);
 
         msg!("Signer addresses: {:?}", self.signer_addresses);
 
         for i in &ix.accounts {
-            let acct = remaining_accounts[*i as usize].clone();
-            let mut acct = acct.clone();
+            // Indices come from the task's transaction and address a slice whose length the crank
+            // turner chooses, so neither side of this bound is fixed by the program.
+            let mut acct = remaining_accounts
+                .get(*i as usize)
+                .ok_or(error!(ErrorCode::InvalidAccountIndex))?
+                .clone();
             // A task may only sign for this queue's own `b"custom"` PDAs. Signer privilege is
             // never inherited from the outer transaction: the crank turner is an arbitrary,
             // untrusted account, and forwarding its signature would let any task drain it.
@@ -228,7 +243,10 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         }
 
         // Pass free tasks as remaining accounts so the task can know which IDs will be used
-        let program_id = remaining_accounts[ix.program_id_index as usize].key;
+        let program_id = remaining_accounts
+            .get(ix.program_id_index as usize)
+            .ok_or(error!(ErrorCode::InvalidAccountIndex))?
+            .key;
         // Ignore memo program because it expects every account passed to be a signer.
         if *program_id != MEMO_PROGRAM_ID {
             let free_tasks = &self.ctx.remaining_accounts[self.free_task_index..];
@@ -501,8 +519,14 @@ pub fn handler<'info>(
         TransactionSourceV0::RemoteV0 { signer, .. } => {
             let ix_index =
                 load_current_index_checked(&ctx.accounts.sysvar_instructions.to_account_info())?;
+            // The signature this task is verified against lives in the instruction immediately
+            // before this one, so there has to be one. The crank turner composes the transaction
+            // and can place this instruction first.
+            let verify_ix_index = ix_index
+                .checked_sub(1)
+                .ok_or(error!(ErrorCode::MalformedRemoteTransaction))?;
             let ix: Instruction = load_instruction_at_checked(
-                ix_index.checked_sub(1).unwrap() as usize,
+                verify_ix_index as usize,
                 &ctx.accounts.sysvar_instructions,
             )?;
             let data = utils::ed25519::verify_ed25519_ix(&ix, signer.to_bytes().as_slice())?;
