@@ -34,12 +34,23 @@ pub struct RequeueCronTaskV0<'info> {
         seeds::program = tuktuk_program.key(),
     )]
     pub task_queue_authority: Box<Account<'info, TaskQueueAuthorityV0>>,
-    #[account(
-        mut,
-        has_one = authority,
-        constraint = cron_job.removed_from_queue || cron_job.next_schedule_task == Pubkey::default()
-    )]
+    #[account(mut, has_one = authority)]
     pub cron_job: Box<Account<'info, CronJobV0>>,
+    /// CHECK: Pinned to `cron_job.next_schedule_task` by the first constraint. Requeueing puts a
+    /// schedule task back on the queue, so it is only safe while there is not already one live.
+    /// The stored key alone does not answer that — it names a task that may never have been
+    /// created — and an empty account there means there is nothing to displace. When the stored
+    /// key is `Pubkey::default()` this is the system program, which the second constraint's
+    /// earlier arm already accepts.
+    #[account(
+        constraint = next_schedule_task.key() == cron_job.next_schedule_task
+            @ ErrorCode::InvalidNextScheduleTask,
+        constraint = cron_job.removed_from_queue
+            || cron_job.next_schedule_task == Pubkey::default()
+            || next_schedule_task.data_is_empty()
+            @ ErrorCode::TaskAlreadyScheduled,
+    )]
+    pub next_schedule_task: UncheckedAccount<'info>,
     #[account(mut)]
     pub task_queue: Box<Account<'info, TaskQueueV0>>,
     /// CHECK: Initialized in CPI
