@@ -6,9 +6,12 @@ use solana_sdk::{
     instruction::Instruction, pubkey::Pubkey, signer::Signer, system_instruction::transfer,
 };
 use tuktuk::cron;
-use tuktuk_program::cron::{
-    accounts::{CronJobNameMappingV0, CronJobV0, UserCronJobsV0},
-    types::InitializeCronJobArgsV0,
+use tuktuk_program::{
+    cron::{
+        accounts::{CronJobNameMappingV0, CronJobV0, UserCronJobsV0},
+        types::InitializeCronJobArgsV0,
+    },
+    tuktuk::accounts::TaskV0,
 };
 use tuktuk_sdk::prelude::*;
 
@@ -59,7 +62,8 @@ pub enum Cmd {
         cron: CronArg,
         #[arg(
             long,
-            help = "Force requeue even if the cron job doesn't think it is removed from queue",
+            help = "Send the requeue even if the cron job doesn't think it is removed from \
+                    queue. The program still refuses while the task it recorded is live.",
             default_value = "false"
         )]
         force: bool,
@@ -111,6 +115,21 @@ impl CronCmd {
     ) -> Result<Instruction> {
         let ix = transfer(&client.payer.pubkey(), cron_job_key, amount);
         Ok(ix)
+    }
+
+    /// The same question the program's requeue gate asks: is the schedule task this cron job
+    /// recorded gone? `Pubkey::default()` is the system program, which exists, so it is answered
+    /// before any account is fetched. `removed_from_queue` is only set on the two lamport
+    /// shortfall paths, so it does not answer this on its own.
+    async fn needs_requeue(client: &CliClient, cron_job: &CronJobV0) -> Result<bool> {
+        if cron_job.next_schedule_task == Pubkey::default() {
+            return Ok(true);
+        }
+        let task: Option<TaskV0> = client
+            .rpc_client
+            .anchor_account(&cron_job.next_schedule_task)
+            .await?;
+        Ok(task.is_none())
     }
 
     async fn requeue_cron_job_ix(client: &CliClient, cron_job_key: &Pubkey) -> Result<Instruction> {
@@ -234,7 +253,7 @@ impl CronCmd {
                     .await?
                     .ok_or_else(|| anyhow::anyhow!("Cron job not found: {}", cron_job_key))?;
 
-                if cron_job.removed_from_queue || *force {
+                if Self::needs_requeue(&client, &cron_job).await? || *force {
                     let ix = Self::requeue_cron_job_ix(&client, &cron_job_key).await?;
                     send_instructions(
                         client.rpc_client.clone(),
@@ -263,7 +282,7 @@ impl CronCmd {
                 let fund_ix = Self::fund_cron_job_ix(&client, &cron_job_key, *amount).await?;
                 let mut ixs = vec![fund_ix];
 
-                if cron_job.removed_from_queue {
+                if Self::needs_requeue(&client, &cron_job).await? {
                     ixs.push(Self::requeue_cron_job_ix(&client, &cron_job_key).await?);
                 }
 

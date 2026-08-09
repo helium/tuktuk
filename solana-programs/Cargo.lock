@@ -596,12 +596,13 @@ dependencies = [
 
 [[package]]
 name = "cron"
-version = "0.2.6"
+version = "0.3.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
  "chrono",
  "clockwork-cron",
+ "solana-instruction",
  "solana-zk-sdk",
  "tuktuk-program",
 ]

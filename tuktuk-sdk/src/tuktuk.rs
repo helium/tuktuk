@@ -246,18 +246,21 @@ pub mod cron {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn requeue_ix(
         payer: Pubkey,
         authority: Pubkey,
         queue_authority: Pubkey,
         cron_job_key: Pubkey,
         task_queue_key: Pubkey,
+        next_schedule_task: Pubkey,
         task_id: u16,
     ) -> Result<Instruction, Error> {
         Ok(Instruction {
             program_id: ID,
             accounts: cron::client::accounts::RequeueCronTaskV0 {
                 cron_job: cron_job_key,
+                next_schedule_task,
                 task_queue: task_queue_key,
                 task: task::key(&task_queue_key, task_id),
                 system_program: solana_sdk::system_program::ID,
@@ -299,7 +302,10 @@ pub mod cron {
             queue_authority,
             cron_job_key,
             task_queue_key,
-            task_queue.next_available_task_id().unwrap(),
+            cron_job.next_schedule_task,
+            task_queue
+                .next_available_task_id()
+                .ok_or(Error::NotEnoughFreeTasks)?,
         )
     }
 }

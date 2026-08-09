@@ -1,6 +1,6 @@
 [package]
 name = "cron"
-version = "0.2.6"
+version = "0.3.0"
 description = "Created with Anchor"
 edition = "2021"
 
@@ -30,4 +30,7 @@ solana-zk-sdk = { workspace = true }
 tuktuk-program = { git = "https://github.com/helium/tuktuk.git", rev = "112afe5e80aff8199c3b779203b76b35d97c42d1" }
 clockwork-cron = "2.0.19"
 chrono = "0.4.39"
+
+[dev-dependencies]
+solana-instruction = { version = "2.2.1", features = ["std"] }
 

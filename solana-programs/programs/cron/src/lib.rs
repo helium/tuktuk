@@ -5,6 +5,7 @@ pub mod error;
 pub mod instructions;
 pub use instructions::*;
 mod resize_to_fit;
+pub mod schedule;
 pub mod state;
 
 declare_id!("cronAjRZnJn3MTP3B9kE62NWDrjSuAPVXf9c4hu4grM");
@@ -30,6 +31,10 @@ pub mod cron {
 
     pub fn queue_cron_tasks_v0(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
         queue_cron_tasks_v0::handler(ctx)
+    }
+
+    pub fn queue_cron_tasks_v1(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
+        queue_cron_tasks_v1::handler(ctx)
     }
 
     pub fn remove_cron_transaction_v0(

@@ -2,14 +2,23 @@
   "address": "cronAjRZnJn3MTP3B9kE62NWDrjSuAPVXf9c4hu4grM",
   "metadata": {
     "name": "cron",
-    "version": "0.2.2",
+    "version": "0.3.0",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },
   "instructions": [
     {
       "name": "add_cron_transaction_v0",
-      "discriminator": [22, 94, 81, 77, 143, 154, 255, 102],
+      "discriminator": [
+        22,
+        94,
+        81,
+        77,
+        143,
+        154,
+        255,
+        102
+      ],
       "accounts": [
         {
           "name": "payer",
@@ -19,7 +28,9 @@
         {
           "name": "authority",
           "signer": true,
-          "relations": ["cron_job"]
+          "relations": [
+            "cron_job"
+          ]
         },
         {
           "name": "cron_job",
@@ -47,7 +58,16 @@
     },
     {
       "name": "close_cron_job_v0",
-      "discriminator": [114, 152, 214, 24, 97, 36, 231, 102],
+      "discriminator": [
+        114,
+        152,
+        214,
+        24,
+        97,
+        36,
+        231,
+        102
+      ],
       "accounts": [
         {
           "name": "rent_refund",
@@ -56,12 +76,16 @@
         {
           "name": "authority",
           "signer": true,
-          "relations": ["cron_job"]
+          "relations": [
+            "cron_job"
+          ]
         },
         {
           "name": "user_cron_jobs",
           "writable": true,
-          "relations": ["cron_job"]
+          "relations": [
+            "cron_job"
+          ]
         },
         {
           "name": "cron_job",
@@ -83,8 +107,27 @@
               {
                 "kind": "const",
                 "value": [
-                  116, 97, 115, 107, 95, 114, 101, 116, 117, 114, 110, 95, 97,
-                  99, 99, 111, 117, 110, 116, 95, 49
+                  116,
+                  97,
+                  115,
+                  107,
+                  95,
+                  114,
+                  101,
+                  116,
+                  117,
+                  114,
+                  110,
+                  95,
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  95,
+                  49
                 ]
               },
               {
@@ -102,8 +145,27 @@
               {
                 "kind": "const",
                 "value": [
-                  116, 97, 115, 107, 95, 114, 101, 116, 117, 114, 110, 95, 97,
-                  99, 99, 111, 117, 110, 116, 95, 50
+                  116,
+                  97,
+                  115,
+                  107,
+                  95,
+                  114,
+                  101,
+                  116,
+                  117,
+                  114,
+                  110,
+                  95,
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  95,
+                  50
                 ]
               },
               {
@@ -118,7 +180,16 @@
     },
     {
       "name": "initialize_cron_job_v0",
-      "discriminator": [246, 64, 133, 115, 169, 84, 130, 133],
+      "discriminator": [
+        246,
+        64,
+        133,
+        115,
+        169,
+        84,
+        130,
+        133
+      ],
       "accounts": [
         {
           "name": "payer",
@@ -136,8 +207,26 @@
               {
                 "kind": "const",
                 "value": [
-                  116, 97, 115, 107, 95, 113, 117, 101, 117, 101, 95, 97, 117,
-                  116, 104, 111, 114, 105, 116, 121
+                  116,
+                  97,
+                  115,
+                  107,
+                  95,
+                  113,
+                  117,
+                  101,
+                  117,
+                  101,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
                 ]
               },
               {
@@ -167,7 +256,19 @@
               {
                 "kind": "const",
                 "value": [
-                  117, 115, 101, 114, 95, 99, 114, 111, 110, 95, 106, 111, 98,
+                  117,
+                  115,
+                  101,
+                  114,
+                  95,
+                  99,
+                  114,
+                  111,
+                  110,
+                  95,
+                  106,
+                  111,
+                  98,
                   115
                 ]
               },
@@ -202,8 +303,27 @@
               {
                 "kind": "const",
                 "value": [
-                  116, 97, 115, 107, 95, 114, 101, 116, 117, 114, 110, 95, 97,
-                  99, 99, 111, 117, 110, 116, 95, 49
+                  116,
+                  97,
+                  115,
+                  107,
+                  95,
+                  114,
+                  101,
+                  116,
+                  117,
+                  114,
+                  110,
+                  95,
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  95,
+                  49
                 ]
               },
               {
@@ -221,8 +341,27 @@
               {
                 "kind": "const",
                 "value": [
-                  116, 97, 115, 107, 95, 114, 101, 116, 117, 114, 110, 95, 97,
-                  99, 99, 111, 117, 110, 116, 95, 50
+                  116,
+                  97,
+                  115,
+                  107,
+                  95,
+                  114,
+                  101,
+                  116,
+                  117,
+                  114,
+                  110,
+                  95,
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  95,
+                  50
                 ]
               },
               {
@@ -254,15 +393,23 @@
     },
     {
       "name": "queue_cron_tasks_v0",
-      "discriminator": [189, 88, 205, 111, 249, 161, 241, 211],
+      "discriminator": [
+        189,
+        88,
+        205,
+        111,
+        249,
+        161,
+        241,
+        211
+      ],
       "accounts": [
         {
           "name": "cron_job",
           "writable": true
         },
         {
-          "name": "task_queue",
-          "relations": ["cron_job"]
+          "name": "task_queue"
         },
         {
           "name": "task_return_account_1",
@@ -272,8 +419,27 @@
               {
                 "kind": "const",
                 "value": [
-                  116, 97, 115, 107, 95, 114, 101, 116, 117, 114, 110, 95, 97,
-                  99, 99, 111, 117, 110, 116, 95, 49
+                  116,
+                  97,
+                  115,
+                  107,
+                  95,
+                  114,
+                  101,
+                  116,
+                  117,
+                  114,
+                  110,
+                  95,
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  95,
+                  49
                 ]
               },
               {
@@ -291,8 +457,27 @@
               {
                 "kind": "const",
                 "value": [
-                  116, 97, 115, 107, 95, 114, 101, 116, 117, 114, 110, 95, 97,
-                  99, 99, 111, 117, 110, 116, 95, 50
+                  116,
+                  97,
+                  115,
+                  107,
+                  95,
+                  114,
+                  101,
+                  116,
+                  117,
+                  114,
+                  110,
+                  95,
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  95,
+                  50
                 ]
               },
               {
@@ -315,8 +500,213 @@
       }
     },
     {
+      "name": "queue_cron_tasks_v1",
+      "discriminator": [
+        225,
+        26,
+        241,
+        151,
+        79,
+        233,
+        67,
+        126
+      ],
+      "accounts": [
+        {
+          "name": "cron_job",
+          "writable": true
+        },
+        {
+          "name": "task_queue"
+        },
+        {
+          "name": "task_return_account_1",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  115,
+                  107,
+                  95,
+                  114,
+                  101,
+                  116,
+                  117,
+                  114,
+                  110,
+                  95,
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  95,
+                  49
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "cron_job"
+              }
+            ]
+          }
+        },
+        {
+          "name": "task_return_account_2",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  115,
+                  107,
+                  95,
+                  114,
+                  101,
+                  116,
+                  117,
+                  114,
+                  110,
+                  95,
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  95,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "cron_job"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "cron_signer",
+          "docs": [
+            "The seeds tuktuk signs for while it runs this cron job's schedule task. Every field the",
+            "handler advances is derived from `cron_job`, so this signature is what says the advance",
+            "belongs to that job's own schedule."
+          ],
+          "signer": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  117,
+                  115,
+                  116,
+                  111,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task_queue"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  114,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "cron_job"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                13,
+                76,
+                70,
+                9,
+                57,
+                241,
+                194,
+                170,
+                222,
+                60,
+                41,
+                201,
+                147,
+                62,
+                217,
+                203,
+                139,
+                89,
+                45,
+                87,
+                176,
+                98,
+                76,
+                21,
+                182,
+                104,
+                119,
+                57,
+                144,
+                219,
+                43,
+                21
+              ]
+            }
+          }
+        },
+        {
+          "name": "sysvar_instructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "recorded_schedule_task",
+          "docs": [
+            "cron job records the one task carrying its schedule."
+          ]
+        }
+      ],
+      "args": [],
+      "returns": {
+        "defined": {
+          "name": "RunTaskReturnV0"
+        }
+      }
+    },
+    {
       "name": "remove_cron_transaction_v0",
-      "discriminator": [207, 237, 8, 195, 65, 111, 124, 247],
+      "discriminator": [
+        207,
+        237,
+        8,
+        195,
+        65,
+        111,
+        124,
+        247
+      ],
       "accounts": [
         {
           "name": "rent_refund",
@@ -326,12 +716,16 @@
         {
           "name": "authority",
           "signer": true,
-          "relations": ["cron_job"]
+          "relations": [
+            "cron_job"
+          ]
         },
         {
           "name": "cron_job",
           "writable": true,
-          "relations": ["cron_job_transaction"]
+          "relations": [
+            "cron_job_transaction"
+          ]
         },
         {
           "name": "cron_job_transaction",
@@ -355,7 +749,16 @@
     },
     {
       "name": "requeue_cron_task_v0",
-      "discriminator": [235, 143, 86, 234, 79, 166, 165, 177],
+      "discriminator": [
+        235,
+        143,
+        86,
+        234,
+        79,
+        166,
+        165,
+        177
+      ],
       "accounts": [
         {
           "name": "payer",
@@ -365,7 +768,9 @@
         {
           "name": "authority",
           "signer": true,
-          "relations": ["cron_job"]
+          "relations": [
+            "cron_job"
+          ]
         },
         {
           "name": "queue_authority",
@@ -378,8 +783,26 @@
               {
                 "kind": "const",
                 "value": [
-                  116, 97, 115, 107, 95, 113, 117, 101, 117, 101, 95, 97, 117,
-                  116, 104, 111, 114, 105, 116, 121
+                  116,
+                  97,
+                  115,
+                  107,
+                  95,
+                  113,
+                  117,
+                  101,
+                  117,
+                  101,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
                 ]
               },
               {
@@ -402,6 +825,14 @@
           "writable": true
         },
         {
+          "name": "next_schedule_task",
+          "docs": [
+            "task may only be queued once that record holds nothing. `Pubkey::default()` is the",
+            "system program, which has data, so it is spelled out rather than left to the emptiness",
+            "test."
+          ]
+        },
+        {
           "name": "task_queue",
           "writable": true
         },
@@ -417,8 +848,27 @@
               {
                 "kind": "const",
                 "value": [
-                  116, 97, 115, 107, 95, 114, 101, 116, 117, 114, 110, 95, 97,
-                  99, 99, 111, 117, 110, 116, 95, 49
+                  116,
+                  97,
+                  115,
+                  107,
+                  95,
+                  114,
+                  101,
+                  116,
+                  117,
+                  114,
+                  110,
+                  95,
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  95,
+                  49
                 ]
               },
               {
@@ -436,8 +886,27 @@
               {
                 "kind": "const",
                 "value": [
-                  116, 97, 115, 107, 95, 114, 101, 116, 117, 114, 110, 95, 97,
-                  99, 99, 111, 117, 110, 116, 95, 50
+                  116,
+                  97,
+                  115,
+                  107,
+                  95,
+                  114,
+                  101,
+                  116,
+                  117,
+                  114,
+                  110,
+                  95,
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  95,
+                  50
                 ]
               },
               {
@@ -471,27 +940,81 @@
   "accounts": [
     {
       "name": "CronJobNameMappingV0",
-      "discriminator": [80, 161, 45, 135, 20, 80, 18, 234]
+      "discriminator": [
+        80,
+        161,
+        45,
+        135,
+        20,
+        80,
+        18,
+        234
+      ]
     },
     {
       "name": "CronJobTransactionV0",
-      "discriminator": [117, 255, 57, 94, 180, 229, 113, 39]
+      "discriminator": [
+        117,
+        255,
+        57,
+        94,
+        180,
+        229,
+        113,
+        39
+      ]
     },
     {
       "name": "CronJobV0",
-      "discriminator": [69, 161, 189, 23, 250, 59, 67, 157]
+      "discriminator": [
+        69,
+        161,
+        189,
+        23,
+        250,
+        59,
+        67,
+        157
+      ]
     },
     {
       "name": "TaskQueueAuthorityV0",
-      "discriminator": [206, 37, 171, 34, 162, 191, 47, 50]
+      "discriminator": [
+        206,
+        37,
+        171,
+        34,
+        162,
+        191,
+        47,
+        50
+      ]
     },
     {
       "name": "TaskQueueV0",
-      "discriminator": [150, 24, 232, 159, 105, 32, 161, 17]
+      "discriminator": [
+        150,
+        24,
+        232,
+        159,
+        105,
+        32,
+        161,
+        17
+      ]
     },
     {
       "name": "UserCronJobsV0",
-      "discriminator": [62, 38, 165, 254, 98, 211, 89, 60]
+      "discriminator": [
+        62,
+        38,
+        165,
+        254,
+        98,
+        211,
+        89,
+        60
+      ]
     }
   ],
   "errors": [
@@ -534,6 +1057,31 @@
       "code": 6007,
       "name": "TooEarly",
       "msg": "Too early to queue tasks"
+    },
+    {
+      "code": 6008,
+      "name": "TaskAlreadyQueued",
+      "msg": "Cron job already has a scheduled task"
+    },
+    {
+      "code": 6009,
+      "name": "NotEnoughAccounts",
+      "msg": "Not enough accounts"
+    },
+    {
+      "code": 6010,
+      "name": "TaskQueueFull",
+      "msg": "Task queue is full"
+    },
+    {
+      "code": 6011,
+      "name": "NotRunningAsScheduledTask",
+      "msg": "Not running as a scheduled task"
+    },
+    {
+      "code": 6012,
+      "name": "WrongScheduleTask",
+      "msg": "Not the schedule task this cron job records"
     }
   ],
   "types": [
@@ -990,7 +1538,9 @@
           },
           {
             "name": "Timestamp",
-            "fields": ["i64"]
+            "fields": [
+              "i64"
+            ]
           }
         ]
       }
