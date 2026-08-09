@@ -952,6 +952,75 @@ describe("cron", () => {
         expectUnchanged(before, await snapshot(keys), keys);
       });
 
+      it("refuses a schedule run that queues another cron job's transactions", async () => {
+        // A record only says which job it belongs to in its contents, so a run that named
+        // someone else's would spend this job's funds on their work.
+        const { job: other } = await createCronJobFor(makeid(10), 10000000000);
+        await addCronTransaction(other, 0);
+
+        // Reach the record check by adopting a vacancy: retire this job's schedule task first.
+        const recorded = await recordedTask(cronJob);
+        await dequeue(recorded);
+
+        const [cronSigner, bump] = customSignerKey(taskQueue, [
+          Buffer.from("cron"),
+          cronJob.toBuffer(),
+        ]);
+        const ix = await cronProgram.methods
+          .queueCronTasksV1()
+          .accountsPartial({
+            cronJob,
+            taskQueue,
+            cronSigner,
+            recordedScheduleTask: recorded,
+          })
+          .remainingAccounts([
+            {
+              pubkey: cronJobTransactionKey(other, 0)[0],
+              isSigner: false,
+              isWritable: false,
+            },
+          ])
+          .instruction();
+        const bumpBuffer = Buffer.alloc(1);
+        bumpBuffer.writeUint8(bump);
+        const compiled = compileTransaction(
+          [ix],
+          [[Buffer.from("cron"), cronJob.toBuffer(), bumpBuffer]]
+        );
+        const mintTask = taskKey(taskQueue, 7)[0];
+        await tuktukProgram.methods
+          .queueTaskV0({
+            id: 7,
+            trigger: { now: {} },
+            transaction: { compiledV0: [compiled.transaction] },
+            crankReward: null,
+            freeTasks: numTasksPerQueueCall + 1,
+            description: "queue foreign",
+          })
+          .remainingAccounts(compiled.remainingAccounts)
+          .accounts({ payer: me, taskQueue, task: mintTask })
+          .rpc({ skipPreflight: true });
+
+        const keys = watched(cronJob);
+        const before = await snapshot(keys);
+        const ixs = await runTask({
+          program: tuktukProgram,
+          task: mintTask,
+          crankTurner: me,
+          nextAvailableTaskIds: [86, 87],
+        });
+        await expectRefusal(
+          [ComputeBudgetProgram.setComputeUnitLimit({ units: 1000000 }), ...ixs],
+          {
+            program: cronProgram.programId,
+            error: "WrongCronTransaction",
+            code: 6013,
+          }
+        );
+        expectUnchanged(before, await snapshot(keys), keys);
+      });
+
       it("keeps the largest schedule transaction in use inside one transaction", async () => {
         // Every live cron job but one uses num_tasks_per_queue_call = 8, and the accounts a
         // schedule run names grow with it. Measured rather than reasoned about: the account

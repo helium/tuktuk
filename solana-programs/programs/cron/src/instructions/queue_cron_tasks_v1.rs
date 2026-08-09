@@ -119,6 +119,15 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
         (cron_job.num_tasks_per_queue_call as u32).min(max_num_tasks_remaining);
     cron_job.current_transaction_id += num_tasks_to_queue;
 
+    // The records to queue are named by the task's stored transaction, and only their contents
+    // say which cron job they belong to. Each must be this one's, or a run would queue another
+    // job's transactions on this job's funds.
+    for account in accounts.iter().take(num_tasks_to_queue as usize) {
+        if let Some(owner) = CronJobTransactionV0::cron_job_of(account)? {
+            require_keys_eq!(owner, cron_job.key(), ErrorCode::WrongCronTransaction);
+        }
+    }
+
     let trigger = TriggerV0::Timestamp(cron_job.current_exec_ts);
 
     // If we reached the end this time, reset to 0 and move the next execution time forward

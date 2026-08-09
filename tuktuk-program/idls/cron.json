@@ -1082,6 +1082,11 @@
       "code": 6012,
       "name": "WrongScheduleTask",
       "msg": "Not the schedule task this cron job records"
+    },
+    {
+      "code": 6013,
+      "name": "WrongCronTransaction",
+      "msg": "Not a transaction of this cron job"
     }
   ],
   "types": [

@@ -28,4 +28,6 @@ pub enum ErrorCode {
     NotRunningAsScheduledTask,
     #[msg("Not the schedule task this cron job records")]
     WrongScheduleTask,
+    #[msg("Not a transaction of this cron job")]
+    WrongCronTransaction,
 }
