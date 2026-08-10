@@ -1,0 +1,5 @@
+[toolchain]
+# litesvm and solana-sdk pull in crates whose manifests need a newer toolchain than the
+# programs are built with, which is why this is its own workspace rather than part of
+# solana-programs.
+channel = "stable"

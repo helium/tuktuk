@@ -8,7 +8,11 @@ on:
     branches:
       - main
       - develop
-    paths: ['solana-programs/**', '.github/workflows/solana-programs.yml']
+    paths:
+      - 'solana-programs/**'
+      - 'program-tests/**'
+      - '.github/workflows/solana-programs.yaml'
+      - '.github/actions/**'
   
 env:
   SOLANA_CLI_VERSION: 2.1.6
@@ -110,6 +114,19 @@ jobs:
   #     - run: cd $RUST_PATH && cargo build
   #       env:
   #         RUST_PATH: ${{ matrix.test }}
+
+  test-svm:
+    needs: build
+    name: SVM Program Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: ./.github/actions/build-anchor/
+        with:
+          testing: true
+      # This crate is its own workspace, so it needs its own step.
+      - run: cargo test
+        working-directory: program-tests
 
   test-contracts:
     needs: build
