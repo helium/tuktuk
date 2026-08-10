@@ -67,7 +67,7 @@ pub fn handler(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
 
     require_gte!(
         task_queue.header().capacity,
-        (args.free_tasks + 1) as u16,
+        args.free_tasks as u16 + 1,
         ErrorCode::FreeTasksGreaterThanCapacity
     );
     require_gte!(
