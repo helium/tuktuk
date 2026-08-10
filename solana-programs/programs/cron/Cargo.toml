@@ -8,6 +8,9 @@ edition = "2021"
 crate-type = ["cdylib", "lib"]
 name = "cron"
 
+[lints]
+workspace = true
+
 [features]
 default = []
 devnet = []

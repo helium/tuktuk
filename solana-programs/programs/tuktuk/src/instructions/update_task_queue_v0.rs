@@ -31,7 +31,7 @@ pub fn handler(ctx: Context<UpdateTaskQueueV0>, args: UpdateTaskQueueArgsV0) -> 
     if let Some(capacity) = args.capacity {
         require_gte!(capacity, ctx.accounts.task_queue.capacity);
         let old_bitmap = ctx.accounts.task_queue.task_bitmap.clone();
-        let new_bitmap_size = ((capacity + 7) / 8) as usize;
+        let new_bitmap_size = capacity.div_ceil(8) as usize;
         let mut new_bitmap = vec![0; new_bitmap_size];
 
         // Copy over the existing bitmap data

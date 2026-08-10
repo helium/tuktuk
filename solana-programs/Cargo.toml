@@ -17,3 +17,11 @@ codegen-units = 1
 anchor-lang = "0.31.1"
 anchor-spl = "0.31.1"
 solana-zk-sdk = "2.2.3"
+
+# The anchor/solana program macros emit these cfgs, so declare them as expected.
+# Otherwise Rust's check-cfg flags them and clippy -D warnings fails CI.
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("custom-heap", "custom-panic", "anchor-debug"))',
+] }
