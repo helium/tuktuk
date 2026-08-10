@@ -695,7 +695,7 @@ describe("cron", () => {
       });
 
       it("refuses queue_cron_tasks_v1 handed something other than the instructions sysvar", async () => {
-        // The running task is read out of that account, so anything else could name any task.
+        // The running task is read out of that account, so it has to be the real sysvar.
         const recorded = await recordedTask(cronJob);
         const cronSigner = customSignerKey(taskQueue, [
           Buffer.from("cron"),
