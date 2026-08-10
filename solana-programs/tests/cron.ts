@@ -626,6 +626,81 @@ describe("cron", () => {
         ).to.not.be.null;
       });
 
+      it("hands over once the task the record names is gone again", async () => {
+        // The id the record names is free from the moment the legacy task closes, and the
+        // successor runs a little later, so another task on this queue can hold that address
+        // when the successor arrives. The handover waits for it rather than consuming it.
+        await dequeue(taskKey(taskQueue, initialTaskId)[0]);
+
+        const legacy = compileTransaction([legacyScheduleIx(cronJob)], []);
+        const legacyTaskId = 1;
+        const legacyTask = taskKey(taskQueue, legacyTaskId)[0];
+        await tuktukProgram.methods
+          .queueTaskV0({
+            id: legacyTaskId,
+            trigger: { now: {} },
+            transaction: { compiledV0: [legacy.transaction] },
+            crankReward: null,
+            freeTasks: numTasksPerQueueCall + 1,
+            description: "queue legacy",
+          })
+          .remainingAccounts(legacy.remainingAccounts)
+          .accounts({ payer: me, taskQueue, task: legacyTask })
+          .rpc({ skipPreflight: true });
+
+        const successorIds = [20, 21];
+        await run(legacyTask, successorIds);
+        const successor = taskKey(taskQueue, successorIds[0])[0];
+
+        // Someone else's task, holding the address the record names. It carries no
+        // instructions, so running it is the whole of what it does.
+        const squatter = compileTransaction([], []);
+        await tuktukProgram.methods
+          .queueTaskV0({
+            id: initialTaskId,
+            trigger: { now: {} },
+            transaction: { compiledV0: [squatter.transaction] },
+            crankReward: null,
+            freeTasks: 0,
+            description: "unrelated",
+          })
+          .remainingAccounts(squatter.remainingAccounts)
+          .accounts({ payer: me, taskQueue, task: taskKey(taskQueue, initialTaskId)[0] })
+          .rpc({ skipPreflight: true });
+
+        const nextIds = [30, 31];
+        await expectRefusal(
+          await runTask({
+            program: tuktukProgram,
+            task: successor,
+            crankTurner: me,
+            nextAvailableTaskIds: nextIds,
+          }),
+          {
+            program: cronProgram.programId,
+            error: "WrongScheduleTask",
+            code: 6012,
+          }
+        );
+
+        // The successor is still queued: the refusal fails the run rather than consuming it.
+        expect(
+          await tuktukProgram.account.taskV0.fetchNullable(successor),
+          "the successor survives a refused run"
+        ).to.not.be.null;
+
+        // The other task runs and closes like any other, and the handover then completes.
+        await run(taskKey(taskQueue, initialTaskId)[0], []);
+        await run(successor, nextIds);
+
+        const cronJobAcc = await cronProgram.account.cronJobV0.fetch(cronJob);
+        expect(
+          cronJobAcc.nextScheduleTask.toBase58(),
+          "the chain carries on from the successor"
+        ).to.eq(taskKey(taskQueue, nextIds[0])[0].toBase58());
+        expect(cronJobAcc.removedFromQueue).to.be.false;
+      });
+
       it("leaves every account untouched when queue_cron_tasks_v0 is called directly", async () => {
         const keys = watched(cronJob);
         const before = await snapshot(keys);
@@ -728,8 +803,8 @@ describe("cron", () => {
       });
 
       it("refuses a schedule run that names a record the cron job does not hold", async () => {
-        // Without the record being pinned to the cron job's own field, a minted chain would
-        // simply name an empty account of its choosing and be adopted.
+        // The record a schedule run is measured against is the cron job's own field, not an
+        // account the run names.
         const [cronSigner, bump] = customSignerKey(taskQueue, [
           Buffer.from("cron"),
           cronJob.toBuffer(),
@@ -903,9 +978,8 @@ describe("cron", () => {
       });
 
       it("refuses a second schedule chain minted while the recorded one is live", async () => {
-        // The handover carries no signer, so anything able to queue a task on this queue can
-        // run it and be handed a schedule task. What that task cannot do is present itself as
-        // this cron job's schedule while the job records a different, live one.
+        // A cron job carries one schedule chain at a time: while the job records a live
+        // schedule task, that task is the only one it answers to.
         const recorded = await recordedTask(cronJob);
         expect(
           await tuktukProgram.account.taskV0.fetchNullable(recorded),
@@ -953,8 +1027,8 @@ describe("cron", () => {
       });
 
       it("refuses a schedule run that queues another cron job's transactions", async () => {
-        // A record only says which job it belongs to in its contents, so a run that named
-        // someone else's would spend this job's funds on their work.
+        // A record says which job it belongs to in its contents, and a schedule run queues
+        // only the records belonging to the job whose funds pay for them.
         const { job: other } = await createCronJobFor(makeid(10), 10000000000);
         await addCronTransaction(other, 0);
 
