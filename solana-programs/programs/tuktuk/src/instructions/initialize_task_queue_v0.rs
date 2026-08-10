@@ -35,7 +35,7 @@ pub struct InitializeTaskQueueV0<'info> {
       payer = payer,
       seeds = ["task_queue".as_bytes(), tuktuk_config.key().as_ref(), &tuktuk_config.next_task_queue_id.to_le_bytes()[..]],
       bump,
-      space = 60 + std::mem::size_of::<TaskQueueV0>() + args.name.len() + ((args.capacity + 7) / 8) as usize + args.lookup_tables.len() * 32,
+      space = 60 + std::mem::size_of::<TaskQueueV0>() + args.name.len() + args.capacity.div_ceil(8) as usize + args.lookup_tables.len() * 32,
     )]
     pub task_queue: Box<Account<'info, TaskQueueV0>>,
     #[account(
@@ -76,7 +76,7 @@ pub fn handler(ctx: Context<InitializeTaskQueueV0>, args: InitializeTaskQueueArg
         reserved: Pubkey::default(),
         min_crank_reward: args.min_crank_reward,
         capacity: args.capacity,
-        task_bitmap: vec![0; ((args.capacity + 7) / 8) as usize],
+        task_bitmap: vec![0; args.capacity.div_ceil(8) as usize],
         name: args.name.clone(),
         bump_seed: ctx.bumps.task_queue,
         created_at: Clock::get()?.unix_timestamp,
