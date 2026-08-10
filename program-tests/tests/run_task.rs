@@ -1,0 +1,608 @@
+//! `run_task_v0` driven against the built program in an in-process SVM.
+//!
+//! These cover behaviour the TypeScript suite cannot reach: what a crank turner can hand in,
+//! and what the program does with a task returned by the program it just ran. The turner and
+//! the returning program are both inputs nobody else chooses, so each is exercised directly
+//! rather than through a well-behaved client.
+//!
+//! Requires the program to be built first — `anchor build` in `solana-programs/`, or set
+//! `TUKTUK_SO` to a specific artifact.
+
+use anchor_lang::{AccountSerialize, InstructionData, ToAccountMetas};
+use litesvm::{
+    types::{FailedTransactionMetadata, TransactionMetadata},
+    LiteSVM,
+};
+use solana_sdk::{
+    account::Account,
+    clock::Clock,
+    instruction::{AccountMeta, Instruction, InstructionError},
+    pubkey::Pubkey,
+    signature::{Keypair, Signer},
+    system_program, sysvar,
+    transaction::{Transaction, TransactionError},
+};
+use tuktuk::state::{
+    CompiledInstructionV0, CompiledTransactionV0, TransactionSourceV0, TriggerV0, TuktukConfigV0,
+};
+
+type SendResult = Result<TransactionMetadata, FailedTransactionMetadata>;
+
+fn so_path() -> String {
+    std::env::var("TUKTUK_SO").unwrap_or_else(|_| {
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../solana-programs/target/deploy/tuktuk.so"
+        )
+        .to_string()
+    })
+}
+
+fn config_pda() -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[b"tuktuk_config"], &tuktuk::ID)
+}
+
+fn task_queue_pda(config: &Pubkey, id: u32) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[b"task_queue", config.as_ref(), &id.to_le_bytes()],
+        &tuktuk::ID,
+    )
+}
+
+fn name_mapping_pda(config: &Pubkey, name: &str) -> (Pubkey, u8) {
+    let hashed = solana_sdk::hash::hash(name.as_bytes()).to_bytes();
+    Pubkey::find_program_address(
+        &[b"task_queue_name_mapping", config.as_ref(), &hashed],
+        &tuktuk::ID,
+    )
+}
+
+fn queue_authority_pda(task_queue: &Pubkey, authority: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[
+            b"task_queue_authority",
+            task_queue.as_ref(),
+            authority.as_ref(),
+        ],
+        &tuktuk::ID,
+    )
+}
+
+fn task_pda(task_queue: &Pubkey, id: u16) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[b"task", task_queue.as_ref(), &id.to_le_bytes()],
+        &tuktuk::ID,
+    )
+}
+
+fn lamports(svm: &LiteSVM, key: &Pubkey) -> u64 {
+    svm.get_account(key).map(|a| a.lamports).unwrap_or(0)
+}
+
+fn task_account_exists(svm: &LiteSVM, key: &Pubkey) -> bool {
+    svm.get_account(key)
+        .map(|a| a.owner == tuktuk::ID && !a.data.is_empty())
+        .unwrap_or(false)
+}
+
+/// True when the program aborted rather than returning an error of its own. A refusal the
+/// program names is a different outcome from one it crashed on, and these tests distinguish them.
+fn aborted(result: &SendResult) -> bool {
+    matches!(
+        result,
+        Err(e) if matches!(
+            e.err,
+            TransactionError::InstructionError(_, InstructionError::ProgramFailedToComplete)
+        )
+    )
+}
+
+/// The program's own error code, when the failure was one the program named. Asserting on this
+/// rather than on "it failed" is what ties a test to the specific refusal it is about -- a run
+/// can fail for plenty of reasons that have nothing to do with the guard under test.
+fn refusal(result: &SendResult) -> Option<u32> {
+    match result {
+        Err(e) => match e.err {
+            TransactionError::InstructionError(_, InstructionError::Custom(code)) => Some(code),
+            _ => None,
+        },
+        Ok(_) => None,
+    }
+}
+
+fn code(error: tuktuk::error::ErrorCode) -> Option<u32> {
+    Some(u32::from(error))
+}
+
+fn send(svm: &mut LiteSVM, ixs: &[Instruction], payer: &Keypair, signers: &[&Keypair]) -> SendResult {
+    let blockhash = svm.latest_blockhash();
+    let tx = Transaction::new_signed_with_payer(ixs, Some(&payer.pubkey()), signers, blockhash);
+    svm.send_transaction(tx)
+}
+
+/// A single-instruction compiled transaction with every account read-only, laid out as
+/// `[named..., program_id]`.
+fn compile_readonly(program_id: Pubkey, named: &[Pubkey], data: Vec<u8>) -> CompiledTransactionV0 {
+    let mut accounts: Vec<Pubkey> = named.to_vec();
+    let program_id_index = accounts.len() as u8;
+    accounts.push(program_id);
+    CompiledTransactionV0 {
+        num_rw_signers: 0,
+        num_ro_signers: 0,
+        num_rw: 0,
+        accounts,
+        instructions: vec![CompiledInstructionV0 {
+            program_id_index,
+            accounts: (0..named.len() as u8).collect(),
+            data,
+        }],
+        signer_seeds: vec![],
+    }
+}
+
+/// A task that, when run, hands back `tasks`.
+fn returns(tasks: Vec<tuktuk::TaskReturnV0>) -> CompiledTransactionV0 {
+    let data = tuktuk::instruction::ReturnTasksV0 {
+        args: tuktuk::ReturnTasksArgsV0 { tasks },
+    }
+    .data();
+    compile_readonly(tuktuk::ID, &[system_program::ID], data)
+}
+
+fn child(crank_reward: Option<u64>) -> tuktuk::TaskReturnV0 {
+    tuktuk::TaskReturnV0 {
+        trigger: TriggerV0::Now,
+        transaction: TransactionSourceV0::CompiledV0(returns(vec![])),
+        crank_reward,
+        free_tasks: 0,
+        description: "child".to_string(),
+    }
+}
+
+struct Ctx {
+    svm: LiteSVM,
+    auth: Keypair,
+    task_queue: Pubkey,
+}
+
+impl Ctx {
+    /// A funded turner, which is a different signer from the queue authority on purpose.
+    fn turner(&mut self) -> Keypair {
+        let turner = Keypair::new();
+        self.svm
+            .airdrop(&turner.pubkey(), 1_000_000_000)
+            .expect("fund the crank turner");
+        turner
+    }
+
+    fn set_unix_timestamp(&mut self, ts: i64) {
+        let mut clock: Clock = self.svm.get_sysvar();
+        clock.unix_timestamp = ts;
+        self.svm.set_sysvar(&clock);
+    }
+}
+
+fn setup(capacity: u16, min_crank_reward: u64, stale_task_age: u32) -> Ctx {
+    let mut svm = LiteSVM::new();
+    let program = std::fs::read(so_path()).unwrap_or_else(|e| {
+        panic!(
+            "read {} ({e}). Build the programs first: `anchor build` in solana-programs/, \
+             or set TUKTUK_SO.",
+            so_path()
+        )
+    });
+    svm.add_program(tuktuk::ID, &program);
+
+    let auth = Keypair::new();
+    svm.airdrop(&auth.pubkey(), 1_000_000_000_000)
+        .expect("fund the queue authority");
+
+    // The config is written directly: initializing it goes through an approver this suite has
+    // no reason to model.
+    let (config, bump_seed) = config_pda();
+    let mut data = Vec::new();
+    TuktukConfigV0 {
+        min_task_queue_id: 0,
+        next_task_queue_id: 0,
+        authority: auth.pubkey(),
+        min_deposit: 0,
+        bump_seed,
+    }
+    .try_serialize(&mut data)
+    .expect("serialize the config");
+    let rent = svm.minimum_balance_for_rent_exemption(data.len());
+    svm.set_account(
+        config,
+        Account {
+            lamports: rent,
+            data,
+            owner: tuktuk::ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .expect("write the config");
+
+    let name = "q";
+    let (task_queue, _) = task_queue_pda(&config, 0);
+    let (task_queue_name_mapping, _) = name_mapping_pda(&config, name);
+    let init = Instruction {
+        program_id: tuktuk::ID,
+        accounts: tuktuk::accounts::InitializeTaskQueueV0 {
+            payer: auth.pubkey(),
+            tuktuk_config: config,
+            update_authority: auth.pubkey(),
+            task_queue,
+            task_queue_name_mapping,
+            system_program: system_program::ID,
+        }
+        .to_account_metas(None),
+        data: tuktuk::instruction::InitializeTaskQueueV0 {
+            args: tuktuk::InitializeTaskQueueArgsV0 {
+                min_crank_reward,
+                name: name.to_string(),
+                capacity,
+                lookup_tables: vec![],
+                stale_task_age,
+            },
+        }
+        .data(),
+    };
+    send(&mut svm, &[init], &auth, &[&auth]).expect("initialize the task queue");
+
+    let (task_queue_authority, _) = queue_authority_pda(&task_queue, &auth.pubkey());
+    let add_authority = Instruction {
+        program_id: tuktuk::ID,
+        accounts: tuktuk::accounts::AddQueueAuthorityV0 {
+            payer: auth.pubkey(),
+            update_authority: auth.pubkey(),
+            queue_authority: auth.pubkey(),
+            task_queue_authority,
+            task_queue,
+            system_program: system_program::ID,
+        }
+        .to_account_metas(None),
+        data: tuktuk::instruction::AddQueueAuthorityV0.data(),
+    };
+    send(&mut svm, &[add_authority], &auth, &[&auth]).expect("add the queue authority");
+
+    svm.airdrop(&task_queue, 1_000_000_000)
+        .expect("fund the task queue");
+
+    Ctx {
+        svm,
+        auth,
+        task_queue,
+    }
+}
+
+/// Queue a task, returning whatever the queue instruction did so a caller can assert on it.
+fn queue(
+    ctx: &mut Ctx,
+    id: u16,
+    trigger: TriggerV0,
+    transaction: CompiledTransactionV0,
+    free_tasks: u8,
+) -> SendResult {
+    let (task, _) = task_pda(&ctx.task_queue, id);
+    let (task_queue_authority, _) = queue_authority_pda(&ctx.task_queue, &ctx.auth.pubkey());
+    let auth = ctx.auth.insecure_clone();
+    let ix = Instruction {
+        program_id: tuktuk::ID,
+        accounts: tuktuk::accounts::QueueTaskV0 {
+            payer: auth.pubkey(),
+            queue_authority: auth.pubkey(),
+            task_queue_authority,
+            task_queue: ctx.task_queue,
+            task,
+            system_program: system_program::ID,
+        }
+        .to_account_metas(None),
+        data: tuktuk::instruction::QueueTaskV0 {
+            args: tuktuk::QueueTaskArgsV0 {
+                id,
+                trigger,
+                transaction: TransactionSourceV0::CompiledV0(transaction),
+                crank_reward: None,
+                free_tasks,
+                description: "t".to_string(),
+            },
+        }
+        .data(),
+    };
+    send(&mut ctx.svm, &[ix], &auth, &[&auth])
+}
+
+/// Run `task` as `turner`, pairing `free_task_ids` with `free_task_accounts`. The two are
+/// passed separately because a turner chooses both and they need not agree.
+fn run_task(
+    ctx: &mut Ctx,
+    task_id: u16,
+    turner: &Keypair,
+    free_task_ids: Vec<u16>,
+    free_task_accounts: Vec<Pubkey>,
+) -> SendResult {
+    let (task, _) = task_pda(&ctx.task_queue, task_id);
+    // The named accounts of the queued transaction, then the free-task accounts.
+    let mut metas = tuktuk::accounts::RunTaskV0 {
+        crank_turner: turner.pubkey(),
+        rent_refund: ctx.auth.pubkey(),
+        task_queue: ctx.task_queue,
+        task,
+        system_program: system_program::ID,
+        sysvar_instructions: sysvar::instructions::ID,
+    }
+    .to_account_metas(None);
+    metas.push(AccountMeta::new_readonly(system_program::ID, false));
+    metas.push(AccountMeta::new_readonly(tuktuk::ID, false));
+    metas.extend(
+        free_task_accounts
+            .iter()
+            .map(|a| AccountMeta::new(*a, false)),
+    );
+
+    let ix = Instruction {
+        program_id: tuktuk::ID,
+        accounts: metas,
+        data: tuktuk::instruction::RunTaskV0 {
+            args: tuktuk::RunTaskArgsV0 { free_task_ids },
+        }
+        .data(),
+    };
+    let blockhash = ctx.svm.latest_blockhash();
+    let tx = Transaction::new_signed_with_payer(&[ix], Some(&turner.pubkey()), &[turner], blockhash);
+    ctx.svm.send_transaction(tx)
+}
+
+#[test]
+fn a_matching_free_task_account_creates_the_child() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    let _ = queue(&mut ctx, 0, TriggerV0::Now, returns(vec![child(None)]), 1)
+        .expect("queue the parent");
+
+    let turner = ctx.turner();
+    let (child_task, _) = task_pda(&ctx.task_queue, 1);
+    let result = run_task(
+        &mut ctx,
+        0,
+        &turner,
+        vec![1],
+        vec![child_task],
+    );
+
+    assert!(result.is_ok(), "run failed: {:?}", result.err().map(|e| e.err));
+    assert!(
+        task_account_exists(&ctx.svm, &child_task),
+        "the returned child should have been created at id 1"
+    );
+}
+
+#[test]
+fn a_free_task_account_that_does_not_match_its_id_fails_the_run() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    let _ = queue(&mut ctx, 0, TriggerV0::Now, returns(vec![child(None)]), 1)
+        .expect("queue the parent");
+
+    let turner = ctx.turner();
+    let (intended, _) = task_pda(&ctx.task_queue, 1);
+    let (mismatched, _) = task_pda(&ctx.task_queue, 2);
+
+    // The id list and the account list are the same length, so only the pairing is wrong.
+    let result = run_task(
+        &mut ctx,
+        0,
+        &turner,
+        vec![1],
+        vec![mismatched],
+    );
+
+    assert!(
+        result.is_err(),
+        "the run should fail when a free-task account does not match the id it is paired with"
+    );
+    assert!(
+        !task_account_exists(&ctx.svm, &intended) && !task_account_exists(&ctx.svm, &mismatched),
+        "no task account should have been created"
+    );
+}
+
+#[test]
+fn fewer_free_task_accounts_than_ids_is_refused() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    let _ = queue(&mut ctx, 0, TriggerV0::Now, returns(vec![child(None)]), 1)
+        .expect("queue the parent");
+
+    let turner = ctx.turner();
+    let (child_task, _) = task_pda(&ctx.task_queue, 1);
+
+    // An id to consume, and no account to pair it with.
+    let result = run_task(&mut ctx, 0, &turner, vec![1], vec![]);
+
+    // Named, so this pins the count check rather than passing on any failure at all.
+    assert_eq!(
+        refusal(&result),
+        code(tuktuk::error::ErrorCode::MismatchedFreeTaskCounts),
+        "expected the account count to be refused, got {:?}",
+        result.as_ref().err().map(|e| &e.err)
+    );
+    assert!(
+        !task_account_exists(&ctx.svm, &child_task),
+        "no task account should have been created"
+    );
+}
+
+#[test]
+fn free_tasks_just_under_the_u8_limit_is_accepted() {
+    let mut ctx = setup(300, 10_000, 100_000);
+    let result = queue(&mut ctx, 0, TriggerV0::Now, returns(vec![]), 254);
+    assert!(
+        result.is_ok(),
+        "free_tasks=254 on a capacity-300 queue should be accepted: {:?}",
+        result.err().map(|e| e.err)
+    );
+}
+
+#[test]
+fn free_tasks_at_the_u8_limit_is_accepted() {
+    // 255 is a legitimate declaration on a queue with room for it, and adding one to it has to
+    // happen in a type that can hold the result.
+    let mut ctx = setup(300, 10_000, 100_000);
+    let result = queue(&mut ctx, 0, TriggerV0::Now, returns(vec![]), 255);
+    assert!(
+        result.is_ok(),
+        "free_tasks=255 on a capacity-300 queue should be accepted: {:?}",
+        result.err().map(|e| e.err)
+    );
+}
+
+#[test]
+fn a_returned_reward_above_the_queue_minimum_does_not_spend_the_pool() {
+    let min_crank_reward = 10_000u64;
+    let mut ctx = setup(100, min_crank_reward, 100_000);
+    let inflated = 100_000_000u64;
+    let _ = queue(
+        &mut ctx,
+        0,
+        TriggerV0::Now,
+        returns(vec![child(Some(inflated))]),
+        1,
+    )
+    .expect("queue the parent");
+
+    let turner = ctx.turner();
+    let (child_task, _) = task_pda(&ctx.task_queue, 1);
+    let before = lamports(&ctx.svm, &ctx.task_queue);
+    let result = run_task(
+        &mut ctx,
+        0,
+        &turner,
+        vec![1],
+        vec![child_task],
+    );
+    assert!(result.is_ok(), "run failed: {:?}", result.err().map(|e| e.err));
+    let spent = before as i64 - lamports(&ctx.svm, &ctx.task_queue) as i64;
+
+    assert!(
+        !task_account_exists(&ctx.svm, &child_task),
+        "a child whose reward exceeds the queue minimum should not be created"
+    );
+    assert!(
+        spent < (inflated as i64) / 4,
+        "the queue paid {spent} lamports for a child it did not create \
+         (returned reward {inflated}, queue minimum {min_crank_reward})"
+    );
+}
+
+#[test]
+fn stale_task_age_cannot_be_lowered() {
+    let mut ctx = setup(100, 10_000, 1_000_000);
+    ctx.set_unix_timestamp(100_000);
+
+    // A task already queued against the current age.
+    let _ = queue(
+        &mut ctx,
+        0,
+        TriggerV0::Timestamp(99_900),
+        returns(vec![child(None)]),
+        1,
+    )
+    .expect("queue the parent");
+
+    let auth = ctx.auth.insecure_clone();
+    let lower = Instruction {
+        program_id: tuktuk::ID,
+        accounts: tuktuk::accounts::UpdateTaskQueueV0 {
+            payer: auth.pubkey(),
+            update_authority: auth.pubkey(),
+            task_queue: ctx.task_queue,
+            system_program: system_program::ID,
+        }
+        .to_account_metas(None),
+        data: tuktuk::instruction::UpdateTaskQueueV0 {
+            args: tuktuk::UpdateTaskQueueArgsV0 {
+                min_crank_reward: None,
+                capacity: None,
+                lookup_tables: None,
+                update_authority: None,
+                stale_task_age: Some(0),
+            },
+        }
+        .data(),
+    };
+    assert!(
+        send(&mut ctx.svm, &[lower], &auth, &[&auth]).is_err(),
+        "lowering stale_task_age should be refused"
+    );
+
+    // The queued task still runs and still creates its child.
+    let turner = ctx.turner();
+    let (child_task, _) = task_pda(&ctx.task_queue, 1);
+    let result = run_task(
+        &mut ctx,
+        0,
+        &turner,
+        vec![1],
+        vec![child_task],
+    );
+    assert!(result.is_ok(), "run failed: {:?}", result.err().map(|e| e.err));
+    assert!(
+        task_account_exists(&ctx.svm, &child_task),
+        "the task should have run rather than been treated as stale"
+    );
+}
+
+#[test]
+fn an_account_index_outside_the_provided_accounts_is_refused() {
+    let mut ctx = setup(100, 10_000, 1_000_000);
+    let transaction = CompiledTransactionV0 {
+        num_rw_signers: 0,
+        num_ro_signers: 0,
+        num_rw: 0,
+        accounts: vec![system_program::ID, tuktuk::ID],
+        instructions: vec![CompiledInstructionV0 {
+            program_id_index: 1,
+            // Two accounts are provided, so index 9 names none of them.
+            accounts: vec![9],
+            data: vec![],
+        }],
+        signer_seeds: vec![],
+    };
+    let _ = queue(&mut ctx, 0, TriggerV0::Now, transaction, 0).expect("queue the task");
+
+    let turner = ctx.turner();
+    let result = run_task(&mut ctx, 0, &turner, vec![], vec![]);
+
+    assert!(
+        !aborted(&result),
+        "an out-of-range account index should be refused by name, not abort the program: {:?}",
+        result.err().map(|e| e.err)
+    );
+}
+
+#[test]
+fn a_signer_seed_over_the_length_limit_is_refused() {
+    let mut ctx = setup(100, 10_000, 1_000_000);
+    let transaction = CompiledTransactionV0 {
+        num_rw_signers: 0,
+        num_ro_signers: 0,
+        num_rw: 0,
+        accounts: vec![system_program::ID, tuktuk::ID],
+        instructions: vec![CompiledInstructionV0 {
+            program_id_index: 1,
+            accounts: vec![0],
+            data: vec![],
+        }],
+        // A seed may be at most 32 bytes.
+        signer_seeds: vec![vec![vec![0u8; 33]]],
+    };
+    let _ = queue(&mut ctx, 0, TriggerV0::Now, transaction, 0).expect("queue the task");
+
+    let turner = ctx.turner();
+    let result = run_task(&mut ctx, 0, &turner, vec![], vec![]);
+
+    assert!(
+        !aborted(&result),
+        "a seed longer than the limit should be refused by name, not abort the program: {:?}",
+        result.err().map(|e| e.err)
+    );
+}

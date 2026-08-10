@@ -1,0 +1,16 @@
+# Its own workspace: these tests build against a newer toolchain than the programs pin,
+# so they must not join the solana-programs workspace or inherit its rust-toolchain.
+[workspace]
+
+[package]
+name = "tuktuk-program-tests"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tuktuk = { path = "../solana-programs/programs/tuktuk", features = ["no-entrypoint"] }
+cron = { path = "../solana-programs/programs/cron", features = ["no-entrypoint"] }
+anchor-lang = "=0.31.1"
+litesvm = "0.6"
+solana-sdk = "2.2"
