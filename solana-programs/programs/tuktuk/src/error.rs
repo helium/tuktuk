@@ -66,4 +66,6 @@ pub enum ErrorCode {
     CrankRewardExceedsMax,
     #[msg("Returned task is too large")]
     ReturnedTaskTooLarge,
+    #[msg("stale_task_age may only be increased")]
+    StaleTaskAgeCannotDecrease,
 }

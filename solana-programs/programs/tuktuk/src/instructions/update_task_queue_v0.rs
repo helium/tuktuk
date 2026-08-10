@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::{resize_to_fit::resize_to_fit, state::TaskQueueV0};
+use crate::{error::ErrorCode, resize_to_fit::resize_to_fit, state::TaskQueueV0};
 
 pub const TESTING: bool = std::option_env!("TESTING").is_some();
 
@@ -54,6 +54,14 @@ pub fn handler(ctx: Context<UpdateTaskQueueV0>, args: UpdateTaskQueueArgsV0) -> 
         ctx.accounts.task_queue.update_authority = update_authority;
     }
     if let Some(stale_task_age) = args.stale_task_age {
+        // A task's staleness is judged against the queue's current stale_task_age when it runs,
+        // so the value a task was queued under is a floor for the rest of its life. A shorter
+        // window belongs to a new task queue.
+        require_gte!(
+            stale_task_age,
+            ctx.accounts.task_queue.stale_task_age,
+            ErrorCode::StaleTaskAgeCannotDecrease
+        );
         ctx.accounts.task_queue.stale_task_age = stale_task_age;
     }
 
