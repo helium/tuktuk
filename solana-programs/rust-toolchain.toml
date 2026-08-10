@@ -1,0 +1,5 @@
+[toolchain]
+# The programs build on 1.82.0. Pinning it here is what makes a local `cargo` in this
+# workspace match the toolchain CI installs, and keeps the root workspace on stable.
+channel = "1.82.0"
+components = ["rustfmt", "clippy"]
