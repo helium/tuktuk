@@ -2,6 +2,7 @@ use anchor_lang::{
     prelude::*,
     solana_program::{
         self,
+        entrypoint::MAX_PERMITTED_DATA_INCREASE,
         hash::hash,
         instruction::Instruction,
         sysvar::instructions::{
@@ -321,8 +322,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         return_program_id: &Pubkey,
         account: &AccountInfo<'info>,
     ) -> Result<()> {
-        // A program may only hand us task lists out of accounts it owns. Without this, a program
-        // could name any account in the instruction and have its raw bytes reinterpreted as tasks.
+        // A program may only hand us task lists out of accounts it owns.
         require_keys_eq!(
             *account.owner,
             *return_program_id,
@@ -412,10 +412,14 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             rent_amount: 0,
         };
 
-        // Track that we need to set this task as existing
-        self.tasks_to_set.push(task_data.id);
-
         let task_size = task_data.try_to_vec()?.len() + 8 + 60;
+        // The account is grown from nothing by the single realloc below, so a returned task has
+        // to fit inside what one realloc may add.
+        require_gte!(
+            MAX_PERMITTED_DATA_INCREASE,
+            task_size,
+            ErrorCode::ReturnedTaskTooLarge
+        );
         let rent_lamports = Rent::get()?.minimum_balance(task_size);
         let lamports = rent_lamports + task_data.crank_reward;
         task_data.rent_amount = rent_lamports;
@@ -455,7 +459,13 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         }
 
         let mut data = free_task_account.try_borrow_mut_data()?;
-        task_data.try_serialize(&mut data.as_mut())
+        task_data.try_serialize(&mut data.as_mut())?;
+
+        // The bitmap records the ids this instruction wrote an account for, so an id is marked
+        // once the account holds its task and not before.
+        self.tasks_to_set.push(task_data.id);
+
+        Ok(())
     }
 
     fn had_bad_free_task_input(&self) -> bool {

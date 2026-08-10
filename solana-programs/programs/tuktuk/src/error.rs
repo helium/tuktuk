@@ -64,4 +64,6 @@ pub enum ErrorCode {
     InvalidTasksAccountOwner,
     #[msg("Returned task crank reward exceeds the task queue's min crank reward")]
     CrankRewardExceedsMax,
+    #[msg("Returned task is too large")]
+    ReturnedTaskTooLarge,
 }
