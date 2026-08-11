@@ -598,6 +598,46 @@ fn a_returned_reward_above_the_queue_minimum_does_not_spend_the_pool() {
     );
 }
 
+/// Ask the queue's update authority to set `stale_task_age`.
+fn set_stale_task_age(ctx: &Ctx, stale_task_age: u32) -> Instruction {
+    Instruction {
+        program_id: tuktuk::ID,
+        accounts: tuktuk::accounts::UpdateTaskQueueV0 {
+            payer: ctx.auth.pubkey(),
+            update_authority: ctx.auth.pubkey(),
+            task_queue: ctx.task_queue,
+            system_program: system_program::ID,
+        }
+        .to_account_metas(None),
+        data: tuktuk::instruction::UpdateTaskQueueV0 {
+            args: tuktuk::UpdateTaskQueueArgsV0 {
+                min_crank_reward: None,
+                capacity: None,
+                lookup_tables: None,
+                update_authority: None,
+                stale_task_age: Some(stale_task_age),
+            },
+        }
+        .data(),
+    }
+}
+
+#[test]
+fn stale_task_age_can_be_lowered_on_an_empty_queue() {
+    // Nothing was queued under the old value, so nothing is measured against it.
+    let mut ctx = setup(100, 10_000, 1_000_000);
+    let auth = ctx.auth.insecure_clone();
+
+    let lower = set_stale_task_age(&ctx, 0);
+    let lowered = send(&mut ctx.svm, &[lower], &auth, &[&auth]);
+
+    assert!(
+        lowered.is_ok(),
+        "an empty queue should take any age: {:?}",
+        lowered.as_ref().err().map(|e| &e.err)
+    );
+}
+
 #[test]
 fn stale_task_age_cannot_be_lowered() {
     let mut ctx = setup(100, 10_000, 1_000_000);
@@ -614,26 +654,7 @@ fn stale_task_age_cannot_be_lowered() {
     .expect("queue the parent");
 
     let auth = ctx.auth.insecure_clone();
-    let lower = Instruction {
-        program_id: tuktuk::ID,
-        accounts: tuktuk::accounts::UpdateTaskQueueV0 {
-            payer: auth.pubkey(),
-            update_authority: auth.pubkey(),
-            task_queue: ctx.task_queue,
-            system_program: system_program::ID,
-        }
-        .to_account_metas(None),
-        data: tuktuk::instruction::UpdateTaskQueueV0 {
-            args: tuktuk::UpdateTaskQueueArgsV0 {
-                min_crank_reward: None,
-                capacity: None,
-                lookup_tables: None,
-                update_authority: None,
-                stale_task_age: Some(0),
-            },
-        }
-        .data(),
-    };
+    let lower = set_stale_task_age(&ctx, 0);
     let lowered = send(&mut ctx.svm, &[lower], &auth, &[&auth]);
     assert_eq!(
         refusal(&lowered),

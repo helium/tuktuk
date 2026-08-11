@@ -92,6 +92,12 @@ impl TaskQueueV0 {
         self.task_bitmap[task_idx as usize / 8] & (1 << (task_idx % 8)) != 0
     }
 
+    /// Whether the queue holds no tasks at all. The bitmap is the record of which ids are taken,
+    /// so no bit set is no task.
+    pub fn holds_no_tasks(&self) -> bool {
+        self.task_bitmap.iter().all(|byte| *byte == 0)
+    }
+
     pub fn set_task_exists(&mut self, task_idx: u16, exists: bool) {
         if exists {
             self.task_bitmap[task_idx as usize / 8] |= 1 << (task_idx % 8);
