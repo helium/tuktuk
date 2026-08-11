@@ -83,8 +83,15 @@ impl TaskQueueV0 {
             if *byte != 0xff {
                 // If byte is not all 1s
                 for bit_idx in 0..8 {
+                    let id = (byte_idx * 8 + bit_idx) as u16;
+                    // The bitmap is whole bytes, so its last one carries up to seven bits past
+                    // capacity. `queue_task_v0` takes ids below capacity, so a bit past it does
+                    // not stand for an id that can be taken.
+                    if id >= self.capacity {
+                        return None;
+                    }
                     if byte & (1 << bit_idx) == 0 {
-                        return Some((byte_idx * 8 + bit_idx) as u16);
+                        return Some(id);
                     }
                 }
             }

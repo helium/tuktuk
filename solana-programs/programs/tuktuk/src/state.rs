@@ -99,20 +99,6 @@ impl TaskQueueV0 {
             self.task_bitmap[task_idx as usize / 8] &= !(1 << (task_idx % 8));
         }
     }
-
-    pub fn next_available_task_id(&self) -> Option<u16> {
-        for (byte_idx, byte) in self.task_bitmap.iter().enumerate() {
-            if *byte != 0xff {
-                // If byte is not all 1s
-                for bit_idx in 0..8 {
-                    if byte & (1 << bit_idx) == 0 {
-                        return Some((byte_idx * 8 + bit_idx) as u16);
-                    }
-                }
-            }
-        }
-        None
-    }
 }
 
 /// Memory-efficient wrapper for TaskQueueV0 that avoids deserializing the entire bitmap
