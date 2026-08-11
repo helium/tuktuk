@@ -5,7 +5,7 @@
 //! the returning program are both inputs nobody else chooses, so each is exercised directly
 //! rather than through a well-behaved client.
 //!
-//! Requires the program to be built first — `anchor build` in `solana-programs/`, or set
+//! Requires the program to be built first: `anchor build` in `solana-programs/`, or set
 //! `TUKTUK_SO` to a specific artifact.
 
 use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, ToAccountMetas};

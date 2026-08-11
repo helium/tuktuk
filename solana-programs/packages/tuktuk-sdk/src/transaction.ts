@@ -213,6 +213,13 @@ export function nextAvailableTaskIds(
   random: boolean,
   capacity: number
 ): number[] {
+  // TypeScript callers get an arity error, JavaScript callers get this. Without it every id
+  // compares false against `undefined` and the refusal below reports an empty queue.
+  if (typeof capacity !== "number") {
+    throw new Error(
+      "nextAvailableTaskIds needs the task queue's capacity as its fourth argument"
+    );
+  }
   if (n === 0) {
     return [];
   }

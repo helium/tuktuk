@@ -74,8 +74,8 @@ function usedTaskIds(taskBitmap: Buffer, capacity: number): number[] {
  *
  * Two reasons a test cannot just name the id it expects. Turners take their free task ids from
  * a randomized start so concurrent turners do not collide, so which id a task landed on is not
- * predictable. And a queue holds tasks that are not yet due — running one fails with
- * TaskNotReady — so the trigger has to be checked.
+ * predictable. And a queue holds tasks that are not yet due (running one fails with
+ * TaskNotReady), so the trigger has to be checked.
  *
  * Readiness is judged against the cluster's clock, which is the one the program compares
  * against; this machine's can sit either side of it. A task queued a moment ahead becomes due
