@@ -495,7 +495,7 @@ describe("cron", () => {
 
       function requeueIx(job: PublicKey, recorded: PublicKey, taskId: number) {
         return cronProgram.methods
-          .requeueCronTaskV0({ taskId })
+          .requeueCronTaskV1({ taskId })
           .accounts({
             payer: me,
             queueAuthority: me,

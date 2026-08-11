@@ -77,7 +77,7 @@ pub mod cron {
         cron::{
             self,
             accounts::{CronJobV0, UserCronJobsV0},
-            types::{InitializeCronJobArgsV0, RequeueCronTaskArgsV0},
+            types::{InitializeCronJobArgsV0, RequeueCronTaskArgsV1},
             ID,
         },
         TaskQueueV0,
@@ -260,7 +260,7 @@ pub mod cron {
     ) -> Result<Instruction, Error> {
         Ok(Instruction {
             program_id: ID,
-            accounts: cron::client::accounts::RequeueCronTaskV0 {
+            accounts: cron::client::accounts::RequeueCronTaskV1 {
                 cron_job: cron_job_key,
                 next_schedule_task,
                 task_queue: task_queue_key,
@@ -275,8 +275,8 @@ pub mod cron {
                 tuktuk_program: tuktuk_program::tuktuk::ID,
             }
             .to_account_metas(None),
-            data: cron::client::args::RequeueCronTaskV0 {
-                args: RequeueCronTaskArgsV0 { task_id },
+            data: cron::client::args::RequeueCronTaskV1 {
+                args: RequeueCronTaskArgsV1 { task_id },
             }
             .data(),
         })

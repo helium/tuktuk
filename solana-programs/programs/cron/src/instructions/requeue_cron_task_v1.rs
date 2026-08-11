@@ -9,6 +9,7 @@ use tuktuk_program::{
 };
 
 use crate::{
+    error::ErrorCode,
     schedule::{
         compile_schedule_transaction, effective_tasks_per_queue_call, next_exec_ts, trunc_name,
         QUEUE_TASK_DELAY,
@@ -17,13 +18,13 @@ use crate::{
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
-pub struct RequeueCronTaskArgsV0 {
+pub struct RequeueCronTaskArgsV1 {
     pub task_id: u16,
 }
 
 #[derive(Accounts)]
-#[instruction(args: RequeueCronTaskArgsV0)]
-pub struct RequeueCronTaskV0<'info> {
+#[instruction(args: RequeueCronTaskArgsV1)]
+pub struct RequeueCronTaskV1<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     pub authority: Signer<'info>,
@@ -34,14 +35,7 @@ pub struct RequeueCronTaskV0<'info> {
         seeds::program = tuktuk_program.key(),
     )]
     pub task_queue_authority: Box<Account<'info, TaskQueueAuthorityV0>>,
-    /// Reading the recorded task to see whether the chain really ended is what
-    /// `requeue_cron_task_v1` adds. This instruction keeps the account list and the gate the
-    /// clients built against it send, since accounts are positional.
-    #[account(
-        mut,
-        has_one = authority,
-        constraint = cron_job.removed_from_queue || cron_job.next_schedule_task == Pubkey::default()
-    )]
+    #[account(mut, has_one = authority)]
     pub cron_job: Box<Account<'info, CronJobV0>>,
     #[account(mut)]
     pub task_queue: Box<Account<'info, TaskQueueV0>>,
@@ -64,9 +58,19 @@ pub struct RequeueCronTaskV0<'info> {
     pub task_return_account_2: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
     pub tuktuk_program: Program<'info, Tuktuk>,
+    /// CHECK: The task the cron job last recorded. A cron job runs one schedule chain, so a new
+    /// task may only be queued once that record holds nothing. `Pubkey::default()` is the
+    /// system program, which has data, so it is spelled out rather than left to the emptiness
+    /// test.
+    #[account(
+        address = cron_job.next_schedule_task,
+        constraint = cron_job.next_schedule_task == Pubkey::default()
+            || next_schedule_task.data_is_empty() @ ErrorCode::TaskAlreadyQueued,
+    )]
+    pub next_schedule_task: UncheckedAccount<'info>,
 }
 
-pub fn handler(ctx: Context<RequeueCronTaskV0>, args: RequeueCronTaskArgsV0) -> Result<()> {
+pub fn handler(ctx: Context<RequeueCronTaskV1>, args: RequeueCronTaskArgsV1) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
 
     ctx.accounts.cron_job.next_schedule_task = ctx.accounts.task.key();

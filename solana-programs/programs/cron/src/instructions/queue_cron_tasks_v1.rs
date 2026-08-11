@@ -72,7 +72,7 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
 
     // A cron job carries one schedule chain, and records which task holds it. A run is that
     // task, or it adopts a record that holds nothing, which is the state a chain left behind
-    // when it ended, and the state `requeue_cron_task_v0` also answers to.
+    // when it ended, and the state `requeue_cron_task_v1` also answers to.
     require_keys_eq!(
         ctx.accounts.recorded_schedule_task.key(),
         cron_job.next_schedule_task,

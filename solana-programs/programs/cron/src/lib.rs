@@ -54,4 +54,11 @@ pub mod cron {
     ) -> Result<()> {
         requeue_cron_task_v0::handler(ctx, args)
     }
+
+    pub fn requeue_cron_task_v1(
+        ctx: Context<RequeueCronTaskV1>,
+        args: RequeueCronTaskArgsV1,
+    ) -> Result<()> {
+        requeue_cron_task_v1::handler(ctx, args)
+    }
 }

@@ -822,15 +822,12 @@
         },
         {
           "name": "cron_job",
-          "writable": true
-        },
-        {
-          "name": "next_schedule_task",
           "docs": [
-            "task may only be queued once that record holds nothing. `Pubkey::default()` is the",
-            "system program, which has data, so it is spelled out rather than left to the emptiness",
-            "test."
-          ]
+            "Reading the recorded task to see whether the chain really ended is what",
+            "`requeue_cron_task_v1` adds. This instruction keeps the account list and the gate the",
+            "clients built against it send, since accounts are positional."
+          ],
+          "writable": true
         },
         {
           "name": "task_queue",
@@ -931,6 +928,195 @@
           "type": {
             "defined": {
               "name": "RequeueCronTaskArgsV0"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "requeue_cron_task_v1",
+      "discriminator": [
+        72,
+        243,
+        50,
+        152,
+        58,
+        78,
+        93,
+        252
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "cron_job"
+          ]
+        },
+        {
+          "name": "queue_authority",
+          "signer": true
+        },
+        {
+          "name": "task_queue_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  115,
+                  107,
+                  95,
+                  113,
+                  117,
+                  101,
+                  117,
+                  101,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task_queue"
+              },
+              {
+                "kind": "account",
+                "path": "queue_authority"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "tuktuk_program"
+            }
+          }
+        },
+        {
+          "name": "cron_job",
+          "writable": true
+        },
+        {
+          "name": "task_queue",
+          "writable": true
+        },
+        {
+          "name": "task",
+          "writable": true
+        },
+        {
+          "name": "task_return_account_1",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  115,
+                  107,
+                  95,
+                  114,
+                  101,
+                  116,
+                  117,
+                  114,
+                  110,
+                  95,
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  95,
+                  49
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "cron_job"
+              }
+            ]
+          }
+        },
+        {
+          "name": "task_return_account_2",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  115,
+                  107,
+                  95,
+                  114,
+                  101,
+                  116,
+                  117,
+                  114,
+                  110,
+                  95,
+                  97,
+                  99,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  95,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "cron_job"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "tuktuk_program",
+          "address": "tuktukUrfhXT6ZT77QTU8RQtvgL967uRuVagWF57zVA"
+        },
+        {
+          "name": "next_schedule_task",
+          "docs": [
+            "task may only be queued once that record holds nothing. `Pubkey::default()` is the",
+            "system program, which has data, so it is spelled out rather than left to the emptiness",
+            "test."
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "RequeueCronTaskArgsV1"
             }
           }
         }
@@ -1340,6 +1526,18 @@
     },
     {
       "name": "RequeueCronTaskArgsV0",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "task_id",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RequeueCronTaskArgsV1",
       "type": {
         "kind": "struct",
         "fields": [
