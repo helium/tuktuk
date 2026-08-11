@@ -1,20 +1,7 @@
 use anchor_lang::prelude::*;
-use tuktuk_program::{
-    tuktuk::{
-        cpi::{accounts::QueueTaskV0, queue_task_v0},
-        program::Tuktuk,
-    },
-    types::QueueTaskArgsV0,
-    TaskQueueAuthorityV0, TaskQueueV0, TransactionSourceV0, TriggerV0,
-};
+use tuktuk_program::{tuktuk::program::Tuktuk, TaskQueueAuthorityV0, TaskQueueV0};
 
-use crate::{
-    schedule::{
-        compile_schedule_transaction, effective_tasks_per_queue_call, next_exec_ts, trunc_name,
-        QUEUE_TASK_DELAY,
-    },
-    state::CronJobV0,
-};
+use crate::{error::ErrorCode, state::CronJobV0};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
 pub struct RequeueCronTaskArgsV0 {
@@ -34,13 +21,9 @@ pub struct RequeueCronTaskV0<'info> {
         seeds::program = tuktuk_program.key(),
     )]
     pub task_queue_authority: Box<Account<'info, TaskQueueAuthorityV0>>,
-    /// Reading the recorded task to see whether the chain really ended is what
-    /// `requeue_cron_task_v1` adds. This instruction keeps the account list and the gate the
-    /// clients built against it send, since accounts are positional.
     #[account(
         mut,
         has_one = authority,
-        constraint = cron_job.removed_from_queue || cron_job.next_schedule_task == Pubkey::default()
     )]
     pub cron_job: Box<Account<'info, CronJobV0>>,
     #[account(mut)]
@@ -66,46 +49,9 @@ pub struct RequeueCronTaskV0<'info> {
     pub tuktuk_program: Program<'info, Tuktuk>,
 }
 
-pub fn handler(ctx: Context<RequeueCronTaskV0>, args: RequeueCronTaskArgsV0) -> Result<()> {
-    let now = Clock::get()?.unix_timestamp;
-
-    ctx.accounts.cron_job.next_schedule_task = ctx.accounts.task.key();
-    ctx.accounts.cron_job.removed_from_queue = false;
-    ctx.accounts.cron_job.current_exec_ts = next_exec_ts(&ctx.accounts.cron_job.schedule, now)?;
-    // The new chain runs whole executions, so it starts at the first transaction. Any count the
-    // interrupted chain left behind belongs to an execution that is over.
-    ctx.accounts.cron_job.current_transaction_id = 0;
-
-    let queue_tx = compile_schedule_transaction(
-        &ctx.accounts.cron_job,
-        ctx.accounts.cron_job.key(),
-        ctx.accounts.task_return_account_1.key(),
-        ctx.accounts.task_return_account_2.key(),
-        ctx.accounts.task.key(),
-    )?;
-
-    let trunc_name = trunc_name(&ctx.accounts.cron_job.name);
-    queue_task_v0(
-        CpiContext::new(
-            ctx.accounts.tuktuk_program.to_account_info(),
-            QueueTaskV0 {
-                payer: ctx.accounts.payer.to_account_info(),
-                queue_authority: ctx.accounts.queue_authority.to_account_info(),
-                task_queue_authority: ctx.accounts.task_queue_authority.to_account_info(),
-                task_queue: ctx.accounts.task_queue.to_account_info(),
-                task: ctx.accounts.task.to_account_info(),
-                system_program: ctx.accounts.system_program.to_account_info(),
-            },
-        ),
-        QueueTaskArgsV0 {
-            trigger: TriggerV0::Timestamp(ctx.accounts.cron_job.current_exec_ts - QUEUE_TASK_DELAY),
-            transaction: TransactionSourceV0::CompiledV0(queue_tx),
-            crank_reward: None,
-            free_tasks: effective_tasks_per_queue_call(&ctx.accounts.cron_job) + 1,
-            id: args.task_id,
-            description: format!("queue {}", trunc_name),
-        },
-    )?;
-
-    Ok(())
+/// Requeuing without reading the recorded schedule task can start a second chain beside a live
+/// one, which `requeue_cron_task_v1` closes. This version keeps the account list its clients
+/// send, since accounts are positional, and refuses so every requeue goes through the gate.
+pub fn handler(_ctx: Context<RequeueCronTaskV0>, _args: RequeueCronTaskArgsV0) -> Result<()> {
+    Err(error!(ErrorCode::InstructionDeprecated))
 }

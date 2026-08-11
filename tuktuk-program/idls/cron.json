@@ -822,11 +822,6 @@
         },
         {
           "name": "cron_job",
-          "docs": [
-            "Reading the recorded task to see whether the chain really ended is what",
-            "`requeue_cron_task_v1` adds. This instruction keeps the account list and the gate the",
-            "clients built against it send, since accounts are positional."
-          ],
           "writable": true
         },
         {
@@ -1273,6 +1268,11 @@
       "code": 6013,
       "name": "WrongCronTransaction",
       "msg": "Not a transaction of this cron job"
+    },
+    {
+      "code": 6014,
+      "name": "InstructionDeprecated",
+      "msg": "This instruction is deprecated, call its current version"
     }
   ],
   "types": [
