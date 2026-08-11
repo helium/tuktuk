@@ -3,8 +3,8 @@ use tuktuk_program::TransactionSourceV0;
 
 use crate::{
     error::ErrorCode,
-    instructions::initialize_cron_job_v0::MAX_TASKS_PER_QUEUE_CALL,
     resize_to_fit::resize_to_fit,
+    schedule::MAX_TASKS_PER_QUEUE_CALL,
     state::{CronJobTransactionV0, CronJobV0},
 };
 

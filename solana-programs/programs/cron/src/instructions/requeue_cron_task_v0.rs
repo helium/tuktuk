@@ -10,7 +10,10 @@ use tuktuk_program::{
 
 use crate::{
     error::ErrorCode,
-    schedule::{compile_schedule_transaction, next_exec_ts, trunc_name, QUEUE_TASK_DELAY},
+    schedule::{
+        compile_schedule_transaction, effective_tasks_per_queue_call, next_exec_ts, trunc_name,
+        QUEUE_TASK_DELAY,
+    },
     state::CronJobV0,
 };
 
@@ -102,7 +105,7 @@ pub fn handler(ctx: Context<RequeueCronTaskV0>, args: RequeueCronTaskArgsV0) -> 
             trigger: TriggerV0::Timestamp(ctx.accounts.cron_job.current_exec_ts - QUEUE_TASK_DELAY),
             transaction: TransactionSourceV0::CompiledV0(queue_tx),
             crank_reward: None,
-            free_tasks: ctx.accounts.cron_job.num_tasks_per_queue_call + 1,
+            free_tasks: effective_tasks_per_queue_call(&ctx.accounts.cron_job) + 1,
             id: args.task_id,
             description: format!("queue {}", trunc_name),
         },

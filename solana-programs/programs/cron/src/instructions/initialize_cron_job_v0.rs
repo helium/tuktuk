@@ -14,7 +14,10 @@ use tuktuk_program::{
 use crate::{
     error::ErrorCode,
     hash_name,
-    schedule::{compile_schedule_transaction, next_exec_ts, trunc_name, QUEUE_TASK_DELAY},
+    schedule::{
+        compile_schedule_transaction, effective_tasks_per_queue_call, next_exec_ts, trunc_name,
+        MAX_TASKS_PER_QUEUE_CALL, QUEUE_TASK_DELAY,
+    },
     state::{CronJobNameMappingV0, CronJobV0, UserCronJobsV0},
 };
 
@@ -99,12 +102,6 @@ pub struct InitializeCronJobV0<'info> {
     pub tuktuk_program: Program<'info, Tuktuk>,
 }
 
-/// A schedule run reads one `cron_job_transaction` record and queues one task per queue call, so
-/// both the transaction it runs in and the heap it runs on grow with this. The heap binds first:
-/// a run allocates past the 32KB an instruction gets somewhere above five records, where the
-/// transaction only passes the 1232-byte packet limit above nine. Five is what both allow.
-pub const MAX_TASKS_PER_QUEUE_CALL: u8 = 5;
-
 pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0) -> Result<()> {
     // Leave room for numerics after
     require_gt!(
@@ -114,8 +111,8 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
     );
 
     // Bounded by what a single schedule run can allocate and still fit its transaction; see
-    // MAX_TASKS_PER_QUEUE_CALL. Existing jobs above this keep running, since only creation is
-    // gated.
+    // MAX_TASKS_PER_QUEUE_CALL. Existing jobs above this keep running because every run is
+    // clamped to the same bound; a full cycle of their records just takes more calls.
     require_gte!(
         MAX_TASKS_PER_QUEUE_CALL,
         args.num_tasks_per_queue_call,
@@ -190,7 +187,7 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
             trigger: TriggerV0::Timestamp(ctx.accounts.cron_job.current_exec_ts - QUEUE_TASK_DELAY),
             transaction: TransactionSourceV0::CompiledV0(queue_tx),
             crank_reward: None,
-            free_tasks: ctx.accounts.cron_job.num_tasks_per_queue_call + 1,
+            free_tasks: effective_tasks_per_queue_call(&ctx.accounts.cron_job) + 1,
             id: ctx
                 .accounts
                 .task_queue

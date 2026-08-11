@@ -10,8 +10,8 @@ use tuktuk_program::{
 use crate::{
     error::ErrorCode,
     schedule::{
-        compile_schedule_transaction, next_exec_ts, running_schedule_task, trunc_name, CRON_SEED,
-        CUSTOM_SEED, QUEUE_TASK_DELAY,
+        compile_schedule_transaction, effective_tasks_per_queue_call, next_exec_ts,
+        running_schedule_task, trunc_name, CRON_SEED, CUSTOM_SEED, QUEUE_TASK_DELAY,
     },
     state::{CronJobTransactionV0, CronJobV0},
     try_from,
@@ -111,7 +111,7 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
     // The `cron_job_transaction` records this task names, then the free task accounts. The crank
     // turner chooses how many free tasks to pass, so the slice length is not fixed by the
     // program; the first free task is where the next schedule task will be created.
-    let num_tasks_per_queue_call = cron_job.num_tasks_per_queue_call as usize;
+    let num_tasks_per_queue_call = effective_tasks_per_queue_call(&cron_job) as usize;
     let accounts = ctx
         .remaining_accounts
         .get(..=num_tasks_per_queue_call)
@@ -122,8 +122,7 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
     let max_num_tasks_remaining = cron_job
         .next_transaction_id
         .saturating_sub(first_transaction_id);
-    let num_tasks_to_queue =
-        (cron_job.num_tasks_per_queue_call as u32).min(max_num_tasks_remaining);
+    let num_tasks_to_queue = (num_tasks_per_queue_call as u32).min(max_num_tasks_remaining);
     cron_job.current_transaction_id += num_tasks_to_queue;
 
     // The records to queue are named by the task's stored transaction, and only their contents say
@@ -173,7 +172,7 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
         trigger: TriggerV0::Timestamp(cron_job.current_exec_ts - QUEUE_TASK_DELAY),
         transaction: TransactionSourceV0::CompiledV0(queue_tx),
         crank_reward: None,
-        free_tasks: cron_job.num_tasks_per_queue_call + 1,
+        free_tasks: num_tasks_per_queue_call as u8 + 1,
         description: format!("queue {}", trunc_name),
     })
     .chain((0..num_tasks_to_queue as usize).filter_map(|i| {
