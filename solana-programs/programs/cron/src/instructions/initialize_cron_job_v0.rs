@@ -99,10 +99,11 @@ pub struct InitializeCronJobV0<'info> {
     pub tuktuk_program: Program<'info, Tuktuk>,
 }
 
-/// A schedule run names one `cron_job_transaction` record and one free task per queue call, so
-/// the transaction it runs in grows with this. Nine is the largest that serializes inside the
-/// 1232-byte packet limit.
-pub const MAX_TASKS_PER_QUEUE_CALL: u8 = 9;
+/// A schedule run reads one `cron_job_transaction` record and queues one task per queue call, so
+/// both the transaction it runs in and the heap it runs on grow with this. The heap binds first:
+/// a run allocates past the 32KB an instruction gets somewhere above five records, where the
+/// transaction only passes the 1232-byte packet limit above nine. Five is what both allow.
+pub const MAX_TASKS_PER_QUEUE_CALL: u8 = 5;
 
 pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0) -> Result<()> {
     // Leave room for numerics after
@@ -112,9 +113,9 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
         ErrorCode::InvalidNumTasksPerQueueCall
     );
 
-    // A schedule run names one `cron_job_transaction` record and one free task per queue call,
-    // so the transaction it runs in grows with this. Nine is the largest that serializes inside
-    // the 1232-byte packet limit, measured by `cron.ts`'s schedule-run size test.
+    // Bounded by what a single schedule run can allocate and still fit its transaction; see
+    // MAX_TASKS_PER_QUEUE_CALL. Existing jobs above this keep running, since only creation is
+    // gated.
     require_gte!(
         MAX_TASKS_PER_QUEUE_CALL,
         args.num_tasks_per_queue_call,

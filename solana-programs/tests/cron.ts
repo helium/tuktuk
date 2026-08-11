@@ -1101,11 +1101,36 @@ describe("cron", () => {
         expectUnchanged(before, await snapshot(keys), keys);
       });
 
-      // 8 is what every live cron job but one uses; 15 is the largest
-      // initialize_cron_job_v0 accepts, and is the value its transaction-size comment claims.
-      // The account list is assembled by tuktuk's client and the message dedupes keys, so the
-      // size is read off the serialized transaction rather than counted.
-      for (const perQueueCall of [8, 9]) {
+      it("checks a record's index on a run past the start of the cycle", async () => {
+        // Two records per call against three records, so the second run starts at index 2. Every
+        // other test here runs one record per call, where the cycle resets to 0 every time and the
+        // index check compares 0 against 0 whatever it is written to compare.
+        const { job, taskId } = await createCronJobFor(makeid(10), 10000000000, 2);
+        await addCronTransaction(job, 0);
+        await addCronTransaction(job, 1);
+        await addCronTransaction(job, 2);
+
+        await run(taskKey(taskQueue, taskId)[0], [30, 31, 32]);
+        const afterFirst = await cronProgram.account.cronJobV0.fetch(job);
+        expect(
+          afterFirst.currentTransactionId,
+          "precondition: the first run queued records 0 and 1"
+        ).to.eq(2);
+
+        // The successor names record 2, and the run reads the same index off the job, so this is
+        // the first run whose check is not 0 against 0.
+        await run(afterFirst.nextScheduleTask, [40, 41, 42]);
+        const afterSecond = await cronProgram.account.cronJobV0.fetch(job);
+        expect(
+          afterSecond.currentTransactionId,
+          "the last record was queued, completing the cycle"
+        ).to.eq(0);
+      });
+
+      // The largest initialize_cron_job_v0 accepts. The account list is assembled by tuktuk's
+      // client and the message dedupes keys, so the size is read off the serialized transaction
+      // rather than counted.
+      for (const perQueueCall of [5]) {
         it(`keeps a schedule run at num_tasks_per_queue_call=${perQueueCall} inside one transaction`, async () => {
           const { taskId } = await createCronJobFor(
             makeid(10),
