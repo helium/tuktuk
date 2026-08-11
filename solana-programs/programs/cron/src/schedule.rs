@@ -20,6 +20,11 @@ use crate::{error::ErrorCode, state::CronJobV0};
 /// hold tasks for executions that are still a long time away.
 pub const QUEUE_TASK_DELAY: i64 = 60 * 5;
 
+/// The two halves of the seed tuktuk signs a schedule run under: its own `b"custom"` prefix for
+/// the queue, then this program's prefix for the cron job.
+pub const CUSTOM_SEED: &[u8] = b"custom";
+pub const CRON_SEED: &[u8] = b"cron";
+
 /// `tuktuk::run_task_v0`, whose account list names the task it is running. Both are pinned by
 /// `tests::run_task_v0_shape` against the client this program is built with.
 const RUN_TASK_V0_DISCRIMINATOR: [u8; 8] = [52, 184, 39, 129, 126, 245, 176, 237];
@@ -69,7 +74,7 @@ pub fn trunc_name(name: &str) -> String {
 /// a task on the cron job's own queue whose transaction names these seeds.
 fn cron_signer(task_queue: &Pubkey, cron_job: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(
-        &[b"custom", task_queue.as_ref(), b"cron", cron_job.as_ref()],
+        &[CUSTOM_SEED, task_queue.as_ref(), CRON_SEED, cron_job.as_ref()],
         &tuktuk_program::tuktuk::ID,
     )
 }
@@ -127,7 +132,7 @@ pub fn compile_schedule_transaction(
             data: crate::instruction::QueueCronTasksV1.data(),
         }],
         vec![vec![
-            b"cron".to_vec(),
+            CRON_SEED.to_vec(),
             cron_job_key.to_bytes().to_vec(),
             vec![bump],
         ]],
