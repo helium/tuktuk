@@ -54,8 +54,7 @@ pub enum ErrorCode {
     InvalidAccountKey,
     #[msg("Invalid crank reward")]
     InvalidCrankReward,
-    // Reserved so the follow-up hardening PR can add these without renumbering the codes
-    // above, which clients match on.
+    // Codes are positional and clients match on them, so variants are only ever appended.
     #[msg("Signer seeds do not resolve to a valid PDA")]
     InvalidSignerSeeds,
     #[msg("Instruction references an account index that was not provided")]

@@ -38,9 +38,9 @@ pub struct QueueCronTasksV1<'info> {
     )]
     pub task_return_account_2: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
-    /// The seeds tuktuk signs for while it runs this cron job's schedule task. Every field the
-    /// handler advances is derived from `cron_job`, so this signature is what says the advance
-    /// belongs to that job's own schedule.
+    /// The seeds tuktuk signs for while it runs a task on this cron job's queue. That is what
+    /// this signature establishes and all of it; which schedule the run belongs to is settled
+    /// by the `recorded_schedule_task` checks in the handler.
     #[account(
         seeds = [b"custom", task_queue.key().as_ref(), b"cron", cron_job.key().as_ref()],
         seeds::program = tuktuk_program::tuktuk::ID,

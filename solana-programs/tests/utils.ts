@@ -100,7 +100,8 @@ export async function readyTasks(
     for (const id of usedTaskIds(queue.taskBitmap, queue.capacity)) {
       const key = taskKey(taskQueue, id)[0];
       const task = await program.account.taskV0.fetchNullable(key);
-      // A set bit does not guarantee a task: the id is marked before creation finishes.
+      // The bitmap and the tasks are read in separate calls, so a bit read as set can belong to
+      // a task that has since closed.
       if (!task) continue;
       const triggerTs = task.trigger.timestamp?.[0];
       if (!triggerTs || triggerTs.toNumber() <= now) {
