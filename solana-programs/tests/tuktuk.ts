@@ -59,12 +59,15 @@ describe("nextAvailableTaskIds", () => {
   });
 
   it("offers exactly capacity ids when the whole queue is free", () => {
-    // Asking for more than exist forces the full scan, so the count is the bound itself
-    // rather than a sample that happens to avoid the tail.
+    // Taking every id and then asking for one more is the bound itself, rather than a sample
+    // that happens to avoid the tail.
     bitmap.fill(0);
-    const ids = nextAvailableTaskIds(bitmap, capacity * 2, false, capacity);
+    const ids = nextAvailableTaskIds(bitmap, capacity, false, capacity);
     expect(ids).to.have.length(capacity);
     expect(Math.max(...ids)).to.eq(capacity - 1);
+    expect(() => nextAvailableTaskIds(bitmap, capacity + 1, false, capacity)).to.throw(
+      /free ids/
+    );
   });
 });
 

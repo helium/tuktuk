@@ -253,7 +253,7 @@ impl CronCmd {
                     .await?
                     .ok_or_else(|| anyhow::anyhow!("Cron job not found: {}", cron_job_key))?;
 
-                if Self::needs_requeue(&client, &cron_job).await? || *force {
+                if *force || Self::needs_requeue(&client, &cron_job).await? {
                     let ix = Self::requeue_cron_job_ix(&client, &cron_job_key).await?;
                     send_instructions(
                         client.rpc_client.clone(),

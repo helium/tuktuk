@@ -233,7 +233,12 @@ export function nextAvailableTaskIds(
       }
     }
   }
-  return availableTaskIds;
+  // Fewer than asked for means the queue cannot hold them. Returning the short list would put
+  // it in a transaction that names one task account per id and fails on the last of them; the
+  // Rust client answers the same way.
+  throw new Error(
+    `task queue has ${availableTaskIds.length} free ids, ${n} were asked for`
+  );
 }
 
 async function defaultFetcher({

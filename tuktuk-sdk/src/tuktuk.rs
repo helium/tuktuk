@@ -191,7 +191,9 @@ pub mod cron {
             cron_job_key,
             task_queue_key,
             queue_authority,
-            task_queue.next_available_task_id().unwrap(),
+            task_queue
+                .next_available_task_id()
+                .ok_or(Error::TooManyTasks)?,
             args,
         )?;
 
