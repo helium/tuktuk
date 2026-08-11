@@ -8,7 +8,7 @@
 //! Requires the program to be built first — `anchor build` in `solana-programs/`, or set
 //! `TUKTUK_SO` to a specific artifact.
 
-use anchor_lang::{AccountSerialize, InstructionData, ToAccountMetas};
+use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, ToAccountMetas};
 use litesvm::{
     types::{FailedTransactionMetadata, TransactionMetadata},
     LiteSVM,
@@ -653,6 +653,41 @@ fn stale_task_age_can_be_lowered_on_an_empty_queue() {
         "an empty queue should take any age: {:?}",
         lowered.as_ref().err().map(|e| &e.err)
     );
+}
+
+#[test]
+fn stale_task_age_can_be_raised_on_a_queue_holding_tasks() {
+    // The floor is the value a task was queued under, so moving away from it stays allowed. A
+    // queue that has ever held a task would otherwise be stuck at its first value for good.
+    let mut ctx = setup(100, 10_000, 1_000_000);
+    ctx.set_unix_timestamp(100_000);
+
+    let _ = queue(
+        &mut ctx,
+        0,
+        TriggerV0::Timestamp(99_900),
+        returns(vec![child(None)]),
+        1,
+    )
+    .expect("queue the parent");
+
+    let auth = ctx.auth.insecure_clone();
+    let raise = set_stale_task_age(&ctx, 2_000_000);
+    let raised = send(&mut ctx.svm, &[raise], &auth, &[&auth]);
+    assert!(
+        raised.is_ok(),
+        "raising stale_task_age on a live queue should be allowed: {:?}",
+        raised.as_ref().err().map(|e| &e.err)
+    );
+
+    // The stored field, rather than a later run that would pass at either value.
+    let account = ctx
+        .svm
+        .get_account(&ctx.task_queue)
+        .expect("the task queue account");
+    let queue_acc = tuktuk::state::TaskQueueV0::try_deserialize(&mut account.data.as_slice())
+        .expect("deserialize the task queue");
+    assert_eq!(queue_acc.stale_task_age, 2_000_000);
 }
 
 #[test]

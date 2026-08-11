@@ -96,10 +96,15 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
         });
     }
 
+    // A reset moves the cycle back to the first record while the running task still names the
+    // records it was compiled around, so the two disagree and only ownership can be checked
+    // below. Every other run knows which indices to expect.
+    let mut reset_this_run = false;
     if now - cron_job.current_exec_ts > stale_task_age as i64 {
         msg!("Cron job is stale, resetting");
         cron_job.current_exec_ts = now;
         cron_job.current_transaction_id = 0;
+        reset_this_run = true;
     }
 
     // The `cron_job_transaction` records this task names, then the free task accounts. The crank
@@ -112,19 +117,31 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
         .ok_or(error!(ErrorCode::NotEnoughAccounts))?;
     let next_schedule_task = accounts[num_tasks_per_queue_call].key();
 
+    let first_transaction_id = cron_job.current_transaction_id;
     let max_num_tasks_remaining = cron_job
         .next_transaction_id
-        .saturating_sub(cron_job.current_transaction_id);
+        .saturating_sub(first_transaction_id);
     let num_tasks_to_queue =
         (cron_job.num_tasks_per_queue_call as u32).min(max_num_tasks_remaining);
     cron_job.current_transaction_id += num_tasks_to_queue;
 
     // The records to queue are named by the task's stored transaction, and only their contents
-    // say which cron job they belong to. Each must be this one's, or a run would queue another
-    // job's transactions on this job's funds.
-    for account in accounts.iter().take(num_tasks_to_queue as usize) {
-        if let Some(owner) = CronJobTransactionV0::cron_job_of(account)? {
+    // say which cron job they belong to and which index they hold. Each must be this job's, at
+    // the index this run is up to, so a run queues the job's own records once each and in order.
+    for (i, account) in accounts
+        .iter()
+        .take(num_tasks_to_queue as usize)
+        .enumerate()
+    {
+        if let Some((id, owner)) = CronJobTransactionV0::identity_of(account)? {
             require_keys_eq!(owner, cron_job.key(), ErrorCode::WrongCronTransaction);
+            if !reset_this_run {
+                require_eq!(
+                    id,
+                    first_transaction_id + i as u32,
+                    ErrorCode::WrongCronTransaction
+                );
+            }
         }
     }
 
@@ -147,7 +164,6 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
         cron_job.key(),
         ctx.accounts.task_return_account_1.key(),
         ctx.accounts.task_return_account_2.key(),
-        cron_job.current_transaction_id,
         next_schedule_task,
     )?;
     let free_tasks_per_transaction = cron_job.free_tasks_per_transaction;
@@ -217,17 +233,7 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
             let cron_job_min_lamports = Rent::get()?.minimum_balance(cron_job_info.data_len());
             let lamports = ctx.accounts.task_queue.min_crank_reward * total_tasks as u64;
             if cron_job_info.lamports() < cron_job_min_lamports + lamports {
-                msg!(
-                    "Not enough lamports to fund tasks. Please requeue cron job when you have enough lamports. {}",
-                    cron_job_info.lamports()
-                );
-                cron_job.removed_from_queue = true;
-                cron_job.next_schedule_task = Pubkey::default();
-                cron_job.exit(&crate::ID)?;
-                Ok(RunTaskReturnV0 {
-                    tasks: vec![],
-                    accounts: vec![],
-                })
+                stand_down(&mut cron_job)
             } else {
                 cron_job.removed_from_queue = false;
                 cron_job_info.sub_lamports(lamports)?;
@@ -243,19 +249,31 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
                 })
             }
         }
-        Err(e) if e.to_string().contains("rent exempt") => {
-            msg!(
-                "Not enough lamports to fund tasks. Please requeue cron job when you have enough lamports. {}",
-                cron_job.to_account_info().lamports()
-            );
-            cron_job.removed_from_queue = true;
-            cron_job.next_schedule_task = Pubkey::default();
-            cron_job.exit(&crate::ID)?;
-            Ok(RunTaskReturnV0 {
-                tasks: vec![],
-                accounts: vec![],
-            })
+        // `write_return_tasks` refuses for the same reason when funding the tasks would leave
+        // the task queue short of rent.
+        Err(Error::AnchorError(e))
+            if e.error_code_number
+                == anchor_lang::error::ErrorCode::ConstraintRentExempt as u32 =>
+        {
+            stand_down(&mut cron_job)
         }
         Err(e) => Err(e),
     }
+}
+
+/// The cron job cannot fund what this run would queue, so it leaves the queue and waits for a
+/// requeue. Clearing `next_schedule_task` is what lets the requeue adopt the chain.
+fn stand_down(cron_job: &mut Account<CronJobV0>) -> Result<RunTaskReturnV0> {
+    msg!(
+        "Not enough lamports to fund tasks. Please requeue cron job when you have enough lamports. {}",
+        cron_job.to_account_info().lamports()
+    );
+    cron_job.removed_from_queue = true;
+    cron_job.next_schedule_task = Pubkey::default();
+    cron_job.exit(&crate::ID)?;
+
+    Ok(RunTaskReturnV0 {
+        tasks: vec![],
+        accounts: vec![],
+    })
 }

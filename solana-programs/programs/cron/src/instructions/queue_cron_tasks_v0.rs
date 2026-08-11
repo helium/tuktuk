@@ -65,7 +65,6 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
         cron_job.key(),
         ctx.accounts.task_return_account_1.key(),
         ctx.accounts.task_return_account_2.key(),
-        cron_job.current_transaction_id,
         cron_job.next_schedule_task,
     )?;
 

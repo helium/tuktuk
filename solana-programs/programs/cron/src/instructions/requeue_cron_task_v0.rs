@@ -82,7 +82,6 @@ pub fn handler(ctx: Context<RequeueCronTaskV0>, args: RequeueCronTaskArgsV0) -> 
         ctx.accounts.cron_job.key(),
         ctx.accounts.task_return_account_1.key(),
         ctx.accounts.task_return_account_2.key(),
-        ctx.accounts.cron_job.current_transaction_id,
         ctx.accounts.task.key(),
     )?;
 

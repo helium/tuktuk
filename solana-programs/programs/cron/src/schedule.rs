@@ -75,18 +75,19 @@ fn cron_signer(task_queue: &Pubkey, cron_job: &Pubkey) -> (Pubkey, u8) {
 }
 
 /// The transaction a schedule task runs: one `queue_cron_tasks_v1` naming the
-/// `cron_job_transaction` records for `first_transaction_id` onward, and declaring the signer
-/// seeds that instruction requires.
-#[allow(clippy::too_many_arguments)]
+/// `cron_job_transaction` records the job is up to, and declaring the signer seeds that
+/// instruction requires.
 pub fn compile_schedule_transaction(
     cron_job: &CronJobV0,
     cron_job_key: Pubkey,
     task_return_account_1: Pubkey,
     task_return_account_2: Pubkey,
-    first_transaction_id: u32,
     recorded_schedule_task: Pubkey,
 ) -> Result<CompiledTransactionV0> {
     let (cron_signer, bump) = cron_signer(&cron_job.task_queue, &cron_job_key);
+    // The run that follows queues the records from here, and checks each one's index against
+    // the same field, so the two agree on which records the task names.
+    let first_transaction_id = cron_job.current_transaction_id;
     // `add_cron_transaction_v0` takes the record index from its caller, so the end of this range
     // is only as bounded as the highest index anyone has paid to create.
     let last_transaction_id =

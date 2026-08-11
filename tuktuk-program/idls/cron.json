@@ -602,9 +602,9 @@
         {
           "name": "cron_signer",
           "docs": [
-            "The seeds tuktuk signs for while it runs this cron job's schedule task. Every field the",
-            "handler advances is derived from `cron_job`, so this signature is what says the advance",
-            "belongs to that job's own schedule."
+            "The PDA tuktuk signs for when it runs a task whose transaction declared this cron job's",
+            "seeds. Which task of the job's schedule chain the run is, is settled by the",
+            "`recorded_schedule_task` checks in the handler."
           ],
           "signer": true,
           "pda": {
