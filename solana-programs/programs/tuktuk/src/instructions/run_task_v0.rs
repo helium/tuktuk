@@ -66,14 +66,13 @@ impl std::io::Write for ByteCount {
 /// memory out and never takes it back, and borsh reaches a length by doubling, so measuring by
 /// serializing charges the heap several times over for a buffer read once and dropped.
 /// (`borsh::object_length` does this too, but arrives in borsh 1 and this builds against 0.10.)
-/// The sink accepts every write, so a measurement that does not complete reports the largest
-/// size there is and the caller's bound refuses it.
-fn serialized_len<T: AnchorSerialize>(value: &T) -> usize {
+fn serialized_len<T: AnchorSerialize>(value: &T) -> Result<usize> {
     let mut count = ByteCount::default();
-    match value.serialize(&mut count) {
-        Ok(()) => count.0,
-        Err(_) => usize::MAX,
-    }
+    value
+        .serialize(&mut count)
+        .map_err(|_| error!(ErrorCode::ReturnedTaskTooLarge))?;
+
+    Ok(count.0)
 }
 
 // Add new iterator struct for reading tasks
@@ -450,7 +449,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             rent_amount: 0,
         };
 
-        let task_size = serialized_len(&task_data) + 8 + 60;
+        let task_size = serialized_len(&task_data)? + 8 + 60;
         // The account is grown from nothing by the single realloc below, so a returned task has
         // to fit inside what one realloc may add.
         require_gte!(

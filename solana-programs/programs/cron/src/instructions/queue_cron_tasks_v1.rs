@@ -96,15 +96,16 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
         });
     }
 
-    // A reset moves the cycle back to the first record while the running task still names the
-    // records it was compiled around, so the two disagree and only ownership can be checked
-    // below. Every other run knows which indices to expect.
-    let mut reset_this_run = false;
+    // The records the running task names were derived from this field when that task was compiled,
+    // and only this instruction and a requeue write it, so the value here is the one it was built
+    // around. Read before the reset below, which moves the cycle back to the first record while
+    // leaving the task's own account list where it is.
+    let expected_first_transaction_id = cron_job.current_transaction_id;
+
     if now - cron_job.current_exec_ts > stale_task_age as i64 {
         msg!("Cron job is stale, resetting");
         cron_job.current_exec_ts = now;
         cron_job.current_transaction_id = 0;
-        reset_this_run = true;
     }
 
     // The `cron_job_transaction` records this task names, then the free task accounts. The crank
@@ -125,9 +126,10 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
         (cron_job.num_tasks_per_queue_call as u32).min(max_num_tasks_remaining);
     cron_job.current_transaction_id += num_tasks_to_queue;
 
-    // The records to queue are named by the task's stored transaction, and only their contents
-    // say which cron job they belong to and which index they hold. Each must be this job's, at
-    // the index this run is up to, so a run queues the job's own records once each and in order.
+    // The records to queue are named by the task's stored transaction, and only their contents say
+    // which cron job they belong to and which index they hold. Each must be this job's, at the
+    // index the task was compiled around, so a run queues the job's own records once each and in
+    // order however the cycle moved.
     for (i, account) in accounts
         .iter()
         .take(num_tasks_to_queue as usize)
@@ -135,13 +137,11 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
     {
         if let Some((id, owner)) = CronJobTransactionV0::identity_of(account)? {
             require_keys_eq!(owner, cron_job.key(), ErrorCode::WrongCronTransaction);
-            if !reset_this_run {
-                require_eq!(
-                    id,
-                    first_transaction_id + i as u32,
-                    ErrorCode::WrongCronTransaction
-                );
-            }
+            require_eq!(
+                id,
+                expected_first_transaction_id + i as u32,
+                ErrorCode::WrongCronTransaction
+            );
         }
     }
 
@@ -249,8 +249,8 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
                 })
             }
         }
-        // `write_return_tasks` refuses for the same reason when funding the tasks would leave
-        // the task queue short of rent.
+        // `write_return_tasks` refuses for the same reason: the cron job cannot cover the rent
+        // of the accounts the return is written into without dropping below its own.
         Err(Error::AnchorError(e))
             if e.error_code_number
                 == anchor_lang::error::ErrorCode::ConstraintRentExempt as u32 =>

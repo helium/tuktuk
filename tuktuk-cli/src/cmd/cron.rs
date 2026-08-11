@@ -11,7 +11,7 @@ use tuktuk_program::{
         accounts::{CronJobNameMappingV0, CronJobV0, UserCronJobsV0},
         types::InitializeCronJobArgsV0,
     },
-    tuktuk::accounts::TaskV0,
+    tuktuk::{accounts::TaskV0, types::TransactionSourceV0},
 };
 use tuktuk_sdk::prelude::*;
 
@@ -121,7 +121,14 @@ impl CronCmd {
     /// recorded gone? `Pubkey::default()` is the system program, which exists, so it is answered
     /// before any account is fetched. `removed_from_queue` is only set on the two lamport
     /// shortfall paths, so it does not answer this on its own.
-    async fn needs_requeue(client: &CliClient, cron_job: &CronJobV0) -> Result<bool> {
+    ///
+    /// Task ids are reused as tasks close, so a task at the recorded address is not necessarily
+    /// this job's. A schedule task names the cron job it advances, which is what separates the two.
+    async fn needs_requeue(
+        client: &CliClient,
+        cron_job_key: &Pubkey,
+        cron_job: &CronJobV0,
+    ) -> Result<bool> {
         if cron_job.next_schedule_task == Pubkey::default() {
             return Ok(true);
         }
@@ -129,7 +136,22 @@ impl CronCmd {
             .rpc_client
             .anchor_account(&cron_job.next_schedule_task)
             .await?;
-        Ok(task.is_none())
+        let Some(task) = task else {
+            return Ok(true);
+        };
+
+        Ok(!Self::advances(&task, cron_job_key))
+    }
+
+    /// Whether a task carries the given cron job's schedule. The cron program compiles that task
+    /// itself and names the job in it, so only a compiled transaction can be one.
+    fn advances(task: &TaskV0, cron_job_key: &Pubkey) -> bool {
+        match &task.transaction {
+            TransactionSourceV0::CompiledV0(transaction) => {
+                transaction.accounts.contains(cron_job_key)
+            }
+            TransactionSourceV0::RemoteV0 { .. } => false,
+        }
     }
 
     async fn requeue_cron_job_ix(client: &CliClient, cron_job_key: &Pubkey) -> Result<Instruction> {
@@ -253,7 +275,7 @@ impl CronCmd {
                     .await?
                     .ok_or_else(|| anyhow::anyhow!("Cron job not found: {}", cron_job_key))?;
 
-                if *force || Self::needs_requeue(&client, &cron_job).await? {
+                if *force || Self::needs_requeue(&client, &cron_job_key, &cron_job).await? {
                     let ix = Self::requeue_cron_job_ix(&client, &cron_job_key).await?;
                     send_instructions(
                         client.rpc_client.clone(),
@@ -282,7 +304,7 @@ impl CronCmd {
                 let fund_ix = Self::fund_cron_job_ix(&client, &cron_job_key, *amount).await?;
                 let mut ixs = vec![fund_ix];
 
-                if Self::needs_requeue(&client, &cron_job).await? {
+                if Self::needs_requeue(&client, &cron_job_key, &cron_job).await? {
                     ixs.push(Self::requeue_cron_job_ix(&client, &cron_job_key).await?);
                 }
 

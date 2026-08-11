@@ -99,6 +99,11 @@ pub struct InitializeCronJobV0<'info> {
     pub tuktuk_program: Program<'info, Tuktuk>,
 }
 
+/// A schedule run names one `cron_job_transaction` record and one free task per queue call, so
+/// the transaction it runs in grows with this. Nine is the largest that serializes inside the
+/// 1232-byte packet limit.
+pub const MAX_TASKS_PER_QUEUE_CALL: u8 = 9;
+
 pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0) -> Result<()> {
     // Leave room for numerics after
     require_gt!(
@@ -107,10 +112,11 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
         ErrorCode::InvalidNumTasksPerQueueCall
     );
 
-    // Do not allow more than 15 tasks per queue call otherwise the queue_cron_tasks_v1 will
-    // be too large to fit in a single transaction.
+    // A schedule run names one `cron_job_transaction` record and one free task per queue call,
+    // so the transaction it runs in grows with this. Nine is the largest that serializes inside
+    // the 1232-byte packet limit, measured by `cron.ts`'s schedule-run size test.
     require_gte!(
-        15,
+        MAX_TASKS_PER_QUEUE_CALL,
         args.num_tasks_per_queue_call,
         ErrorCode::InvalidNumTasksPerQueueCall
     );

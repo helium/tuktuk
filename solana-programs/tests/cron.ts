@@ -505,8 +505,8 @@ describe("cron", () => {
             task: taskKey(taskQueue, taskId)[0],
           })
           // Requeue compiles a schedule transaction and queues it through tuktuk, which costs
-          // more than the 200k an instruction gets by default. Every sender of this instruction
-          // asks for compute: the crank turner and the CLI both pack it with a higher limit.
+          // more than the 200k an instruction gets by default. The CLI, which is what sends this
+          // instruction, derives its limit by simulating first.
           .preInstructions([
             ComputeBudgetProgram.setComputeUnitLimit({ units: 1000000 }),
           ]);
@@ -1101,41 +1101,46 @@ describe("cron", () => {
         expectUnchanged(before, await snapshot(keys), keys);
       });
 
-      it("keeps the largest schedule transaction in use inside one transaction", async () => {
-        // Every live cron job but one uses num_tasks_per_queue_call = 8, and the accounts a
-        // schedule run names grow with it. Measured rather than reasoned about: the account
-        // list is assembled by tuktuk's client and the message dedupes keys, so the only
-        // honest number is the serialized one.
-        const perQueueCall = 8;
-        const { taskId } = await createCronJobFor(
-          makeid(10),
-          10000000000,
-          perQueueCall
-        );
-        const tx = toVersionedTx(
-          await populateMissingDraftInfo(provider.connection, {
-            feePayer: me,
-            instructions: [
-              ComputeBudgetProgram.setComputeUnitLimit({ units: 1000000 }),
-              ...(await runTask({
-                program: tuktukProgram,
-                task: taskKey(taskQueue, taskId)[0],
-                crankTurner: me,
-                nextAvailableTaskIds: Array.from(
-                  { length: perQueueCall + 1 },
-                  (_, i) => 90 + i
-                ),
-              })),
-            ],
-          })
-        );
-        const signed = await provider.wallet.signTransaction(tx);
-        const size = signed.serialize().length;
-        console.log(
-          `      schedule run at num_tasks_per_queue_call=${perQueueCall}: ${size} bytes of 1232`
-        );
-        expect(size, "schedule run fits in one transaction").to.be.at.most(1232);
-      });
+      // 8 is what every live cron job but one uses; 15 is the largest
+      // initialize_cron_job_v0 accepts, and is the value its transaction-size comment claims.
+      // The account list is assembled by tuktuk's client and the message dedupes keys, so the
+      // size is read off the serialized transaction rather than counted.
+      for (const perQueueCall of [8, 9]) {
+        it(`keeps a schedule run at num_tasks_per_queue_call=${perQueueCall} inside one transaction`, async () => {
+          const { taskId } = await createCronJobFor(
+            makeid(10),
+            10000000000,
+            perQueueCall
+          );
+          const tx = toVersionedTx(
+            await populateMissingDraftInfo(provider.connection, {
+              feePayer: me,
+              instructions: [
+                ComputeBudgetProgram.setComputeUnitLimit({ units: 1000000 }),
+                ...(await runTask({
+                  program: tuktukProgram,
+                  task: taskKey(taskQueue, taskId)[0],
+                  crankTurner: me,
+                  // Ids stay under the queue's capacity of 100 at both sizes, so the
+                  // account list is one a run could really name.
+                  nextAvailableTaskIds: Array.from(
+                    { length: perQueueCall + 1 },
+                    (_, i) => 84 + i
+                  ),
+                })),
+              ],
+            })
+          );
+          const signed = await provider.wallet.signTransaction(tx);
+          const size = signed.serialize().length;
+          console.log(
+            `      schedule run at num_tasks_per_queue_call=${perQueueCall}: ${size} bytes of 1232`
+          );
+          expect(size, "schedule run fits in one transaction").to.be.at.most(
+            1232
+          );
+        });
+      }
 
       it("gates requeue on the recorded schedule task", async () => {
         // A second record so the chain can be part way through an execution, which is the state
