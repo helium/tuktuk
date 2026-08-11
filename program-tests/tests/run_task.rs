@@ -277,6 +277,23 @@ fn queue(
     transaction: CompiledTransactionV0,
     free_tasks: u8,
 ) -> SendResult {
+    queue_source(
+        ctx,
+        id,
+        trigger,
+        TransactionSourceV0::CompiledV0(transaction),
+        free_tasks,
+    )
+}
+
+/// Queue a task from any transaction source, which a remote task needs.
+fn queue_source(
+    ctx: &mut Ctx,
+    id: u16,
+    trigger: TriggerV0,
+    transaction: TransactionSourceV0,
+    free_tasks: u8,
+) -> SendResult {
     let (task, _) = task_pda(&ctx.task_queue, id);
     let (task_queue_authority, _) = queue_authority_pda(&ctx.task_queue, &ctx.auth.pubkey());
     let auth = ctx.auth.insecure_clone();
@@ -295,7 +312,7 @@ fn queue(
             args: tuktuk::QueueTaskArgsV0 {
                 id,
                 trigger,
-                transaction: TransactionSourceV0::CompiledV0(transaction),
+                transaction,
                 crank_reward: None,
                 free_tasks,
                 description: "t".to_string(),
@@ -703,6 +720,63 @@ fn an_account_index_outside_the_provided_accounts_is_refused() {
         refusal(&result),
         code(tuktuk::error::ErrorCode::InvalidAccountIndex),
         "expected the out-of-range index to be refused by name, got {:?}",
+        result.as_ref().err().map(|e| &e.err)
+    );
+}
+
+#[test]
+fn a_program_id_index_outside_the_provided_accounts_is_refused() {
+    let mut ctx = setup(100, 10_000, 1_000_000);
+    let transaction = CompiledTransactionV0 {
+        num_rw_signers: 0,
+        num_ro_signers: 0,
+        num_rw: 0,
+        accounts: vec![system_program::ID, tuktuk::ID],
+        instructions: vec![CompiledInstructionV0 {
+            program_id_index: 9,
+            // The accounts resolve, so the run reaches the program the instruction names.
+            accounts: vec![0],
+            data: vec![],
+        }],
+        signer_seeds: vec![],
+    };
+    let _ = queue(&mut ctx, 0, TriggerV0::Now, transaction, 0).expect("queue the task");
+
+    let turner = ctx.turner();
+    let result = run_task(&mut ctx, 0, &turner, vec![], vec![]);
+
+    assert_eq!(
+        refusal(&result),
+        code(tuktuk::error::ErrorCode::InvalidAccountIndex),
+        "expected the program id index to be refused by name, got {:?}",
+        result.as_ref().err().map(|e| &e.err)
+    );
+}
+
+#[test]
+fn a_remote_task_run_first_in_its_transaction_is_refused() {
+    // A remote task is verified against a signature carried by the instruction before it, so
+    // there has to be one. The crank turner composes the transaction and chooses the position.
+    let mut ctx = setup(100, 10_000, 1_000_000);
+    let _ = queue_source(
+        &mut ctx,
+        0,
+        TriggerV0::Now,
+        TransactionSourceV0::RemoteV0 {
+            url: "https://example.invalid/task".to_string(),
+            signer: Pubkey::new_unique(),
+        },
+        0,
+    )
+    .expect("queue the task");
+
+    let turner = ctx.turner();
+    let result = run_task(&mut ctx, 0, &turner, vec![], vec![]);
+
+    assert_eq!(
+        refusal(&result),
+        code(tuktuk::error::ErrorCode::MalformedRemoteTransaction),
+        "expected a remote task with nothing before it to be refused by name, got {:?}",
         result.as_ref().err().map(|e| &e.err)
     );
 }
