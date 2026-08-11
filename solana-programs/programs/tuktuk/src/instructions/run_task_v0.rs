@@ -211,8 +211,8 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
     ) -> Result<()> {
         // The allocator never frees, so a Vec that grows leaks every intermediate buffer. These
         // hold the instruction's accounts and, for everything but memo, the free tasks too.
-        // Reserve against what can actually be pushed: every index kept below resolves within
-        // `remaining_accounts`, so that is the ceiling however many `ix.accounts` names.
+        // `ix.accounts` holds indices and may name one account repeatedly, so the reserve is
+        // capped at the number of accounts there are to name rather than at how many it names.
         let free_tasks = &self.ctx.remaining_accounts[self.free_task_index..];
         let capacity = ix.accounts.len().min(remaining_accounts.len()) + free_tasks.len();
         let mut accounts = Vec::with_capacity(capacity);
@@ -277,7 +277,10 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         msg!("Invoked");
 
         if let Some((return_program_id, return_data)) = solana_program::program::get_return_data() {
-            match self.process_return_data(&return_program_id, &return_data, &accounts) {
+            // Only the accounts the instruction itself named. The free tasks appended above are
+            // the crank turner's to choose, and a tasks account is the program's to name.
+            let named = &accounts[..ix.accounts.len()];
+            match self.process_return_data(&return_program_id, &return_data, named) {
                 Ok(_) => (),
                 Err(e) => {
                     msg!("Error processing return data: {:?}", e);
@@ -296,14 +299,17 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
     ) -> Result<()> {
         let queue_task_return = RunTaskReturnV0::deserialize(&mut &return_data[..])?;
 
-        let accounts_set = queue_task_return
+        let mut accounts_set = queue_task_return
             .tasks_accounts
             .into_iter()
             .collect::<std::collections::HashSet<Pubkey>>();
 
+        // Each returned account is read once. Taking the key out of the set as it is matched is
+        // what says so: an account list may name the same account more than once, and the tasks
+        // in an account are queued for every time it is read.
         let tasks_accounts = accounts
             .iter()
-            .filter(|a| accounts_set.contains(a.key))
+            .filter(|a| accounts_set.remove(a.key))
             .collect::<Vec<_>>();
 
         for task in queue_task_return.tasks {

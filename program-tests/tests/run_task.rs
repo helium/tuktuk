@@ -114,7 +114,12 @@ fn code(error: tuktuk::error::ErrorCode) -> Option<u32> {
     Some(u32::from(error))
 }
 
-fn send(svm: &mut LiteSVM, ixs: &[Instruction], payer: &Keypair, signers: &[&Keypair]) -> SendResult {
+fn send(
+    svm: &mut LiteSVM,
+    ixs: &[Instruction],
+    payer: &Keypair,
+    signers: &[&Keypair],
+) -> SendResult {
     let blockhash = svm.latest_blockhash();
     let tx = Transaction::new_signed_with_payer(ixs, Some(&payer.pubkey()), signers, blockhash);
     svm.send_transaction(tx)
@@ -322,6 +327,30 @@ fn run_task(
     free_task_ids: Vec<u16>,
     free_task_accounts: Vec<Pubkey>,
 ) -> SendResult {
+    let named = vec![
+        AccountMeta::new_readonly(system_program::ID, false),
+        AccountMeta::new_readonly(tuktuk::ID, false),
+    ];
+    run_task_named(
+        ctx,
+        task_id,
+        turner,
+        named,
+        free_task_ids,
+        free_task_accounts,
+    )
+}
+
+/// `run_task` where the caller states the queued transaction's own accounts, which a task
+/// naming anything other than `[system_program, tuktuk]` needs.
+fn run_task_named(
+    ctx: &mut Ctx,
+    task_id: u16,
+    turner: &Keypair,
+    named: Vec<AccountMeta>,
+    free_task_ids: Vec<u16>,
+    free_task_accounts: Vec<Pubkey>,
+) -> SendResult {
     let (task, _) = task_pda(&ctx.task_queue, task_id);
     // The named accounts of the queued transaction, then the free-task accounts.
     let mut metas = tuktuk::accounts::RunTaskV0 {
@@ -333,8 +362,7 @@ fn run_task(
         sysvar_instructions: sysvar::instructions::ID,
     }
     .to_account_metas(None);
-    metas.push(AccountMeta::new_readonly(system_program::ID, false));
-    metas.push(AccountMeta::new_readonly(tuktuk::ID, false));
+    metas.extend(named);
     metas.extend(
         free_task_accounts
             .iter()
@@ -350,8 +378,87 @@ fn run_task(
         .data(),
     };
     let blockhash = ctx.svm.latest_blockhash();
-    let tx = Transaction::new_signed_with_payer(&[ix], Some(&turner.pubkey()), &[turner], blockhash);
+    let tx =
+        Transaction::new_signed_with_payer(&[ix], Some(&turner.pubkey()), &[turner], blockhash);
     ctx.svm.send_transaction(tx)
+}
+
+#[test]
+fn a_returned_tasks_account_is_read_once_however_often_it_is_named() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    let program = std::fs::read(so_path().replace("tuktuk.so", "return_example.so"))
+        .expect("read return_example.so; run `anchor build` in solana-programs/");
+    ctx.svm.add_program(return_example::ID, &program);
+
+    let (queue_authority, _) =
+        Pubkey::find_program_address(&[b"queue_authority"], &return_example::ID);
+    let (task_return_account, _) =
+        Pubkey::find_program_address(&[b"task_return_account"], &return_example::ID);
+    ctx.svm
+        .airdrop(&queue_authority, 1_000_000_000)
+        .expect("fund the account the return is written from");
+
+    // A task that hands its child back through an account the returning program owns.
+    let transaction = CompiledTransactionV0 {
+        num_rw_signers: 0,
+        num_ro_signers: 0,
+        num_rw: 2,
+        accounts: vec![
+            queue_authority,
+            task_return_account,
+            system_program::ID,
+            return_example::ID,
+        ],
+        instructions: vec![CompiledInstructionV0 {
+            program_id_index: 3,
+            accounts: vec![0, 1, 2],
+            data: return_example::instruction::ReturnTaskWithPayload { payload_len: 32 }.data(),
+        }],
+        signer_seeds: vec![],
+    };
+    let _ = queue(&mut ctx, 0, TriggerV0::Now, transaction, 3).expect("queue the parent");
+
+    let turner = ctx.turner();
+    let named = vec![
+        AccountMeta::new(queue_authority, false),
+        AccountMeta::new(task_return_account, false),
+        AccountMeta::new_readonly(system_program::ID, false),
+        AccountMeta::new_readonly(return_example::ID, false),
+    ];
+    let (first, _) = task_pda(&ctx.task_queue, 1);
+    let (second, _) = task_pda(&ctx.task_queue, 2);
+
+    // The turner supplies one free task per id, and puts the account the child was returned in
+    // where the third free task would go.
+    let queue_before = lamports(&ctx.svm, &ctx.task_queue);
+    let result = run_task_named(
+        &mut ctx,
+        0,
+        &turner,
+        named,
+        vec![1, 2, 3],
+        vec![first, second, task_return_account],
+    );
+    assert!(
+        result.is_ok(),
+        "run failed: {:?}",
+        result.err().map(|e| e.err)
+    );
+
+    assert!(
+        task_account_exists(&ctx.svm, &first),
+        "the returned child should have been created"
+    );
+    assert!(
+        !task_account_exists(&ctx.svm, &second),
+        "one child was returned, so only one should exist"
+    );
+    // Every task the queue funds costs it a reward it does not get back.
+    let spent = queue_before as i64 - lamports(&ctx.svm, &ctx.task_queue) as i64;
+    assert!(
+        spent <= 10_000,
+        "the queue paid {spent} lamports, which is more than one child's reward"
+    );
 }
 
 #[test]
@@ -362,15 +469,13 @@ fn a_matching_free_task_account_creates_the_child() {
 
     let turner = ctx.turner();
     let (child_task, _) = task_pda(&ctx.task_queue, 1);
-    let result = run_task(
-        &mut ctx,
-        0,
-        &turner,
-        vec![1],
-        vec![child_task],
-    );
+    let result = run_task(&mut ctx, 0, &turner, vec![1], vec![child_task]);
 
-    assert!(result.is_ok(), "run failed: {:?}", result.err().map(|e| e.err));
+    assert!(
+        result.is_ok(),
+        "run failed: {:?}",
+        result.err().map(|e| e.err)
+    );
     assert!(
         task_account_exists(&ctx.svm, &child_task),
         "the returned child should have been created at id 1"
@@ -388,13 +493,7 @@ fn a_free_task_account_that_does_not_match_its_id_fails_the_run() {
     let (mismatched, _) = task_pda(&ctx.task_queue, 2);
 
     // The id list and the account list are the same length, so only the pairing is wrong.
-    let result = run_task(
-        &mut ctx,
-        0,
-        &turner,
-        vec![1],
-        vec![mismatched],
-    );
+    let result = run_task(&mut ctx, 0, &turner, vec![1], vec![mismatched]);
 
     assert!(
         result.is_err(),
@@ -472,14 +571,12 @@ fn a_returned_reward_above_the_queue_minimum_does_not_spend_the_pool() {
     let turner = ctx.turner();
     let (child_task, _) = task_pda(&ctx.task_queue, 1);
     let before = lamports(&ctx.svm, &ctx.task_queue);
-    let result = run_task(
-        &mut ctx,
-        0,
-        &turner,
-        vec![1],
-        vec![child_task],
+    let result = run_task(&mut ctx, 0, &turner, vec![1], vec![child_task]);
+    assert!(
+        result.is_ok(),
+        "run failed: {:?}",
+        result.err().map(|e| e.err)
     );
-    assert!(result.is_ok(), "run failed: {:?}", result.err().map(|e| e.err));
     let spent = before as i64 - lamports(&ctx.svm, &ctx.task_queue) as i64;
 
     assert!(
@@ -537,14 +634,12 @@ fn stale_task_age_cannot_be_lowered() {
     // The queued task still runs and still creates its child.
     let turner = ctx.turner();
     let (child_task, _) = task_pda(&ctx.task_queue, 1);
-    let result = run_task(
-        &mut ctx,
-        0,
-        &turner,
-        vec![1],
-        vec![child_task],
+    let result = run_task(&mut ctx, 0, &turner, vec![1], vec![child_task]);
+    assert!(
+        result.is_ok(),
+        "run failed: {:?}",
+        result.err().map(|e| e.err)
     );
-    assert!(result.is_ok(), "run failed: {:?}", result.err().map(|e| e.err));
     assert!(
         task_account_exists(&ctx.svm, &child_task),
         "the task should have run rather than been treated as stale"
