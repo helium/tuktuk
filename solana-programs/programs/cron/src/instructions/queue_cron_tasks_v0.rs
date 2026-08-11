@@ -69,7 +69,10 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
     )?;
 
     // One task fits the return data, so no return account is written and the cron job's
-    // lamports are untouched.
+    // lamports are untouched. The task queue funds the successor rather than the job, because
+    // this account list carries no signer for the job: moving its lamports without one would let
+    // anyone call this instruction directly and drain a job into stand-down. The queue pays the
+    // conversion once per chain, and every run after it charges the job again.
     Ok(RunTaskReturnV0 {
         tasks: vec![TaskReturnV0 {
             trigger: TriggerV0::Now,
