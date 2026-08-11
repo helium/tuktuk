@@ -478,18 +478,25 @@ describe("cron", () => {
         return { job, taskId };
       }
 
-      async function addCronTransaction(job: PublicKey, index: number) {
+      async function addCronTransaction(
+        job: PublicKey,
+        index: number,
+        source: {
+          transaction: CompiledTransactionV0;
+          remainingAccounts: AccountMeta[];
+        } = { transaction, remainingAccounts }
+      ) {
         await cronProgram.methods
           .addCronTransactionV0({
             index,
-            transactionSource: { compiledV0: [transaction] },
+            transactionSource: { compiledV0: [source.transaction] },
           })
           .accounts({
             payer: me,
             cronJob: job,
             cronJobTransaction: cronJobTransactionKey(job, index)[0],
           })
-          .remainingAccounts(remainingAccounts)
+          .remainingAccounts(source.remainingAccounts)
           .rpc({ skipPreflight: true });
       }
 
@@ -1223,6 +1230,13 @@ describe("cron", () => {
 
         const stood_down = await cronProgram.account.cronJobV0.fetch(poor);
         expect(stood_down.removedFromQueue, "stood down").to.be.true;
+        // The return was written, so the reward is what the job could not cover. `init` funds
+        // account 1 for 1024 bytes, which is what this job's one record fits inside.
+        expect(
+          (await provider.connection.getAccountInfo(returnAccount(1, poor)))
+            ?.data.length,
+          "the tasks were written before the reward was found short"
+        ).to.be.greaterThan(0);
         expect(stood_down.nextScheduleTask.toBase58()).to.eq(
           PublicKey.default.toBase58()
         );
@@ -1250,6 +1264,60 @@ describe("cron", () => {
         );
         isV1Schedule(
           await tuktukProgram.account.taskV0.fetch(taskKey(taskQueue, 72)[0])
+        );
+      });
+
+      it("stands a cron job down when it cannot cover the rent of its own return", async () => {
+        // A record large enough that the return outgrows the 1024 bytes `init` funded account 1
+        // for, so the write asks the job for rent on top of the reward. Funded only by `init`,
+        // the job has nothing above its own rent to give.
+        const big = compileTransaction(
+          [
+            new TransactionInstruction({
+              programId: SystemProgram.programId,
+              keys: [],
+              data: Buffer.alloc(900),
+            }),
+          ],
+          []
+        );
+        const { job: poor, taskId } = await createCronJobFor(makeid(10), 0);
+        await addCronTransaction(poor, 0, big);
+
+        await run(taskKey(taskQueue, taskId)[0], [74, 75]);
+
+        const stood_down = await cronProgram.account.cronJobV0.fetch(poor);
+        expect(stood_down.removedFromQueue, "stood down").to.be.true;
+        expect(stood_down.nextScheduleTask.toBase58()).to.eq(
+          PublicKey.default.toBase58()
+        );
+        expect(
+          await tuktukProgram.account.taskV0.fetchNullable(
+            taskKey(taskQueue, 74)[0]
+          ),
+          "no successor while stood down"
+        ).to.be.null;
+        // The write gives every account it touched its size back before refusing, which is what
+        // separates this from a job that stood down over the reward with its return written.
+        expect(
+          (await provider.connection.getAccountInfo(returnAccount(1, poor)))
+            ?.data.length,
+          "the return was rolled back rather than written"
+        ).to.eq(0);
+
+        // And the job comes back the same way, once it can pay.
+        await sendInstructions(provider, [
+          SystemProgram.transfer({
+            fromPubkey: me,
+            toPubkey: poor,
+            lamports: 10000000000,
+          }),
+        ]);
+        await requeueIx(poor, PublicKey.default, 76).rpc();
+        const back = await cronProgram.account.cronJobV0.fetch(poor);
+        expect(back.removedFromQueue).to.be.false;
+        expect(back.nextScheduleTask.toBase58()).to.eq(
+          taskKey(taskQueue, 76)[0].toBase58()
         );
       });
     });

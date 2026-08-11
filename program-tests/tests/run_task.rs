@@ -484,6 +484,76 @@ fn a_returned_tasks_account_is_read_once_however_often_it_is_named() {
     );
 }
 
+/// A tasks account is read out of the accounts the returning instruction was given. The free
+/// tasks a run also holds are the crank turner's to choose, so a program naming one of those
+/// names an account the turner supplied rather than one of its own.
+#[test]
+fn a_tasks_account_the_instruction_did_not_name_is_not_read() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    let turner = ctx.turner();
+    let (returned_in, _) =
+        Pubkey::find_program_address(&[b"task_return_account"], &return_example::ID);
+
+    // A first run to write the tasks account, which is what the second run names.
+    let named = queue_returning_task(&mut ctx, 32, 1, vec![0, 1, 2]);
+    let (first_child, _) = task_pda(&ctx.task_queue, 1);
+    run_task_named(&mut ctx, 0, &turner, named, vec![1], vec![first_child])
+        .expect("run the parent that writes the tasks account");
+    assert!(
+        task_account_exists(&ctx.svm, &first_child),
+        "the first run should have created its child"
+    );
+    // The run below is about a tasks account holding a task, so this pins that it holds one.
+    assert!(
+        ctx.svm
+            .get_account(&returned_in)
+            .is_some_and(|a| a.owner == return_example::ID && !a.data.is_empty()),
+        "the first run should have left a task in the tasks account"
+    );
+
+    // A second parent whose instruction names only the system program, and whose program hands
+    // back the tasks account anyway.
+    let transaction = CompiledTransactionV0 {
+        num_rw_signers: 0,
+        num_ro_signers: 0,
+        num_rw: 0,
+        accounts: vec![system_program::ID, return_example::ID],
+        instructions: vec![CompiledInstructionV0 {
+            program_id_index: 1,
+            accounts: vec![0],
+            data: return_example::instruction::ReturnTasksAccountWithoutNamingIt.data(),
+        }],
+        signer_seeds: vec![],
+    };
+    queue(&mut ctx, 3, TriggerV0::Now, transaction, 2).expect("queue the second parent");
+
+    // Two free tasks: the one a child would be created in, and the tasks account behind it. The
+    // second is never consumed, since reading it is what this asserts does not happen.
+    let (second_child, _) = task_pda(&ctx.task_queue, 4);
+    let result = run_task_named(
+        &mut ctx,
+        3,
+        &turner,
+        vec![
+            AccountMeta::new_readonly(system_program::ID, false),
+            AccountMeta::new_readonly(return_example::ID, false),
+        ],
+        vec![4, 5],
+        vec![second_child, returned_in],
+    );
+    assert!(
+        result.is_ok(),
+        "run failed: {:?}",
+        result.err().map(|e| e.err)
+    );
+
+    assert!(
+        !task_account_exists(&ctx.svm, &second_child),
+        "the tasks account reached this run only as a free-task account, so nothing should have \
+         been queued out of it"
+    );
+}
+
 #[test]
 fn a_matching_free_task_account_creates_the_child() {
     let mut ctx = setup(100, 10_000, 100_000);

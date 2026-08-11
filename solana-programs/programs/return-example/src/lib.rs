@@ -4,6 +4,9 @@
 //!
 //! The payload is held in the heap once and serialized once, so the largest size reachable
 //! here is bounded by the 32KB an instruction may allocate, not by what a task account holds.
+//!
+//! It also names that tasks account without being handed it, which is how a test reaches the
+//! rule that a tasks account comes from the accounts the returning instruction named.
 
 use anchor_lang::{prelude::*, solana_program::instruction::Instruction};
 use tuktuk_program::{
@@ -63,6 +66,26 @@ pub mod return_example {
             accounts: return_accounts,
         })
     }
+
+    /// Names the tasks account without holding it, so the only place a run could find it is
+    /// among the accounts the crank turner appended. A tasks account is the program's to name
+    /// out of the accounts its own instruction was given.
+    pub fn return_tasks_account_without_naming_it(
+        _ctx: Context<ReturnTasksAccountWithoutNamingIt>,
+    ) -> Result<RunTaskReturnV0> {
+        let (task_return_account, _) =
+            Pubkey::find_program_address(&[b"task_return_account"], &crate::ID);
+
+        Ok(RunTaskReturnV0 {
+            tasks: vec![],
+            accounts: vec![task_return_account],
+        })
+    }
+}
+
+#[derive(Accounts)]
+pub struct ReturnTasksAccountWithoutNamingIt<'info> {
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
