@@ -108,7 +108,8 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
     // leaving the task's own account list where it is.
     let expected_first_transaction_id = cron_job.current_transaction_id;
 
-    if now - cron_job.current_exec_ts > stale_task_age as i64 {
+    let reset = now - cron_job.current_exec_ts > stale_task_age as i64;
+    if reset {
         msg!("Cron job is stale, resetting");
         cron_job.current_exec_ts = now;
         cron_job.current_transaction_id = 0;
@@ -124,11 +125,18 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
         .ok_or(error!(ErrorCode::NotEnoughAccounts))?;
     let next_schedule_task = accounts[num_tasks_per_queue_call].key();
 
-    let first_transaction_id = cron_job.current_transaction_id;
     let max_num_tasks_remaining = cron_job
         .next_transaction_id
-        .saturating_sub(first_transaction_id);
-    let num_tasks_to_queue = (num_tasks_per_queue_call as u32).min(max_num_tasks_remaining);
+        .saturating_sub(cron_job.current_transaction_id);
+    // The account list above was compiled around `expected_first_transaction_id`, so a reset that
+    // moved the cycle back off it leaves the list naming records this run may not queue. That
+    // beat only re-arms: the successor is compiled from the reset state, and its trigger is
+    // already in the past, so it carries the execution straight away.
+    let num_tasks_to_queue = if reset && expected_first_transaction_id != 0 {
+        0
+    } else {
+        (num_tasks_per_queue_call as u32).min(max_num_tasks_remaining)
+    };
     cron_job.current_transaction_id += num_tasks_to_queue;
 
     // The records to queue are named by the task's stored transaction, and only their contents say
