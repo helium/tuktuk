@@ -503,9 +503,11 @@ fn a_free_task_account_that_does_not_match_its_id_fails_the_run() {
     // The id list and the account list are the same length, so only the pairing is wrong.
     let result = run_task(&mut ctx, 0, &turner, vec![1], vec![mismatched]);
 
-    assert!(
-        result.is_err(),
-        "the run should fail when a free-task account does not match the id it is paired with"
+    assert_eq!(
+        refusal(&result),
+        code(tuktuk::error::ErrorCode::InvalidTaskPDA),
+        "expected the mismatched free-task account to be refused by name, got {:?}",
+        result.as_ref().err().map(|e| &e.err)
     );
     assert!(
         !task_account_exists(&ctx.svm, &intended) && !task_account_exists(&ctx.svm, &mismatched),
@@ -592,7 +594,7 @@ fn a_returned_reward_above_the_queue_minimum_does_not_spend_the_pool() {
         "a child whose reward exceeds the queue minimum should not be created"
     );
     assert!(
-        spent < (inflated as i64) / 4,
+        spent == 0,
         "the queue paid {spent} lamports for a child it did not create \
          (returned reward {inflated}, queue minimum {min_crank_reward})"
     );
@@ -634,9 +636,12 @@ fn stale_task_age_cannot_be_lowered() {
         }
         .data(),
     };
-    assert!(
-        send(&mut ctx.svm, &[lower], &auth, &[&auth]).is_err(),
-        "lowering stale_task_age should be refused"
+    let lowered = send(&mut ctx.svm, &[lower], &auth, &[&auth]);
+    assert_eq!(
+        refusal(&lowered),
+        code(tuktuk::error::ErrorCode::StaleTaskAgeCannotDecrease),
+        "expected lowering stale_task_age to be refused by name, got {:?}",
+        lowered.as_ref().err().map(|e| &e.err)
     );
 
     // The queued task still runs and still creates its child.
@@ -675,10 +680,11 @@ fn an_account_index_outside_the_provided_accounts_is_refused() {
     let turner = ctx.turner();
     let result = run_task(&mut ctx, 0, &turner, vec![], vec![]);
 
-    assert!(
-        !aborted(&result),
-        "an out-of-range account index should be refused by name, not abort the program: {:?}",
-        result.err().map(|e| e.err)
+    assert_eq!(
+        refusal(&result),
+        code(tuktuk::error::ErrorCode::InvalidAccountIndex),
+        "expected the out-of-range index to be refused by name, got {:?}",
+        result.as_ref().err().map(|e| &e.err)
     );
 }
 
@@ -703,10 +709,11 @@ fn a_signer_seed_over_the_length_limit_is_refused() {
     let turner = ctx.turner();
     let result = run_task(&mut ctx, 0, &turner, vec![], vec![]);
 
-    assert!(
-        !aborted(&result),
-        "a seed longer than the limit should be refused by name, not abort the program: {:?}",
-        result.err().map(|e| e.err)
+    assert_eq!(
+        refusal(&result),
+        code(tuktuk::error::ErrorCode::InvalidSignerSeeds),
+        "expected the over-long seed to be refused by name, got {:?}",
+        result.as_ref().err().map(|e| &e.err)
     );
 }
 
