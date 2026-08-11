@@ -10,8 +10,8 @@ use tuktuk_program::{
 use crate::{
     error::ErrorCode,
     schedule::{
-        compile_schedule_transaction, next_exec_ts, running_schedule_task, trunc_name,
-        QUEUE_TASK_DELAY,
+        compile_schedule_transaction, effective_tasks_per_queue_call, next_exec_ts,
+        running_schedule_task, trunc_name, QUEUE_TASK_DELAY,
     },
     state::{CronJobTransactionV0, CronJobV0},
     try_from,
@@ -72,17 +72,23 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
 
     // A cron job carries one schedule chain, and records which task holds it. A run is that
     // task, or it adopts a record that holds nothing, which is the state a chain left behind
-    // when it ended, and the state `requeue_cron_task_v0` also answers to.
+    // when it ended, and the state `requeue_cron_task_v1` also answers to.
     require_keys_eq!(
         ctx.accounts.recorded_schedule_task.key(),
         cron_job.next_schedule_task,
         ErrorCode::WrongScheduleTask
     );
-    require!(
-        running_schedule_task(&ctx.accounts.sysvar_instructions)? == cron_job.next_schedule_task
-            || ctx.accounts.recorded_schedule_task.data_is_empty(),
-        ErrorCode::WrongScheduleTask
-    );
+    // Only a live record has to be matched against the running task, so adopting an ended chain
+    // does not depend on the run being one this program can identify. Reading the running task
+    // needs `run_task_v0` to be the top-level instruction, which a caller that reaches it through
+    // its own CPI does not give.
+    if !ctx.accounts.recorded_schedule_task.data_is_empty() {
+        require!(
+            running_schedule_task(&ctx.accounts.sysvar_instructions)?
+                == cron_job.next_schedule_task,
+            ErrorCode::WrongScheduleTask
+        );
+    }
 
     // Only proceed if we're within the queue window of the next execution
     if (now + QUEUE_TASK_DELAY) < cron_job.current_exec_ts {
@@ -102,7 +108,8 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
     // leaving the task's own account list where it is.
     let expected_first_transaction_id = cron_job.current_transaction_id;
 
-    if now - cron_job.current_exec_ts > stale_task_age as i64 {
+    let reset = now - cron_job.current_exec_ts > stale_task_age as i64;
+    if reset {
         msg!("Cron job is stale, resetting");
         cron_job.current_exec_ts = now;
         cron_job.current_transaction_id = 0;
@@ -111,38 +118,57 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
     // The `cron_job_transaction` records this task names, then the free task accounts. The crank
     // turner chooses how many free tasks to pass, so the slice length is not fixed by the
     // program; the first free task is where the next schedule task will be created.
-    let num_tasks_per_queue_call = cron_job.num_tasks_per_queue_call as usize;
+    let num_tasks_per_queue_call = effective_tasks_per_queue_call(&cron_job) as usize;
     let accounts = ctx
         .remaining_accounts
         .get(..=num_tasks_per_queue_call)
         .ok_or(error!(ErrorCode::NotEnoughAccounts))?;
     let next_schedule_task = accounts[num_tasks_per_queue_call].key();
 
-    let first_transaction_id = cron_job.current_transaction_id;
     let max_num_tasks_remaining = cron_job
         .next_transaction_id
-        .saturating_sub(first_transaction_id);
-    let num_tasks_to_queue =
-        (cron_job.num_tasks_per_queue_call as u32).min(max_num_tasks_remaining);
+        .saturating_sub(cron_job.current_transaction_id);
+    // The account list above was compiled around `expected_first_transaction_id`, so a reset that
+    // moved the cycle back off it leaves the list naming records this run may not queue. That
+    // beat only re-arms: the successor is compiled from the reset state, and its trigger is
+    // already in the past, so it carries the execution straight away.
+    let num_tasks_to_queue = if reset && expected_first_transaction_id != 0 {
+        0
+    } else {
+        (num_tasks_per_queue_call as u32).min(max_num_tasks_remaining)
+    };
     cron_job.current_transaction_id += num_tasks_to_queue;
 
     // The records to queue are named by the task's stored transaction, and only their contents say
     // which cron job they belong to and which index they hold. Each must be this job's, at the
     // index the task was compiled around, so a run queues the job's own records once each and in
-    // order however the cycle moved.
+    // order however the cycle moved. Read once and kept: the allocator never hands a record back,
+    // so reaching for the same bytes again would cost them twice.
+    let mut records = Vec::with_capacity(num_tasks_to_queue as usize);
     for (i, account) in accounts
         .iter()
         .take(num_tasks_to_queue as usize)
         .enumerate()
     {
-        if let Some((id, owner)) = CronJobTransactionV0::identity_of(account)? {
-            require_keys_eq!(owner, cron_job.key(), ErrorCode::WrongCronTransaction);
-            require_eq!(
-                id,
-                expected_first_transaction_id + i as u32,
-                ErrorCode::WrongCronTransaction
-            );
+        // What a removed record leaves behind.
+        if account.data_is_empty() {
+            continue;
         }
+        require_keys_eq!(*account.owner, crate::ID, ErrorCode::WrongCronTransaction);
+        let record: CronJobTransactionV0 =
+            AccountDeserialize::try_deserialize(&mut &account.data.borrow()[..])
+                .map_err(|_| error!(ErrorCode::WrongCronTransaction))?;
+        require_keys_eq!(
+            record.cron_job,
+            cron_job.key(),
+            ErrorCode::WrongCronTransaction
+        );
+        require_eq!(
+            record.id,
+            expected_first_transaction_id + i as u32,
+            ErrorCode::WrongCronTransaction
+        );
+        records.push(record);
     }
 
     let trigger = TriggerV0::Timestamp(cron_job.current_exec_ts);
@@ -173,25 +199,15 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
         trigger: TriggerV0::Timestamp(cron_job.current_exec_ts - QUEUE_TASK_DELAY),
         transaction: TransactionSourceV0::CompiledV0(queue_tx),
         crank_reward: None,
-        free_tasks: cron_job.num_tasks_per_queue_call + 1,
+        free_tasks: num_tasks_per_queue_call as u8 + 1,
         description: format!("queue {}", trunc_name),
     })
-    .chain((0..num_tasks_to_queue as usize).filter_map(|i| {
-        let transaction = accounts[i].clone();
-        if transaction.data_is_empty() {
-            return None;
-        }
-
-        let parsed_transaction: CronJobTransactionV0 =
-            AccountDeserialize::try_deserialize(&mut &transaction.data.borrow()[..]).ok()?;
-
-        Some(TaskReturnV0 {
-            trigger,
-            transaction: parsed_transaction.transaction,
-            crank_reward: None,
-            free_tasks: free_tasks_per_transaction,
-            description: format!("{} {}", trunc_name, parsed_transaction.id),
-        })
+    .chain(records.into_iter().map(|record| TaskReturnV0 {
+        trigger,
+        description: format!("{} {}", trunc_name, record.id),
+        transaction: record.transaction,
+        crank_reward: None,
+        free_tasks: free_tasks_per_transaction,
     }));
 
     cron_job.next_schedule_task = next_schedule_task;

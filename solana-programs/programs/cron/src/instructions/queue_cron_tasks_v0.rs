@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use tuktuk_program::{RunTaskReturnV0, TaskQueueV0, TaskReturnV0, TransactionSourceV0, TriggerV0};
 
 use crate::{
-    schedule::{compile_schedule_transaction, trunc_name},
+    schedule::{compile_schedule_transaction, effective_tasks_per_queue_call, trunc_name},
     state::CronJobV0,
 };
 
@@ -69,13 +69,15 @@ pub fn handler(ctx: Context<QueueCronTasksV0>) -> Result<RunTaskReturnV0> {
     )?;
 
     // One task fits the return data, so no return account is written and the cron job's
-    // lamports are untouched.
+    // lamports are untouched. The successor is funded by the task queue: this account list
+    // carries no signer for the job, and the job's lamports only move under one. The queue
+    // pays the conversion once per chain, and every run after it charges the job again.
     Ok(RunTaskReturnV0 {
         tasks: vec![TaskReturnV0 {
             trigger: TriggerV0::Now,
             transaction: TransactionSourceV0::CompiledV0(queue_tx),
             crank_reward: None,
-            free_tasks: cron_job.num_tasks_per_queue_call + 1,
+            free_tasks: effective_tasks_per_queue_call(&cron_job) + 1,
             description: format!("queue {}", trunc_name(&cron_job.name)),
         }],
         accounts: vec![],

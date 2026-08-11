@@ -59,7 +59,7 @@ describe("nextAvailableTaskIds", () => {
     // That byte carries bits 96..103 and all eight read as free. Capacity is what makes four
     // of them ids the queue has, so asking for eight is asking for more than it holds.
     expect(() => nextAvailableTaskIds(bitmap, 8, false, capacity)).to.throw(
-      /4 free ids/
+      /4 free ids/,
     );
   });
 
@@ -70,9 +70,9 @@ describe("nextAvailableTaskIds", () => {
     const ids = nextAvailableTaskIds(bitmap, capacity, false, capacity);
     expect(ids).to.have.length(capacity);
     expect(Math.max(...ids)).to.eq(capacity - 1);
-    expect(() => nextAvailableTaskIds(bitmap, capacity + 1, false, capacity)).to.throw(
-      /free ids/
-    );
+    expect(() =>
+      nextAvailableTaskIds(bitmap, capacity + 1, false, capacity),
+    ).to.throw(/free ids/);
   });
 });
 
@@ -965,18 +965,26 @@ describe("tuktuk", () => {
         );
       });
 
-      it("rejects a returned task with a reward above the queue minimum", async () => {
+      it("fails the run when a returned task's reward is above the queue minimum", async () => {
         const { parent, child } = await scheduleReturning(
           minCrankReward.muln(2),
           false,
         );
 
         const before = await provider.connection.getBalance(taskQueue);
-        await crank(parent);
+        let failed = false;
+        try {
+          await crank(parent);
+        } catch (e) {
+          failed = true;
+        }
+        expect(failed).to.be.true;
         const after = await provider.connection.getBalance(taskQueue);
 
         expect(await program.account.taskV0.fetchNullable(child)).to.be.null;
-        // Rent refunds go to the task's payer, so an untouched queue is exactly unchanged.
+        // The run reverted, so the parent is still queued and the queue is exactly unchanged.
+        expect(await program.account.taskV0.fetchNullable(parent)).to.not.be
+          .null;
         expect(after).to.eq(before);
       });
 
@@ -1022,7 +1030,10 @@ describe("tuktuk", () => {
       it("fails the run when the free task account is not the id's PDA", async () => {
         // The turner picks the free-task accounts as well as the ids. Pairing a valid unused id
         // with a different (empty) task PDA must fail the run, not drop the child and pay out.
-        const { parent, child } = await scheduleReturning(minCrankReward, false);
+        const { parent, child } = await scheduleReturning(
+          minCrankReward,
+          false,
+        );
 
         const ixs = await runTask({
           program,
@@ -1060,17 +1071,25 @@ describe("tuktuk", () => {
           .null;
       });
 
-      it("rejects an above minimum returned task handed back in an account", async () => {
+      it("fails the run on an above minimum returned task handed back in an account", async () => {
         const { parent, child } = await scheduleReturning(
           minCrankReward.muln(2),
           true,
         );
 
         const before = await provider.connection.getBalance(taskQueue);
-        await crank(parent);
+        let failed = false;
+        try {
+          await crank(parent);
+        } catch (e) {
+          failed = true;
+        }
+        expect(failed).to.be.true;
         const after = await provider.connection.getBalance(taskQueue);
 
         expect(await program.account.taskV0.fetchNullable(child)).to.be.null;
+        expect(await program.account.taskV0.fetchNullable(parent)).to.not.be
+          .null;
         expect(after).to.eq(before);
       });
     });

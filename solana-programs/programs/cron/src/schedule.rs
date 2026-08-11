@@ -20,6 +20,20 @@ use crate::{error::ErrorCode, state::CronJobV0};
 /// hold tasks for executions that are still a long time away.
 pub const QUEUE_TASK_DELAY: i64 = 60 * 5;
 
+/// A schedule run reads one `cron_job_transaction` record and queues one task per queue call, so
+/// both the transaction it runs in and the heap it runs on grow with this. The heap binds first:
+/// a run allocates past the 32KB an instruction gets somewhere above five records, where the
+/// transaction only passes the 1232-byte packet limit above nine. Five is what both allow.
+pub const MAX_TASKS_PER_QUEUE_CALL: u8 = 5;
+
+/// How many records one run of this cron job may take. Jobs created before the cap keep running,
+/// each run taking as many records as a run can hold, so a full cycle takes more calls.
+pub fn effective_tasks_per_queue_call(cron_job: &CronJobV0) -> u8 {
+    cron_job
+        .num_tasks_per_queue_call
+        .min(MAX_TASKS_PER_QUEUE_CALL)
+}
+
 /// `tuktuk::run_task_v0`, whose account list names the task it is running. Both are pinned by
 /// `tests::run_task_v0_shape` against the client this program is built with.
 const RUN_TASK_V0_DISCRIMINATOR: [u8; 8] = [52, 184, 39, 129, 126, 245, 176, 237];
@@ -91,7 +105,7 @@ pub fn compile_schedule_transaction(
     // `add_cron_transaction_v0` takes the record index from its caller, so the end of this range
     // is only as bounded as the highest index anyone has paid to create.
     let last_transaction_id =
-        first_transaction_id.saturating_add(cron_job.num_tasks_per_queue_call as u32);
+        first_transaction_id.saturating_add(effective_tasks_per_queue_call(cron_job) as u32);
     let transactions = (first_transaction_id..last_transaction_id).map(|i| {
         AccountMeta::new_readonly(
             Pubkey::find_program_address(

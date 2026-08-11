@@ -30,4 +30,6 @@ pub enum ErrorCode {
     WrongScheduleTask,
     #[msg("Not a transaction of this cron job")]
     WrongCronTransaction,
+    #[msg("This instruction is deprecated, call its current version")]
+    InstructionDeprecated,
 }

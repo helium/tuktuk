@@ -11,7 +11,7 @@ use tuktuk_program::{
         accounts::{CronJobNameMappingV0, CronJobV0, UserCronJobsV0},
         types::InitializeCronJobArgsV0,
     },
-    tuktuk::{accounts::TaskV0, types::TransactionSourceV0},
+    tuktuk::accounts::TaskV0,
 };
 use tuktuk_sdk::prelude::*;
 
@@ -42,7 +42,9 @@ pub enum Cmd {
         name: String,
         #[arg(long, value_parser = clap::value_parser!(u8).range(0..=15))]
         free_tasks_per_transaction: u8,
-        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=15))]
+        // Mirrors the cron program's `MAX_TASKS_PER_QUEUE_CALL`, which this crate does not
+        // depend on, and which the program refuses above.
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=5))]
         num_tasks_per_queue_call: u8,
         #[arg(long, help = "Initial funding amount in lamports", default_value = "0")]
         funding_amount: u64,
@@ -62,8 +64,8 @@ pub enum Cmd {
         cron: CronArg,
         #[arg(
             long,
-            help = "Send the requeue even if the cron job doesn't think it is removed from \
-                    queue. The program still refuses while the task it recorded is live.",
+            help = "Requeue even though a task holds the address the cron job recorded, closing \
+                    that task first. Use this only when that task is not the job's live schedule.",
             default_value = "false"
         )]
         force: bool,
@@ -111,15 +113,13 @@ impl CronArg {
 enum RequeueState {
     /// Nothing holds the recorded address, so the gate admits a requeue.
     Ready,
-    /// A task that is not this job's schedule holds it. Task ids are recycled as tasks close, so
-    /// the address has to be freed before the gate admits a requeue.
+    /// A task holds the recorded address, so the gate refuses. Usually that task is the job's own
+    /// live schedule, which is the state of a cron job that needs nothing done to it.
     Occupied {
         task: Pubkey,
         id: u16,
         rent_refund: Pubkey,
     },
-    /// The job's own schedule task is live, so it is already on the queue.
-    Live,
 }
 
 impl CronCmd {
@@ -137,13 +137,10 @@ impl CronCmd {
     /// before any account is fetched. `removed_from_queue` is only set on the two lamport
     /// shortfall paths, so it does not answer this on its own.
     ///
-    /// Task ids are reused as tasks close, so a task at the recorded address is not necessarily
-    /// this job's. A schedule task names the cron job it advances, which is what separates the two.
-    async fn requeue_state(
-        client: &CliClient,
-        cron_job_key: &Pubkey,
-        cron_job: &CronJobV0,
-    ) -> Result<RequeueState> {
+    /// Nothing tells the two kinds of occupant apart. Task ids are reused as tasks close, so the
+    /// account there may be the job's live schedule or an unrelated task that took the address,
+    /// and either one is a job the program will not requeue.
+    async fn requeue_state(client: &CliClient, cron_job: &CronJobV0) -> Result<RequeueState> {
         if cron_job.next_schedule_task == Pubkey::default() {
             return Ok(RequeueState::Ready);
         }
@@ -154,26 +151,12 @@ impl CronCmd {
         let Some(task) = task else {
             return Ok(RequeueState::Ready);
         };
-        if Self::advances(&task, cron_job_key) {
-            return Ok(RequeueState::Live);
-        }
 
         Ok(RequeueState::Occupied {
             task: cron_job.next_schedule_task,
             id: task.id,
             rent_refund: task.rent_refund,
         })
-    }
-
-    /// Whether a task carries the given cron job's schedule. The cron program compiles that task
-    /// itself and names the job in it, so only a compiled transaction can be one.
-    fn advances(task: &TaskV0, cron_job_key: &Pubkey) -> bool {
-        match &task.transaction {
-            TransactionSourceV0::CompiledV0(transaction) => {
-                transaction.accounts.contains(cron_job_key)
-            }
-            TransactionSourceV0::RemoteV0 { .. } => false,
-        }
     }
 
     /// The instructions that put a cron job back on the queue. The program admits a requeue only
@@ -339,8 +322,8 @@ impl CronCmd {
                     .await?
                     .ok_or_else(|| anyhow::anyhow!("Cron job not found: {}", cron_job_key))?;
 
-                let state = Self::requeue_state(&client, &cron_job_key, &cron_job).await?;
-                if !*force && matches!(state, RequeueState::Live) {
+                let state = Self::requeue_state(&client, &cron_job).await?;
+                if !*force && matches!(state, RequeueState::Occupied { .. }) {
                     println!("Cron job does not need to be requeued");
                 } else {
                     let ixs = Self::requeue_ixs(&client, &cron_job_key, &cron_job, state).await?;
@@ -369,8 +352,10 @@ impl CronCmd {
                 let fund_ix = Self::fund_cron_job_ix(&client, &cron_job_key, *amount).await?;
                 let mut ixs = vec![fund_ix];
 
-                let state = Self::requeue_state(&client, &cron_job_key, &cron_job).await?;
-                if !matches!(state, RequeueState::Live) {
+                // Only when the recorded address is free. A task holding it is usually the job's
+                // own live schedule, and funding a job is no reason to close that.
+                let state = Self::requeue_state(&client, &cron_job).await?;
+                if matches!(state, RequeueState::Ready) {
                     ixs.extend(Self::requeue_ixs(&client, &cron_job_key, &cron_job, state).await?);
                 }
 

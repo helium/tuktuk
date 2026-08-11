@@ -321,12 +321,10 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             // Only the accounts the instruction itself named. The free tasks appended above are
             // the crank turner's to choose, and a tasks account is the program's to name.
             let named = &accounts[..ix.accounts.len()];
-            match self.process_return_data(&return_program_id, &return_data, named) {
-                Ok(_) => (),
-                Err(e) => {
-                    msg!("Error processing return data: {:?}", e);
-                }
-            }
+            // A run that cannot place a child it was handed fails, whoever caused it: the
+            // alternative is a task that reports success while the work it returned is gone.
+            self.process_return_data(&return_program_id, &return_data, named)
+                .inspect_err(|e| msg!("Error processing return data: {:?}", e))?;
         }
 
         Ok(())
@@ -411,8 +409,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         );
         // A returned task is funded by the task queue, so `min_crank_reward` is its ceiling as
         // well as its floor: together with the check above, a returned reward is either `None` or
-        // exactly `min_crank_reward`. Errors here are swallowed by the return-data handler, so the
-        // task is not created but the transaction still succeeds.
+        // exactly `min_crank_reward`.
         require_gte!(
             self.min_crank_reward,
             task.crank_reward.unwrap_or(self.min_crank_reward),
