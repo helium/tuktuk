@@ -42,7 +42,9 @@ pub enum Cmd {
         name: String,
         #[arg(long, value_parser = clap::value_parser!(u8).range(0..=15))]
         free_tasks_per_transaction: u8,
-        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=15))]
+        // Mirrors the cron program's `MAX_TASKS_PER_QUEUE_CALL`, which this crate does not
+        // depend on, and which the program refuses above.
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=5))]
         num_tasks_per_queue_call: u8,
         #[arg(long, help = "Initial funding amount in lamports", default_value = "0")]
         funding_amount: u64,
