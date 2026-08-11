@@ -54,7 +54,7 @@
 //! ```
 //! use anyhow::Result;
 //! use futures_util::StreamExt;
-//! use solana_pubsub_client::nonblocking::pubsub_client::PubsubClient;
+//! use tuktuk_sdk::pubsub_client::PubsubClient;
 //! use std::sync::Arc;
 //! use tokio::io::AsyncReadExt;
 //! use tokio::sync::mpsc::unbounded_channel;
@@ -71,8 +71,11 @@
 //!     // where the first is a closure to call to unsubscribe, the second is the subscription name.
 //!     let (unsubscribe_sender, mut unsubscribe_receiver) = unbounded_channel::<(_, &'static str)>();
 //!
-//!     // The `PubsubClient` must be `Arc`ed to share it across tasks.
-//!     let pubsub_client = Arc::new(PubsubClient::new(websocket_url).await?);
+//!     // `new` hands back the websocket task and its shutdown channel alongside the client,
+//!     // so the caller decides when the connection closes. The client itself must be `Arc`ed
+//!     // to share it across tasks.
+//!     let (pubsub_client, ws_handle, shutdown_sender) = PubsubClient::new(websocket_url).await?;
+//!     let pubsub_client = Arc::new(pubsub_client);
 //!
 //!     let mut join_handles = vec![];
 //!
@@ -162,6 +165,10 @@
 //!             println!("task {} failed: {}", name, e);
 //!         }
 //!     }
+//!
+//!     // Close the websocket and wait for the task that drives it.
+//!     let _ = shutdown_sender.send(());
+//!     let _ = ws_handle.await;
 //!
 //!     Ok(())
 //! }
