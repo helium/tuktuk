@@ -142,20 +142,33 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
     // The records to queue are named by the task's stored transaction, and only their contents say
     // which cron job they belong to and which index they hold. Each must be this job's, at the
     // index the task was compiled around, so a run queues the job's own records once each and in
-    // order however the cycle moved.
+    // order however the cycle moved. Read once and kept: the allocator never hands a record back,
+    // so reaching for the same bytes again would cost them twice.
+    let mut records = Vec::with_capacity(num_tasks_to_queue as usize);
     for (i, account) in accounts
         .iter()
         .take(num_tasks_to_queue as usize)
         .enumerate()
     {
-        if let Some((id, owner)) = CronJobTransactionV0::identity_of(account)? {
-            require_keys_eq!(owner, cron_job.key(), ErrorCode::WrongCronTransaction);
-            require_eq!(
-                id,
-                expected_first_transaction_id + i as u32,
-                ErrorCode::WrongCronTransaction
-            );
+        // What a removed record leaves behind.
+        if account.data_is_empty() {
+            continue;
         }
+        require_keys_eq!(*account.owner, crate::ID, ErrorCode::WrongCronTransaction);
+        let record: CronJobTransactionV0 =
+            AccountDeserialize::try_deserialize(&mut &account.data.borrow()[..])
+                .map_err(|_| error!(ErrorCode::WrongCronTransaction))?;
+        require_keys_eq!(
+            record.cron_job,
+            cron_job.key(),
+            ErrorCode::WrongCronTransaction
+        );
+        require_eq!(
+            record.id,
+            expected_first_transaction_id + i as u32,
+            ErrorCode::WrongCronTransaction
+        );
+        records.push(record);
     }
 
     let trigger = TriggerV0::Timestamp(cron_job.current_exec_ts);
@@ -189,22 +202,12 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
         free_tasks: num_tasks_per_queue_call as u8 + 1,
         description: format!("queue {}", trunc_name),
     })
-    .chain((0..num_tasks_to_queue as usize).filter_map(|i| {
-        let transaction = accounts[i].clone();
-        if transaction.data_is_empty() {
-            return None;
-        }
-
-        let parsed_transaction: CronJobTransactionV0 =
-            AccountDeserialize::try_deserialize(&mut &transaction.data.borrow()[..]).ok()?;
-
-        Some(TaskReturnV0 {
-            trigger,
-            transaction: parsed_transaction.transaction,
-            crank_reward: None,
-            free_tasks: free_tasks_per_transaction,
-            description: format!("{} {}", trunc_name, parsed_transaction.id),
-        })
+    .chain(records.into_iter().map(|record| TaskReturnV0 {
+        trigger,
+        description: format!("{} {}", trunc_name, record.id),
+        transaction: record.transaction,
+        crank_reward: None,
+        free_tasks: free_tasks_per_transaction,
     }));
 
     cron_job.next_schedule_task = next_schedule_task;
