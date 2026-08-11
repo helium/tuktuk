@@ -242,7 +242,15 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         // `ix.accounts` holds indices and may name one account repeatedly, so the reserve is
         // capped at the number of accounts there are to name rather than at how many it names.
         let free_tasks = &self.ctx.remaining_accounts[self.free_task_index..];
-        let capacity = ix.accounts.len().min(remaining_accounts.len()) + free_tasks.len();
+        // Resolved here rather than at the extend below, so the reservation knows whether the free
+        // tasks are going to be appended at all. The heap never hands a reservation back.
+        let program_id = remaining_accounts
+            .get(ix.program_id_index as usize)
+            .ok_or(error!(ErrorCode::InvalidAccountIndex))?
+            .key;
+        let takes_free_tasks = *program_id != MEMO_PROGRAM_ID;
+        let capacity = ix.accounts.len().min(remaining_accounts.len())
+            + if takes_free_tasks { free_tasks.len() } else { 0 };
         let mut accounts = Vec::with_capacity(capacity);
         let mut account_infos = Vec::with_capacity(capacity);
 
@@ -269,13 +277,9 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             accounts.push(acct);
         }
 
-        // Pass free tasks as remaining accounts so the task can know which IDs will be used
-        let program_id = remaining_accounts
-            .get(ix.program_id_index as usize)
-            .ok_or(error!(ErrorCode::InvalidAccountIndex))?
-            .key;
-        // Ignore memo program because it expects every account passed to be a signer.
-        if *program_id != MEMO_PROGRAM_ID {
+        // Pass free tasks as remaining accounts so the task can know which IDs will be used.
+        // The memo program is skipped because it expects every account passed to be a signer.
+        if takes_free_tasks {
             accounts.extend(free_tasks.iter().cloned());
             account_infos.extend(free_tasks.iter().map(|acct| AccountMeta {
                 pubkey: acct.key(),
@@ -594,8 +598,9 @@ pub fn handler<'info>(
                         .map(|ix| &ix.program_id_index),
                 )
                 .max()
-                // A transaction naming no accounts needs none of them.
-                .map_or(0, |highest| highest + 1);
+                // A transaction naming no accounts needs none of them. Counted as usize, since
+                // the highest index an instruction may name is itself a u8.
+                .map_or(0usize, |highest| *highest as usize + 1);
 
             // The crank turner chooses how many accounts to pass, and the slice below indexes
             // this many of them.
