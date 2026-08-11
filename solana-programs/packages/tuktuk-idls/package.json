@@ -1,6 +1,6 @@
 {
   "name": "@helium/tuktuk-idls",
-  "version": "0.0.11",
+  "version": "0.1.0",
   "description": "Exported idls",
   "publishConfig": {
     "access": "public",
