@@ -53,9 +53,14 @@ describe("nextAvailableTaskIds", () => {
     bitmap.fill(0xff, 0, bitmap.length - 1);
     bitmap[bitmap.length - 1] = 0;
 
-    expect(nextAvailableTaskIds(bitmap, 8, false, capacity)).to.deep.eq([
+    expect(nextAvailableTaskIds(bitmap, 4, false, capacity)).to.deep.eq([
       96, 97, 98, 99,
     ]);
+    // That byte carries bits 96..103 and all eight read as free. Capacity is what makes four
+    // of them ids the queue has, so asking for eight is asking for more than it holds.
+    expect(() => nextAvailableTaskIds(bitmap, 8, false, capacity)).to.throw(
+      /4 free ids/
+    );
   });
 
   it("offers exactly capacity ids when the whole queue is free", () => {

@@ -198,12 +198,14 @@ export function compileTransaction(
  *
  * The bitmap is a whole number of bytes, so its final byte carries up to seven bits past
  * `capacity`. Those bits read as unused while the program rejects any id at or beyond
- * capacity, so the bound has to be applied here — it cannot be inferred from the buffer.
+ * capacity, so the bound is passed in rather than inferred from the buffer.
  *
  * `random` starts the scan at an arbitrary byte, which keeps concurrent crank turners from
- * converging on the same ids. Both trailing arguments are required: a caller that omits
- * `capacity` would otherwise compare every id against `undefined` and silently get nothing
- * back, and callers written against the older two-and-a-flag signature should fail loudly.
+ * converging on the same ids. Both trailing arguments are required, so every call site
+ * states the queue's capacity rather than inheriting a default.
+ *
+ * Throws when the queue holds fewer than `n` free ids, since a caller asking for `n` names
+ * one task account per id.
  */
 export function nextAvailableTaskIds(
   taskBitmap: Buffer,
