@@ -181,6 +181,10 @@ struct TaskProcessor<'a, 'info> {
     // must not be droppable by picking them badly; a reward or description the returning program
     // chose is that program's fault and is still dropped silently.
     bad_free_task_input: bool,
+    // Whether the turner supplied every free-task id the task declared. When it did, a shortfall
+    // of ids is the returning program asking for more children than the task reserved, not a
+    // choice the turner could have made differently.
+    turner_supplied_max: bool,
 }
 
 impl<'a, 'info> TaskProcessor<'a, 'info> {
@@ -191,6 +195,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         min_crank_reward: u64,
         capacity: u16,
     ) -> Result<Self> {
+        let turner_supplied_max = free_task_ids.len() == ctx.accounts.task.free_tasks as usize;
         free_task_ids.reverse();
 
         let prefix: Vec<Vec<u8>> = vec![
@@ -229,6 +234,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             tasks_to_set: Vec::new(),
             queue_lamports_needed: 0,
             bad_free_task_input: false,
+            turner_supplied_max,
         })
     }
 
@@ -250,7 +256,11 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             .key;
         let takes_free_tasks = *program_id != MEMO_PROGRAM_ID;
         let capacity = ix.accounts.len().min(remaining_accounts.len())
-            + if takes_free_tasks { free_tasks.len() } else { 0 };
+            + if takes_free_tasks {
+                free_tasks.len()
+            } else {
+                0
+            };
         let mut accounts = Vec::with_capacity(capacity);
         let mut account_infos = Vec::with_capacity(capacity);
 
@@ -360,7 +370,14 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         return_program_id: &Pubkey,
         account: &AccountInfo<'info>,
     ) -> Result<()> {
-        // A program may only hand us task lists out of accounts it owns.
+        // A program may only hand us task lists out of accounts it owns, and never out of ours:
+        // this program's accounts hold tasks and queues, whose bytes would otherwise be read as a
+        // task list.
+        require_keys_neq!(
+            *return_program_id,
+            crate::ID,
+            ErrorCode::InvalidTasksAccountOwner
+        );
         require_keys_eq!(
             *account.owner,
             *return_program_id,
@@ -414,7 +431,13 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         let task_id = match self.free_task_ids.pop() {
             Some(id) => id,
             None => {
-                self.bad_free_task_input = true;
+                // Blamed on the turner only when it had ids left to give. No turner input can
+                // satisfy a callee asking for more children than the task declared, so that
+                // overrun belongs to the returning program and is answered the same way as the
+                // rest of what it chose.
+                if !self.turner_supplied_max {
+                    self.bad_free_task_input = true;
+                }
                 return Err(error!(ErrorCode::TooManyReturnedTasks));
             }
         };
@@ -620,9 +643,10 @@ pub fn handler<'info>(
                         .map(|(i, acc)| {
                             let mut data = Vec::with_capacity(34);
                             data.extend_from_slice(&acc.key.to_bytes());
-                            let writable_end_idx = remote_tx.transaction.num_rw
-                                + remote_tx.transaction.num_ro_signers
-                                + remote_tx.transaction.num_rw_signers;
+                            // Summed as usize: three u8 counts can total more than one holds.
+                            let writable_end_idx = remote_tx.transaction.num_rw as usize
+                                + remote_tx.transaction.num_ro_signers as usize
+                                + remote_tx.transaction.num_rw_signers as usize;
                             // The rent refund account may make an account that shouldn't be writable appear writable
                             if i >= writable_end_idx as usize
                                 && (*acc.key == ctx.accounts.rent_refund.key()

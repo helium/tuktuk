@@ -2,6 +2,8 @@ use anchor_lang::prelude::*;
 use tuktuk_program::TransactionSourceV0;
 
 use crate::{
+    error::ErrorCode,
+    instructions::initialize_cron_job_v0::MAX_TASKS_PER_QUEUE_CALL,
     resize_to_fit::resize_to_fit,
     state::{CronJobTransactionV0, CronJobV0},
 };
@@ -34,6 +36,14 @@ pub struct AddCronTransactionV0<'info> {
 pub fn handler(ctx: Context<AddCronTransactionV0>, args: AddCronTransactionArgsV0) -> Result<()> {
     let cron_job = &mut ctx.accounts.cron_job;
     cron_job.next_transaction_id = cron_job.next_transaction_id.max(args.index + 1);
+    // A run reads one record and queues one task per queue call, so what it allocates is bounded
+    // by whichever of the two is smaller. `num_tasks_per_queue_call` is fixed when the job is
+    // created, so a job carrying a setting from before the bound is held to it here instead.
+    require_gte!(
+        MAX_TASKS_PER_QUEUE_CALL as u32,
+        (cron_job.num_tasks_per_queue_call as u32).min(cron_job.next_transaction_id),
+        ErrorCode::InvalidNumTasksPerQueueCall
+    );
     cron_job.num_transactions += 1;
     let mut transaction = args.transaction_source.clone();
     if let TransactionSourceV0::CompiledV0(mut compiled_tx) = transaction {
