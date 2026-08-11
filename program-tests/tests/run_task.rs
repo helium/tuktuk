@@ -580,7 +580,7 @@ fn free_tasks_at_the_u8_limit_is_accepted() {
 }
 
 #[test]
-fn a_returned_reward_above_the_queue_minimum_does_not_spend_the_pool() {
+fn a_returned_reward_above_the_queue_minimum_fails_the_run() {
     let min_crank_reward = 10_000u64;
     let mut ctx = setup(100, min_crank_reward, 100_000);
     let inflated = 100_000_000u64;
@@ -597,10 +597,11 @@ fn a_returned_reward_above_the_queue_minimum_does_not_spend_the_pool() {
     let (child_task, _) = task_pda(&ctx.task_queue, 1);
     let before = lamports(&ctx.svm, &ctx.task_queue);
     let result = run_task(&mut ctx, 0, &turner, vec![1], vec![child_task]);
-    assert!(
-        result.is_ok(),
-        "run failed: {:?}",
-        result.err().map(|e| e.err)
+    assert_eq!(
+        refusal(&result),
+        code(tuktuk::error::ErrorCode::CrankRewardExceedsMax),
+        "expected the inflated reward to fail the run, got {:?}",
+        result.as_ref().err().map(|e| &e.err)
     );
     let spent = before as i64 - lamports(&ctx.svm, &ctx.task_queue) as i64;
 
