@@ -26,11 +26,6 @@ pub const QUEUE_TASK_DELAY: i64 = 60 * 5;
 /// transaction only passes the 1232-byte packet limit above nine. Five is what both allow.
 pub const MAX_TASKS_PER_QUEUE_CALL: u8 = 5;
 
-/// The two halves of the seed tuktuk signs a schedule run under: its own `b"custom"` prefix for
-/// the queue, then this program's prefix for the cron job.
-pub const CUSTOM_SEED: &[u8] = b"custom";
-pub const CRON_SEED: &[u8] = b"cron";
-
 /// How many records one run of this cron job may take. Jobs created before the cap keep running,
 /// each run taking as many records as a run can hold, so a full cycle takes more calls.
 pub fn effective_tasks_per_queue_call(cron_job: &CronJobV0) -> u8 {
@@ -88,7 +83,7 @@ pub fn trunc_name(name: &str) -> String {
 /// a task on the cron job's own queue whose transaction names these seeds.
 fn cron_signer(task_queue: &Pubkey, cron_job: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(
-        &[CUSTOM_SEED, task_queue.as_ref(), CRON_SEED, cron_job.as_ref()],
+        &[b"custom", task_queue.as_ref(), b"cron", cron_job.as_ref()],
         &tuktuk_program::tuktuk::ID,
     )
 }
@@ -146,7 +141,7 @@ pub fn compile_schedule_transaction(
             data: crate::instruction::QueueCronTasksV1.data(),
         }],
         vec![vec![
-            CRON_SEED.to_vec(),
+            b"cron".to_vec(),
             cron_job_key.to_bytes().to_vec(),
             vec![bump],
         ]],

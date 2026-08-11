@@ -11,7 +11,7 @@ use crate::{
     error::ErrorCode,
     schedule::{
         compile_schedule_transaction, effective_tasks_per_queue_call, next_exec_ts,
-        running_schedule_task, trunc_name, CRON_SEED, CUSTOM_SEED, QUEUE_TASK_DELAY,
+        running_schedule_task, trunc_name, QUEUE_TASK_DELAY,
     },
     state::{CronJobTransactionV0, CronJobV0},
     try_from,
@@ -42,7 +42,7 @@ pub struct QueueCronTasksV1<'info> {
     /// seeds. Which task of the job's schedule chain the run is, is settled by the
     /// `recorded_schedule_task` checks in the handler.
     #[account(
-        seeds = [CUSTOM_SEED, task_queue.key().as_ref(), CRON_SEED, cron_job.key().as_ref()],
+        seeds = [b"custom", task_queue.key().as_ref(), b"cron", cron_job.key().as_ref()],
         seeds::program = tuktuk_program::tuktuk::ID,
         bump,
     )]
