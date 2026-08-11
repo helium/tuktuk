@@ -62,15 +62,15 @@ impl std::io::Write for ByteCount {
     }
 }
 
-/// How many bytes a value serializes to, without building the serialization. The allocator
-/// hands memory out and never takes it back, so measuring by serializing charges the heap for
-/// a buffer that is read once for its length and dropped -- and borsh reaches that length by
-/// doubling, so the buffers it abandons on the way cost several times the value itself.
+/// How many bytes a value serializes to, without building the serialization. The allocator hands
+/// memory out and never takes it back, and borsh reaches a length by doubling, so measuring by
+/// serializing charges the heap several times over for a buffer read once and dropped.
+/// (`borsh::object_length` does this too, but arrives in borsh 1 and this builds against 0.10.)
 fn serialized_len<T: AnchorSerialize>(value: &T) -> Result<usize> {
     let mut count = ByteCount::default();
     value
         .serialize(&mut count)
-        .map_err(|_| error!(ErrorCode::InvalidDataIncrease))?;
+        .map_err(|_| error!(ErrorCode::ReturnedTaskTooLarge))?;
     Ok(count.0)
 }
 

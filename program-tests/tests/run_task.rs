@@ -85,18 +85,6 @@ fn task_account_exists(svm: &LiteSVM, key: &Pubkey) -> bool {
         .unwrap_or(false)
 }
 
-/// True when the program aborted rather than returning an error of its own. A refusal the
-/// program names is a different outcome from one it crashed on, and these tests distinguish them.
-fn aborted(result: &SendResult) -> bool {
-    matches!(
-        result,
-        Err(e) if matches!(
-            e.err,
-            TransactionError::InstructionError(_, InstructionError::ProgramFailedToComplete)
-        )
-    )
-}
-
 /// The program's own error code, when the failure was one the program named. Asserting on this
 /// rather than on "it failed" is what ties a test to the specific refusal it is about -- a run
 /// can fail for plenty of reasons that have nothing to do with the guard under test.
@@ -385,9 +373,19 @@ fn run_task_named(
 
 /// Queue a task that hands one child back through an account the returning program owns, the
 /// child carrying `payload_len` bytes. Returns the accounts that task names.
-fn queue_returning_task(ctx: &mut Ctx, payload_len: u32, free_tasks: u8) -> Vec<AccountMeta> {
-    let program = std::fs::read(so_path().replace("tuktuk.so", "return_example.so"))
-        .expect("read return_example.so; run `anchor build` in solana-programs/");
+fn queue_returning_task(
+    ctx: &mut Ctx,
+    payload_len: u32,
+    free_tasks: u8,
+    names: Vec<u8>,
+) -> Vec<AccountMeta> {
+    let artifact = std::path::Path::new(&so_path())
+        .parent()
+        .expect("the built program has a directory")
+        .join("return_example.so");
+    let program = std::fs::read(&artifact).unwrap_or_else(|e| {
+        panic!("read {artifact:?} ({e}); run `anchor build` in solana-programs/")
+    });
     ctx.svm.add_program(return_example::ID, &program);
 
     let (queue_authority, _) =
@@ -410,7 +408,7 @@ fn queue_returning_task(ctx: &mut Ctx, payload_len: u32, free_tasks: u8) -> Vec<
         ],
         instructions: vec![CompiledInstructionV0 {
             program_id_index: 3,
-            accounts: vec![0, 1, 2],
+            accounts: names,
             data: return_example::instruction::ReturnTaskWithPayload { payload_len }.data(),
         }],
         signer_seeds: vec![],
@@ -428,7 +426,7 @@ fn queue_returning_task(ctx: &mut Ctx, payload_len: u32, free_tasks: u8) -> Vec<
 #[test]
 fn a_returned_tasks_account_is_read_once_however_often_it_is_named() {
     let mut ctx = setup(100, 10_000, 100_000);
-    let named = queue_returning_task(&mut ctx, 32, 3);
+    let named = queue_returning_task(&mut ctx, 32, 3, vec![0, 1, 2]);
 
     let turner = ctx.turner();
     let (first, _) = task_pda(&ctx.task_queue, 1);
@@ -718,11 +716,39 @@ fn a_signer_seed_over_the_length_limit_is_refused() {
 }
 
 #[test]
+fn a_returned_tasks_account_named_twice_by_the_program_is_read_once() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    // The instruction names the account its child is returned in twice. Account indices are a
+    // list, so a program may name one account as often as it likes.
+    let named = queue_returning_task(&mut ctx, 32, 2, vec![0, 1, 2, 1]);
+
+    let turner = ctx.turner();
+    let (first, _) = task_pda(&ctx.task_queue, 1);
+    let (second, _) = task_pda(&ctx.task_queue, 2);
+
+    let result = run_task_named(&mut ctx, 0, &turner, named, vec![1, 2], vec![first, second]);
+
+    assert!(
+        result.is_ok(),
+        "run failed: {:?}",
+        result.as_ref().err().map(|e| &e.err)
+    );
+    assert!(
+        task_account_exists(&ctx.svm, &first),
+        "the returned child should have been created"
+    );
+    assert!(
+        !task_account_exists(&ctx.svm, &second),
+        "one child was returned, so only one should exist"
+    );
+}
+
+#[test]
 fn a_returned_task_of_a_few_kilobytes_is_created() {
     // The size a returned task serializes to is measured, not built, so a task of real size
     // costs its own bytes once rather than several times over.
     let mut ctx = setup(100, 10_000, 100_000);
-    let named = queue_returning_task(&mut ctx, 4_000, 1);
+    let named = queue_returning_task(&mut ctx, 4_000, 1, vec![0, 1, 2]);
     let turner = ctx.turner();
     let (child, _) = task_pda(&ctx.task_queue, 1);
 

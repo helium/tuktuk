@@ -4,10 +4,10 @@ on:
   push:
     branches: [main]
     tags: ['tuktuk-cli-v*']
-    paths: ['tuktuk-program/**', 'solana-transaction-utils/**', 'tuktuk-cli/**', '.github/workflows/tuktuk-cli.yaml']
+    paths: ['tuktuk-program/**', 'tuktuk-sdk/**', 'solana-transaction-utils/**', 'tuktuk-cli/**', 'Cargo.toml', 'Cargo.lock', '.github/workflows/tuktuk-cli.yaml']
   pull_request:
     branches: [main]
-    paths: ['tuktuk-cli/**', '.github/workflows/tuktuk-cli.yaml']
+    paths: ['tuktuk-program/**', 'tuktuk-sdk/**', 'solana-transaction-utils/**', 'tuktuk-cli/**', 'Cargo.toml', 'Cargo.lock', '.github/workflows/tuktuk-cli.yaml']
 
 jobs: 
   hygiene:

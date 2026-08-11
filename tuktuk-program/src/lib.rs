@@ -232,3 +232,48 @@ pub fn compile_transaction(
         remaining_accounts,
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn queue(capacity: u16, used: u16) -> TaskQueueV0 {
+        let mut task_bitmap = vec![0u8; capacity.div_ceil(8) as usize];
+        for id in 0..used {
+            task_bitmap[id as usize / 8] |= 1 << (id % 8);
+        }
+        TaskQueueV0 {
+            tuktuk_config: Pubkey::default(),
+            id: 0,
+            update_authority: Pubkey::default(),
+            reserved: Pubkey::default(),
+            min_crank_reward: 0,
+            uncollected_protocol_fees: 0,
+            capacity,
+            created_at: 0,
+            updated_at: 0,
+            bump_seed: 255,
+            task_bitmap,
+            name: String::new(),
+            lookup_tables: vec![],
+            num_queue_authorities: 0,
+            stale_task_age: 0,
+        }
+    }
+
+    #[test]
+    fn an_available_task_id_is_one_the_queue_has_room_for() {
+        // 100 is not a multiple of 8, so the bitmap's last byte carries ids 100..104 that the
+        // queue has no room for.
+        assert_eq!(queue(100, 96).next_available_task_id(), Some(96));
+        assert_eq!(queue(100, 99).next_available_task_id(), Some(99));
+        assert_eq!(
+            queue(100, 100).next_available_task_id(),
+            None,
+            "the bits past capacity are not ids that can be taken"
+        );
+        // A capacity on the byte boundary has no such bits.
+        assert_eq!(queue(96, 96).next_available_task_id(), None);
+        assert_eq!(queue(96, 95).next_available_task_id(), Some(95));
+    }
+}

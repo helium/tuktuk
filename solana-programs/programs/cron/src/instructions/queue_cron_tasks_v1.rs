@@ -38,9 +38,9 @@ pub struct QueueCronTasksV1<'info> {
     )]
     pub task_return_account_2: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
-    /// The seeds tuktuk signs for while it runs a task on this cron job's queue. That is what
-    /// this signature establishes and all of it; which schedule the run belongs to is settled
-    /// by the `recorded_schedule_task` checks in the handler.
+    /// The PDA tuktuk signs for when it runs a task whose transaction declared this cron job's
+    /// seeds. Which task of the job's schedule chain the run is, is settled by the
+    /// `recorded_schedule_task` checks in the handler.
     #[account(
         seeds = [b"custom", task_queue.key().as_ref(), b"cron", cron_job.key().as_ref()],
         seeds::program = tuktuk_program::tuktuk::ID,
