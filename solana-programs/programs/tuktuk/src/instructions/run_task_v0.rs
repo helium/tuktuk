@@ -381,6 +381,9 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             }
         };
 
+        // `handler` requires the account count to equal the named accounts plus the free task ids,
+        // and a task is created only after an id has been taken, so this index names one of the
+        // accounts the turner passed.
         let free_task_account = &self.ctx.remaining_accounts[self.free_task_index];
         self.free_task_index += 1;
         let task_queue_key = self.ctx.accounts.task_queue.key();
