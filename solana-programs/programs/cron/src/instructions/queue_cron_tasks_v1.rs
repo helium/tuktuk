@@ -78,11 +78,17 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
         cron_job.next_schedule_task,
         ErrorCode::WrongScheduleTask
     );
-    require!(
-        running_schedule_task(&ctx.accounts.sysvar_instructions)? == cron_job.next_schedule_task
-            || ctx.accounts.recorded_schedule_task.data_is_empty(),
-        ErrorCode::WrongScheduleTask
-    );
+    // Only a live record has to be matched against the running task, so adopting an ended chain
+    // does not depend on the run being one this program can identify. Reading the running task
+    // needs `run_task_v0` to be the top-level instruction, which a caller that reaches it through
+    // its own CPI does not give.
+    if !ctx.accounts.recorded_schedule_task.data_is_empty() {
+        require!(
+            running_schedule_task(&ctx.accounts.sysvar_instructions)?
+                == cron_job.next_schedule_task,
+            ErrorCode::WrongScheduleTask
+        );
+    }
 
     // Only proceed if we're within the queue window of the next execution
     if (now + QUEUE_TASK_DELAY) < cron_job.current_exec_ts {
