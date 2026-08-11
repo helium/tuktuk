@@ -180,11 +180,12 @@ struct TaskProcessor<'a, 'info> {
     // is carried out to `handler` and failed there. The turner picks both, and a task's children
     // must not be droppable by picking them badly; a reward or description the returning program
     // chose is that program's fault and is still dropped silently.
+    //
+    // A shortfall of ids also fails the run when the turner supplied every id the task declared
+    // and the returning program asked for more children than that. The run failing leaves the
+    // task queued rather than losing a child, which for a recurring task is its own next run, so
+    // the loud outcome is the one that can be diagnosed.
     bad_free_task_input: bool,
-    // Whether the turner supplied every free-task id the task declared. When it did, a shortfall
-    // of ids is the returning program asking for more children than the task reserved, not a
-    // choice the turner could have made differently.
-    turner_supplied_max: bool,
 }
 
 impl<'a, 'info> TaskProcessor<'a, 'info> {
@@ -195,7 +196,6 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         min_crank_reward: u64,
         capacity: u16,
     ) -> Result<Self> {
-        let turner_supplied_max = free_task_ids.len() == ctx.accounts.task.free_tasks as usize;
         free_task_ids.reverse();
 
         let prefix: Vec<Vec<u8>> = vec![
@@ -234,7 +234,6 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             tasks_to_set: Vec::new(),
             queue_lamports_needed: 0,
             bad_free_task_input: false,
-            turner_supplied_max,
         })
     }
 
@@ -431,13 +430,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         let task_id = match self.free_task_ids.pop() {
             Some(id) => id,
             None => {
-                // Blamed on the turner only when it had ids left to give. No turner input can
-                // satisfy a callee asking for more children than the task declared, so that
-                // overrun belongs to the returning program and is answered the same way as the
-                // rest of what it chose.
-                if !self.turner_supplied_max {
-                    self.bad_free_task_input = true;
-                }
+                self.bad_free_task_input = true;
                 return Err(error!(ErrorCode::TooManyReturnedTasks));
             }
         };
