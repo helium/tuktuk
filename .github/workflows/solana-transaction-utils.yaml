@@ -4,10 +4,10 @@ on:
   push:
     branches: [main]
     tags: ['solana-transaction-utils-v*']
-    paths: ['solana-transaction-utils/**', '.github/workflows/solana-transaction-utils.yml']
+    paths: ['solana-transaction-utils/**', '.github/workflows/solana-transaction-utils.yaml']
   pull_request:
     branches: [main]
-    paths: ['solana-transaction-utils/**', '.github/workflows/solana-transaction-utils.yml']
+    paths: ['solana-transaction-utils/**', '.github/workflows/solana-transaction-utils.yaml']
 
 jobs: 
   hygiene:

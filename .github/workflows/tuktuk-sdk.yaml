@@ -4,10 +4,10 @@ on:
   push:
     branches: [main]
     tags: ['tuktuk-sdk-v*']
-    paths: ['tuktuk-sdk/**', '.github/workflows/tuktuk-sdk.yml']
+    paths: ['tuktuk-sdk/**', '.github/workflows/tuktuk-sdk.yaml']
   pull_request:
     branches: [main]
-    paths: ['tuktuk-sdk/**', '.github/workflows/tuktuk-sdk.yml']
+    paths: ['tuktuk-sdk/**', '.github/workflows/tuktuk-sdk.yaml']
 
 jobs: 
   hygiene:

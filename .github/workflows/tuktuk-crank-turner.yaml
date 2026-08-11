@@ -4,10 +4,10 @@ on:
   push:
     branches: [main]
     tags: ['tuktuk-crank-turner-v*']
-    paths: ['tuktuk-program-sdk/**', 'solana-transaction-utils/**', 'tuktuk-crank-turner/**', '.github/workflows/tuktuk-crank-turner.yml']
+    paths: ['tuktuk-program/**', 'solana-transaction-utils/**', 'tuktuk-crank-turner/**', '.github/workflows/tuktuk-crank-turner.yaml']
   pull_request:
     branches: [main]
-    paths: ['tuktuk-crank-turner/**', '.github/workflows/tuktuk-crank-turner.yml']
+    paths: ['tuktuk-crank-turner/**', '.github/workflows/tuktuk-crank-turner.yaml']
 
 jobs: 
   hygiene:
