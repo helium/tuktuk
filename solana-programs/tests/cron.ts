@@ -503,7 +503,13 @@ describe("cron", () => {
             nextScheduleTask: recorded,
             taskQueue,
             task: taskKey(taskQueue, taskId)[0],
-          });
+          })
+          // Requeue compiles a schedule transaction and queues it through tuktuk, which costs
+          // more than the 200k an instruction gets by default. Every sender of this instruction
+          // asks for compute: the crank turner and the CLI both pack it with a higher limit.
+          .preInstructions([
+            ComputeBudgetProgram.setComputeUnitLimit({ units: 1000000 }),
+          ]);
       }
 
       async function dequeue(task: PublicKey) {
