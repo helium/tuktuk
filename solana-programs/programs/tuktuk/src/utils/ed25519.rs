@@ -19,6 +19,10 @@ pub fn check_ed25519_data(data: &[u8], pubkey: &[u8]) -> Result<Vec<u8>> {
     // According to this layout used by the Ed25519Program
     // https://github.com/solana-labs/solana-web3.js/blob/master/src/ed25519-program.ts#L33
 
+    // The ed25519 program accepts an instruction carrying no signatures, so the fixed offsets
+    // below are only there to read once the data is long enough to hold them.
+    require_gte!(data.len(), 16 + 32, ErrorCode::SigVerificationFailed);
+
     // "Deserializing" byte slices
 
     let num_signatures = &[data[0]]; // Byte  0
@@ -32,6 +36,11 @@ pub fn check_ed25519_data(data: &[u8], pubkey: &[u8]) -> Result<Vec<u8>> {
     let message_instruction_index = &data[14..=15]; // Bytes 14,15
 
     let data_pubkey = &data[16..16 + 32]; // Bytes 16..16+32
+    require_gte!(
+        data.len(),
+        message_data_offset + message_data_size,
+        ErrorCode::SigVerificationFailed
+    );
     let data_msg = &data[message_data_offset..(message_data_offset + message_data_size)];
 
     let exp_public_key_offset: u16 = 16; // 2*u8 + 7*u16

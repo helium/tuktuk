@@ -193,19 +193,49 @@ export function compileTransaction(
   };
 }
 
-function nextAvailableTaskIds(taskBitmap: Buffer, n: number): number[] {
+/**
+ * Pick up to `n` unused task ids from a task queue's bitmap.
+ *
+ * The bitmap is a whole number of bytes, so its final byte carries up to seven bits past
+ * `capacity`. Those bits read as unused while the program rejects any id at or beyond
+ * capacity, so the bound is passed in rather than inferred from the buffer.
+ *
+ * `random` starts the scan at an arbitrary byte, which keeps concurrent crank turners from
+ * converging on the same ids. Both trailing arguments are required, so every call site
+ * states the queue's capacity rather than inheriting a default.
+ *
+ * Throws when the queue holds fewer than `n` free ids, since a caller asking for `n` names
+ * one task account per id.
+ */
+export function nextAvailableTaskIds(
+  taskBitmap: Buffer,
+  n: number,
+  random: boolean,
+  capacity: number
+): number[] {
+  // TypeScript callers get an arity error, JavaScript callers get this. Any value an id cannot
+  // be compared against leaves the scan finding nothing, which would surface as the empty-queue
+  // refusal below rather than as the bad argument it is.
+  if (!Number.isInteger(capacity) || capacity < 0) {
+    throw new Error(
+      `nextAvailableTaskIds needs the task queue's capacity as its fourth argument, got ${capacity}`
+    );
+  }
   if (n === 0) {
     return [];
   }
 
   const availableTaskIds: number[] = [];
-  for (let byteIdx = 0; byteIdx < taskBitmap.length; byteIdx++) {
+  const randStart = random ? Math.floor(Math.random() * taskBitmap.length) : 0;
+  for (let byteOffset = 0; byteOffset < taskBitmap.length; byteOffset++) {
+    const byteIdx = (byteOffset + randStart) % taskBitmap.length;
     const byte = taskBitmap[byteIdx];
     if (byte !== 0xff) {
       // If byte is not all 1s
       for (let bitIdx = 0; bitIdx < 8; bitIdx++) {
-        if ((byte & (1 << bitIdx)) === 0) {
-          availableTaskIds.push(byteIdx * 8 + bitIdx);
+        const id = byteIdx * 8 + bitIdx;
+        if (id < capacity && (byte & (1 << bitIdx)) === 0) {
+          availableTaskIds.push(id);
           if (availableTaskIds.length === n) {
             return availableTaskIds;
           }
@@ -213,7 +243,12 @@ function nextAvailableTaskIds(taskBitmap: Buffer, n: number): number[] {
       }
     }
   }
-  return availableTaskIds;
+  // Fewer than asked for means the queue cannot hold them. Returning the short list would put
+  // it in a transaction that names one task account per id and fails on the last of them; the
+  // Rust client answers the same way.
+  throw new Error(
+    `task queue has ${availableTaskIds.length} free ids, ${n} were asked for`
+  );
 }
 
 async function defaultFetcher({
@@ -296,7 +331,12 @@ export async function runTask({
 
     const nextAvailable =
       argsNextAvailableTaskIds?.slice(0, freeTasks) ||
-      nextAvailableTaskIds(taskQueueAcc.taskBitmap, freeTasks);
+      nextAvailableTaskIds(
+        taskQueueAcc.taskBitmap,
+        freeTasks,
+        true,
+        taskQueueAcc.capacity
+      );
     const freeTasksAccounts = nextAvailable.map((id) => ({
       pubkey: taskKey(taskQueue, id)[0],
       isWritable: true,
@@ -318,7 +358,12 @@ export async function runTask({
   } else {
     const nextAvailable =
       argsNextAvailableTaskIds?.slice(0, freeTasks) ||
-      nextAvailableTaskIds(taskQueueAcc.taskBitmap, freeTasks);
+      nextAvailableTaskIds(
+        taskQueueAcc.taskBitmap,
+        freeTasks,
+        true,
+        taskQueueAcc.capacity
+      );
     const freeTasksAccounts = nextAvailable.map((id) => ({
       pubkey: taskKey(taskQueue, id)[0],
       isWritable: true,

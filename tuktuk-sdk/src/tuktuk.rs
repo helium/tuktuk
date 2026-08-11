@@ -77,7 +77,7 @@ pub mod cron {
         cron::{
             self,
             accounts::{CronJobV0, UserCronJobsV0},
-            types::{InitializeCronJobArgsV0, RequeueCronTaskArgsV0},
+            types::{InitializeCronJobArgsV0, RequeueCronTaskArgsV1},
             ID,
         },
         TaskQueueV0,
@@ -191,7 +191,9 @@ pub mod cron {
             cron_job_key,
             task_queue_key,
             queue_authority,
-            task_queue.next_available_task_id().unwrap(),
+            task_queue
+                .next_available_task_id()
+                .ok_or(Error::TooManyTasks)?,
             args,
         )?;
 
@@ -246,18 +248,21 @@ pub mod cron {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn requeue_ix(
         payer: Pubkey,
         authority: Pubkey,
         queue_authority: Pubkey,
         cron_job_key: Pubkey,
         task_queue_key: Pubkey,
+        next_schedule_task: Pubkey,
         task_id: u16,
     ) -> Result<Instruction, Error> {
         Ok(Instruction {
             program_id: ID,
-            accounts: cron::client::accounts::RequeueCronTaskV0 {
+            accounts: cron::client::accounts::RequeueCronTaskV1 {
                 cron_job: cron_job_key,
+                next_schedule_task,
                 task_queue: task_queue_key,
                 task: task::key(&task_queue_key, task_id),
                 system_program: solana_sdk::system_program::ID,
@@ -270,8 +275,8 @@ pub mod cron {
                 tuktuk_program: tuktuk_program::tuktuk::ID,
             }
             .to_account_metas(None),
-            data: cron::client::args::RequeueCronTaskV0 {
-                args: RequeueCronTaskArgsV0 { task_id },
+            data: cron::client::args::RequeueCronTaskV1 {
+                args: RequeueCronTaskArgsV1 { task_id },
             }
             .data(),
         })
@@ -299,7 +304,10 @@ pub mod cron {
             queue_authority,
             cron_job_key,
             task_queue_key,
-            task_queue.next_available_task_id().unwrap(),
+            cron_job.next_schedule_task,
+            task_queue
+                .next_available_task_id()
+                .ok_or(Error::NotEnoughFreeTasks)?,
         )
     }
 }

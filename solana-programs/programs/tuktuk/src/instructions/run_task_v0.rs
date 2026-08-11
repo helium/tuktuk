@@ -2,6 +2,7 @@ use anchor_lang::{
     prelude::*,
     solana_program::{
         self,
+        entrypoint::MAX_PERMITTED_DATA_INCREASE,
         hash::hash,
         instruction::Instruction,
         sysvar::instructions::{
@@ -45,6 +46,34 @@ impl TasksAccountHeaderV0 {
 }
 
 const MEMO_PROGRAM_ID: Pubkey = pubkey!("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
+
+/// Counts the bytes written to it and keeps none of them.
+#[derive(Default)]
+struct ByteCount(usize);
+
+impl std::io::Write for ByteCount {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0 += buf.len();
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// How many bytes a value serializes to, without building the serialization. The allocator hands
+/// memory out and never takes it back, and borsh reaches a length by doubling, so measuring by
+/// serializing charges the heap several times over for a buffer read once and dropped.
+/// (`borsh::object_length` does this too, but arrives in borsh 1 and this builds against 0.10.)
+fn serialized_len<T: AnchorSerialize>(value: &T) -> Result<usize> {
+    let mut count = ByteCount::default();
+    value
+        .serialize(&mut count)
+        .map_err(|_| error!(ErrorCode::ReturnedTaskTooLarge))?;
+
+    Ok(count.0)
+}
 
 // Add new iterator struct for reading tasks
 pub struct TasksIterator<'a> {
@@ -151,6 +180,11 @@ struct TaskProcessor<'a, 'info> {
     // is carried out to `handler` and failed there. The turner picks both, and a task's children
     // must not be droppable by picking them badly; a reward or description the returning program
     // chose is that program's fault and is still dropped silently.
+    //
+    // A shortfall of ids also fails the run when the turner supplied every id the task declared
+    // and the returning program asked for more children than that. The run failing leaves the
+    // task queued rather than losing a child, which for a recurring task is its own next run, so
+    // the loud outcome is the one that can be diagnosed.
     bad_free_task_input: bool,
 }
 
@@ -178,13 +212,16 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             })
             .collect();
 
+        // Seeds past the prefix come from the task's transaction, so they are not guaranteed to
+        // resolve to a valid off-curve address.
         let signer_addresses = signers_inner_u8
             .iter()
             .map(|s| {
                 let seeds: Vec<&[u8]> = s.iter().map(|v| v.as_slice()).collect();
-                Pubkey::create_program_address(&seeds, ctx.program_id).unwrap()
+                Pubkey::create_program_address(&seeds, ctx.program_id)
+                    .map_err(|_| error!(ErrorCode::InvalidSignerSeeds))
             })
-            .collect();
+            .collect::<Result<_>>()?;
 
         Ok(Self {
             ctx,
@@ -205,14 +242,36 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         ix: &CompiledInstructionV0,
         remaining_accounts: &[AccountInfo<'info>],
     ) -> Result<()> {
-        let mut accounts = Vec::new();
-        let mut account_infos = Vec::new();
+        // The allocator never frees, so a Vec that grows leaks every intermediate buffer. These
+        // hold the instruction's accounts and, for everything but memo, the free tasks too.
+        // `ix.accounts` holds indices and may name one account repeatedly, so the reserve is
+        // capped at the number of accounts there are to name rather than at how many it names.
+        let free_tasks = &self.ctx.remaining_accounts[self.free_task_index..];
+        // Resolved here rather than at the extend below, so the reservation knows whether the free
+        // tasks are going to be appended at all. The heap never hands a reservation back.
+        let program_id = remaining_accounts
+            .get(ix.program_id_index as usize)
+            .ok_or(error!(ErrorCode::InvalidAccountIndex))?
+            .key;
+        let takes_free_tasks = *program_id != MEMO_PROGRAM_ID;
+        let capacity = ix.accounts.len().min(remaining_accounts.len())
+            + if takes_free_tasks {
+                free_tasks.len()
+            } else {
+                0
+            };
+        let mut accounts = Vec::with_capacity(capacity);
+        let mut account_infos = Vec::with_capacity(capacity);
 
         msg!("Signer addresses: {:?}", self.signer_addresses);
 
         for i in &ix.accounts {
-            let acct = remaining_accounts[*i as usize].clone();
-            let mut acct = acct.clone();
+            // Indices come from the task's transaction and address a slice whose length the crank
+            // turner chooses, so neither side of this bound is fixed by the program.
+            let mut acct = remaining_accounts
+                .get(*i as usize)
+                .ok_or(error!(ErrorCode::InvalidAccountIndex))?
+                .clone();
             // A task may only sign for this queue's own `b"custom"` PDAs. Signer privilege is
             // never inherited from the outer transaction: the crank turner is an arbitrary,
             // untrusted account, and forwarding its signature would let any task drain it.
@@ -227,11 +286,9 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             accounts.push(acct);
         }
 
-        // Pass free tasks as remaining accounts so the task can know which IDs will be used
-        let program_id = remaining_accounts[ix.program_id_index as usize].key;
-        // Ignore memo program because it expects every account passed to be a signer.
-        if *program_id != MEMO_PROGRAM_ID {
-            let free_tasks = &self.ctx.remaining_accounts[self.free_task_index..];
+        // Pass free tasks as remaining accounts so the task can know which IDs will be used.
+        // The memo program is skipped because it expects every account passed to be a signer.
+        if takes_free_tasks {
             accounts.extend(free_tasks.iter().cloned());
             account_infos.extend(free_tasks.iter().map(|acct| AccountMeta {
                 pubkey: acct.key(),
@@ -261,12 +318,13 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         msg!("Invoked");
 
         if let Some((return_program_id, return_data)) = solana_program::program::get_return_data() {
-            match self.process_return_data(&return_program_id, &return_data, &accounts) {
-                Ok(_) => (),
-                Err(e) => {
-                    msg!("Error processing return data: {:?}", e);
-                }
-            }
+            // Only the accounts the instruction itself named. The free tasks appended above are
+            // the crank turner's to choose, and a tasks account is the program's to name.
+            let named = &accounts[..ix.accounts.len()];
+            // A run that cannot place a child it was handed fails, whoever caused it: the
+            // alternative is a task that reports success while the work it returned is gone.
+            self.process_return_data(&return_program_id, &return_data, named)
+                .inspect_err(|e| msg!("Error processing return data: {:?}", e))?;
         }
 
         Ok(())
@@ -280,14 +338,17 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
     ) -> Result<()> {
         let queue_task_return = RunTaskReturnV0::deserialize(&mut &return_data[..])?;
 
-        let accounts_set = queue_task_return
+        let mut accounts_set = queue_task_return
             .tasks_accounts
             .into_iter()
             .collect::<std::collections::HashSet<Pubkey>>();
 
+        // Each returned account is read once. Taking the key out of the set as it is matched is
+        // what says so: an account list may name the same account more than once, and the tasks
+        // in an account are queued for every time it is read.
         let tasks_accounts = accounts
             .iter()
-            .filter(|a| accounts_set.contains(a.key))
+            .filter(|a| accounts_set.remove(a.key))
             .collect::<Vec<_>>();
 
         for task in queue_task_return.tasks {
@@ -306,8 +367,14 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         return_program_id: &Pubkey,
         account: &AccountInfo<'info>,
     ) -> Result<()> {
-        // A program may only hand us task lists out of accounts it owns. Without this, a program
-        // could name any account in the instruction and have its raw bytes reinterpreted as tasks.
+        // A program may only hand us task lists out of accounts it owns, and never out of ours:
+        // this program's accounts hold tasks and queues, whose bytes would otherwise be read as a
+        // task list.
+        require_keys_neq!(
+            *return_program_id,
+            crate::ID,
+            ErrorCode::InvalidTasksAccountOwner
+        );
         require_keys_eq!(
             *account.owner,
             *return_program_id,
@@ -342,8 +409,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         );
         // A returned task is funded by the task queue, so `min_crank_reward` is its ceiling as
         // well as its floor: together with the check above, a returned reward is either `None` or
-        // exactly `min_crank_reward`. Errors here are swallowed by the return-data handler, so the
-        // task is not created but the transaction still succeeds.
+        // exactly `min_crank_reward`.
         require_gte!(
             self.min_crank_reward,
             task.crank_reward.unwrap_or(self.min_crank_reward),
@@ -366,6 +432,9 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             }
         };
 
+        // `handler` requires the account count to equal the named accounts plus the free task ids,
+        // and a task is created only after an id has been taken, so this index names one of the
+        // accounts the turner passed.
         let free_task_account = &self.ctx.remaining_accounts[self.free_task_index];
         self.free_task_index += 1;
         let task_queue_key = self.ctx.accounts.task_queue.key();
@@ -388,8 +457,8 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             task_queue: task_queue_key,
             id: task_id,
             rent_refund: task_queue_key,
-            trigger: task.trigger.clone(),
-            transaction: task.transaction.clone(),
+            trigger: task.trigger,
+            transaction: task.transaction,
             crank_reward: task.crank_reward.unwrap_or(self.min_crank_reward),
             bump_seed,
             queued_at: Clock::get()?.unix_timestamp,
@@ -397,10 +466,14 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             rent_amount: 0,
         };
 
-        // Track that we need to set this task as existing
-        self.tasks_to_set.push(task_data.id);
-
-        let task_size = task_data.try_to_vec()?.len() + 8 + 60;
+        let task_size = serialized_len(&task_data)? + 8 + 60;
+        // The account is grown from nothing by the single realloc below, so a returned task has
+        // to fit inside what one realloc may add.
+        require_gte!(
+            MAX_PERMITTED_DATA_INCREASE,
+            task_size,
+            ErrorCode::ReturnedTaskTooLarge
+        );
         let rent_lamports = Rent::get()?.minimum_balance(task_size);
         let lamports = rent_lamports + task_data.crank_reward;
         task_data.rent_amount = rent_lamports;
@@ -440,7 +513,13 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         }
 
         let mut data = free_task_account.try_borrow_mut_data()?;
-        task_data.try_serialize(&mut data.as_mut())
+        task_data.try_serialize(&mut data.as_mut())?;
+
+        // The bitmap records the ids this instruction wrote an account for, so an id is marked
+        // once the account holds its task and not before.
+        self.tasks_to_set.push(task_data.id);
+
+        Ok(())
     }
 
     fn had_bad_free_task_input(&self) -> bool {
@@ -501,8 +580,14 @@ pub fn handler<'info>(
         TransactionSourceV0::RemoteV0 { signer, .. } => {
             let ix_index =
                 load_current_index_checked(&ctx.accounts.sysvar_instructions.to_account_info())?;
+            // The signature this task is verified against lives in the instruction immediately
+            // before this one, so there has to be one. The crank turner composes the transaction
+            // and can place this instruction first.
+            let verify_ix_index = ix_index
+                .checked_sub(1)
+                .ok_or(error!(ErrorCode::MalformedRemoteTransaction))?;
             let ix: Instruction = load_instruction_at_checked(
-                ix_index.checked_sub(1).unwrap() as usize,
+                verify_ix_index as usize,
                 &ctx.accounts.sysvar_instructions,
             )?;
             let data = utils::ed25519::verify_ed25519_ix(&ix, signer.to_bytes().as_slice())?;
@@ -526,8 +611,9 @@ pub fn handler<'info>(
                         .map(|ix| &ix.program_id_index),
                 )
                 .max()
-                .unwrap()
-                + 1;
+                // A transaction naming no accounts needs none of them. Counted as usize, since
+                // the highest index an instruction may name is itself a u8.
+                .map_or(0usize, |highest| *highest as usize + 1);
 
             // The crank turner chooses how many accounts to pass, and the slice below indexes
             // this many of them.
@@ -547,9 +633,10 @@ pub fn handler<'info>(
                         .map(|(i, acc)| {
                             let mut data = Vec::with_capacity(34);
                             data.extend_from_slice(&acc.key.to_bytes());
-                            let writable_end_idx = remote_tx.transaction.num_rw
-                                + remote_tx.transaction.num_ro_signers
-                                + remote_tx.transaction.num_rw_signers;
+                            // Summed as usize: three u8 counts can total more than one holds.
+                            let writable_end_idx = remote_tx.transaction.num_rw as usize
+                                + remote_tx.transaction.num_ro_signers as usize
+                                + remote_tx.transaction.num_rw_signers as usize;
                             // The rent refund account may make an account that shouldn't be writable appear writable
                             if i >= writable_end_idx as usize
                                 && (*acc.key == ctx.accounts.rent_refund.key()

@@ -4,10 +4,10 @@ on:
   push:
     branches: [main]
     tags: ['tuktuk-sdk-v*']
-    paths: ['tuktuk-sdk/**', '.github/workflows/tuktuk-sdk.yml']
+    paths: ['tuktuk-program/**', 'tuktuk-sdk/**', 'solana-transaction-utils/**', 'Cargo.toml', 'Cargo.lock', '.github/workflows/tuktuk-sdk.yaml']
   pull_request:
     branches: [main]
-    paths: ['tuktuk-sdk/**', '.github/workflows/tuktuk-sdk.yml']
+    paths: ['tuktuk-program/**', 'tuktuk-sdk/**', 'solana-transaction-utils/**', 'Cargo.toml', 'Cargo.lock', '.github/workflows/tuktuk-sdk.yaml']
 
 jobs: 
   hygiene:
@@ -34,6 +34,9 @@ jobs:
         run: |
           cargo fmt --package tuktuk-sdk -- --check
           cargo clippy --package tuktuk-sdk --all-features -- -D clippy::all
+          # The test job runs under tarpaulin, which does not compile doctests. Examples in
+          # the docs are held to the same bar as the rest of the crate, so they run here.
+          cargo test --package tuktuk-sdk --doc
 
   test:
     runs-on: ubuntu-latest

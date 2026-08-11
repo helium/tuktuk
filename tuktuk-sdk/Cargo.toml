@@ -50,5 +50,11 @@ solana-account-decoder-client-types = { version = "2.2.3" }
 semver = { version = "1.0.26" }
 tracing = { workspace = true }
 
+[dev-dependencies]
+# The pubsub_client module example is a doctest, so it is compiled against this crate. It
+# reports errors with anyhow and waits on stdin, neither of which the library itself needs.
+anyhow = { workspace = true }
+tokio = { workspace = true, features = ["io-std", "io-util"] }
+
 [features]
 default = []

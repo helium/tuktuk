@@ -1,15 +1,8 @@
-use std::str::FromStr;
-
 use anchor_lang::{
     prelude::*,
-    solana_program::instruction::Instruction,
     system_program::{transfer, Transfer},
-    InstructionData,
 };
-use chrono::{DateTime, Utc};
-use clockwork_cron::Schedule;
 use tuktuk_program::{
-    compile_transaction,
     tuktuk::{
         cpi::{accounts::QueueTaskV0, queue_task_v0},
         program::Tuktuk,
@@ -18,10 +11,13 @@ use tuktuk_program::{
     TaskQueueAuthorityV0, TaskQueueV0, TransactionSourceV0, TriggerV0,
 };
 
-use super::QUEUE_TASK_DELAY;
 use crate::{
     error::ErrorCode,
     hash_name,
+    schedule::{
+        compile_schedule_transaction, effective_tasks_per_queue_call, next_exec_ts, trunc_name,
+        MAX_TASKS_PER_QUEUE_CALL, QUEUE_TASK_DELAY,
+    },
     state::{CronJobNameMappingV0, CronJobV0, UserCronJobsV0},
 };
 
@@ -107,7 +103,6 @@ pub struct InitializeCronJobV0<'info> {
 }
 
 pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0) -> Result<()> {
-    let schedule = Schedule::from_str(&args.schedule);
     // Leave room for numerics after
     require_gt!(
         args.num_tasks_per_queue_call,
@@ -115,24 +110,16 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
         ErrorCode::InvalidNumTasksPerQueueCall
     );
 
-    // Do not allow more than 15 tasks per queue call otherwise the queue_cron_tasks_v0 will
-    // be too large to fit in a single transaction.
+    // Bounded by what a single schedule run can allocate and still fit its transaction; see
+    // MAX_TASKS_PER_QUEUE_CALL. Existing jobs above this keep running because every run is
+    // clamped to the same bound; a full cycle of their records just takes more calls.
     require_gte!(
-        15,
+        MAX_TASKS_PER_QUEUE_CALL,
         args.num_tasks_per_queue_call,
         ErrorCode::InvalidNumTasksPerQueueCall
     );
 
-    if let Err(e) = schedule {
-        msg!("Invalid schedule: {}", e);
-        return Err(error!(ErrorCode::InvalidSchedule));
-    }
-
-    let ts = Clock::get().unwrap().unix_timestamp;
-    let now = &DateTime::<Utc>::from_naive_utc_and_offset(
-        DateTime::from_timestamp(ts, 0).unwrap().naive_utc(),
-        Utc,
-    );
+    let current_exec_ts = next_exec_ts(&args.schedule, Clock::get()?.unix_timestamp)?;
 
     ctx.accounts.user_cron_jobs.bump_seed = ctx.bumps.user_cron_jobs;
     ctx.accounts.user_cron_jobs.authority = ctx.accounts.authority.key();
@@ -146,7 +133,7 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
         num_tasks_per_queue_call: args.num_tasks_per_queue_call,
         schedule: args.schedule,
         name: args.name.clone(),
-        current_exec_ts: schedule.unwrap().next_after(now).unwrap().timestamp(),
+        current_exec_ts,
         current_transaction_id: 0,
         next_transaction_id: 0,
         bump_seed: ctx.bumps.cron_job,
@@ -163,42 +150,12 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
             bump_seed: ctx.bumps.cron_job_name_mapping,
         });
 
-    let remaining_accounts = (ctx.accounts.cron_job.current_transaction_id
-        ..ctx.accounts.cron_job.current_transaction_id
-            + ctx.accounts.cron_job.num_tasks_per_queue_call as u32)
-        .map(|i| {
-            Pubkey::find_program_address(
-                &[
-                    b"cron_job_transaction",
-                    ctx.accounts.cron_job.key().as_ref(),
-                    &i.to_le_bytes(),
-                ],
-                &crate::ID,
-            )
-            .0
-        })
-        .collect::<Vec<Pubkey>>();
-    let (queue_tx, _) = compile_transaction(
-        vec![Instruction {
-            program_id: crate::ID,
-            accounts: [
-                crate::__cpi_client_accounts_queue_cron_tasks_v0::QueueCronTasksV0 {
-                    cron_job: ctx.accounts.cron_job.to_account_info(),
-                    task_queue: ctx.accounts.task_queue.to_account_info(),
-                    task_return_account_1: ctx.accounts.task_return_account_1.to_account_info(),
-                    task_return_account_2: ctx.accounts.task_return_account_2.to_account_info(),
-                    system_program: ctx.accounts.system_program.to_account_info(),
-                }
-                .to_account_metas(None),
-                remaining_accounts
-                    .iter()
-                    .map(|pubkey| AccountMeta::new_readonly(*pubkey, false))
-                    .collect::<Vec<AccountMeta>>(),
-            ]
-            .concat(),
-            data: crate::instruction::QueueCronTasksV0.data(),
-        }],
-        vec![],
+    let queue_tx = compile_schedule_transaction(
+        &ctx.accounts.cron_job,
+        ctx.accounts.cron_job.key(),
+        ctx.accounts.task_return_account_1.key(),
+        ctx.accounts.task_return_account_2.key(),
+        ctx.accounts.task.key(),
     )?;
 
     transfer(
@@ -213,13 +170,7 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
         Rent::get()?.minimum_balance(1024),
     )?;
 
-    let trunc_name = ctx
-        .accounts
-        .cron_job
-        .name
-        .chars()
-        .take(32)
-        .collect::<String>();
+    let trunc_name = trunc_name(&ctx.accounts.cron_job.name);
     queue_task_v0(
         CpiContext::new(
             ctx.accounts.tuktuk_program.to_account_info(),
@@ -236,8 +187,12 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
             trigger: TriggerV0::Timestamp(ctx.accounts.cron_job.current_exec_ts - QUEUE_TASK_DELAY),
             transaction: TransactionSourceV0::CompiledV0(queue_tx),
             crank_reward: None,
-            free_tasks: ctx.accounts.cron_job.num_tasks_per_queue_call + 1,
-            id: ctx.accounts.task_queue.next_available_task_id().unwrap(),
+            free_tasks: effective_tasks_per_queue_call(&ctx.accounts.cron_job) + 1,
+            id: ctx
+                .accounts
+                .task_queue
+                .next_available_task_id()
+                .ok_or(error!(ErrorCode::TaskQueueFull))?,
             description: format!("queue {}", trunc_name),
         },
     )?;

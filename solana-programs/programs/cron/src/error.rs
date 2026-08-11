@@ -18,4 +18,18 @@ pub enum ErrorCode {
     InvalidNumTasksPerQueueCall,
     #[msg("Too early to queue tasks")]
     TooEarly,
+    #[msg("Cron job already has a scheduled task")]
+    TaskAlreadyQueued,
+    #[msg("Not enough accounts")]
+    NotEnoughAccounts,
+    #[msg("Task queue is full")]
+    TaskQueueFull,
+    #[msg("Not running as a scheduled task")]
+    NotRunningAsScheduledTask,
+    #[msg("Not the schedule task this cron job records")]
+    WrongScheduleTask,
+    #[msg("Not a transaction of this cron job")]
+    WrongCronTransaction,
+    #[msg("This instruction is deprecated, call its current version")]
+    InstructionDeprecated,
 }

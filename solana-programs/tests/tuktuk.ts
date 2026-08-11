@@ -14,6 +14,7 @@ import {
   customSignerKey,
   RemoteTaskTransactionV0,
   taskQueueAuthorityKey,
+  nextAvailableTaskIds,
 } from "@helium/tuktuk-sdk";
 import {
   AccountMeta,
@@ -32,7 +33,7 @@ import {
   toVersionedTx,
   withPriorityFees,
 } from "@helium/spl-utils";
-import { ensureIdls, makeid } from "./utils";
+import { ensureIdls, makeid, readyTasks } from "./utils";
 import {
   createAssociatedTokenAccountInstruction,
   createTransferInstruction,
@@ -40,6 +41,40 @@ import {
 } from "@solana/spl-token";
 import { sign } from "tweetnacl";
 const { expect } = chai;
+
+describe("nextAvailableTaskIds", () => {
+  // 100 ids need 13 bytes, so the final byte carries bits 100..103. They are zero and so read
+  // as unused, while the program refuses any id at or past capacity.
+  const capacity = 100;
+  const bitmap = Buffer.alloc(Math.ceil(capacity / 8));
+
+  it("never returns an id at or past capacity", () => {
+    // Fill every byte but the last, leaving only the trailing partial byte to pick from.
+    bitmap.fill(0xff, 0, bitmap.length - 1);
+    bitmap[bitmap.length - 1] = 0;
+
+    expect(nextAvailableTaskIds(bitmap, 4, false, capacity)).to.deep.eq([
+      96, 97, 98, 99,
+    ]);
+    // That byte carries bits 96..103 and all eight read as free. Capacity is what makes four
+    // of them ids the queue has, so asking for eight is asking for more than it holds.
+    expect(() => nextAvailableTaskIds(bitmap, 8, false, capacity)).to.throw(
+      /4 free ids/,
+    );
+  });
+
+  it("offers exactly capacity ids when the whole queue is free", () => {
+    // Taking every id and then asking for one more is the bound itself, rather than a sample
+    // that happens to avoid the tail.
+    bitmap.fill(0);
+    const ids = nextAvailableTaskIds(bitmap, capacity, false, capacity);
+    expect(ids).to.have.length(capacity);
+    expect(Math.max(...ids)).to.eq(capacity - 1);
+    expect(() =>
+      nextAvailableTaskIds(bitmap, capacity + 1, false, capacity),
+    ).to.throw(/free ids/);
+  });
+});
 
 describe("tuktuk", () => {
   // Configure the client to use the local cluster.
@@ -648,7 +683,6 @@ describe("tuktuk", () => {
     });
     it("allows scheduling a task", async () => {
       const freeTask1 = taskKey(taskQueue, 0)[0];
-      const freeTask2 = taskKey(taskQueue, 1)[0];
       const crankTurner = Keypair.generate();
       const method = await cpiProgram.methods.schedule(0).accounts({
         taskQueue,
@@ -696,6 +730,8 @@ describe("tuktuk", () => {
         "confirmed",
       );
       await sleep(1000);
+      // The run above chose the child's id, so look it up instead of assuming it.
+      const freeTask2 = (await readyTasks(program, taskQueue))[0];
       const ixs2 = await runTask({
         program,
         task: freeTask2,
@@ -781,9 +817,11 @@ describe("tuktuk", () => {
         "confirmed",
       );
       await sleep(1000);
+      // Same here: the returned tasks landed on ids the run picked.
+      const nextTask = (await readyTasks(program, taskQueue))[0];
       const ixs2 = await runTask({
         program,
-        task: freeTasks[1],
+        task: nextTask,
         crankTurner: crankTurner.publicKey,
       });
       const tx2 = toVersionedTx(
@@ -807,9 +845,11 @@ describe("tuktuk", () => {
         },
         "confirmed",
       );
+      // Running the previous task queued one a second out, so take a task that is due now.
+      const thirdTask = (await readyTasks(program, taskQueue))[0];
       const ixs3 = await runTask({
         program,
-        task: freeTasks[2],
+        task: thirdTask,
         crankTurner: crankTurner.publicKey,
       });
       const tx3 = toVersionedTx(
@@ -925,18 +965,26 @@ describe("tuktuk", () => {
         );
       });
 
-      it("rejects a returned task with a reward above the queue minimum", async () => {
+      it("fails the run when a returned task's reward is above the queue minimum", async () => {
         const { parent, child } = await scheduleReturning(
           minCrankReward.muln(2),
           false,
         );
 
         const before = await provider.connection.getBalance(taskQueue);
-        await crank(parent);
+        let failed = false;
+        try {
+          await crank(parent);
+        } catch (e) {
+          failed = true;
+        }
+        expect(failed).to.be.true;
         const after = await provider.connection.getBalance(taskQueue);
 
         expect(await program.account.taskV0.fetchNullable(child)).to.be.null;
-        // Rent refunds go to the task's payer, so an untouched queue is exactly unchanged.
+        // The run reverted, so the parent is still queued and the queue is exactly unchanged.
+        expect(await program.account.taskV0.fetchNullable(parent)).to.not.be
+          .null;
         expect(after).to.eq(before);
       });
 
@@ -957,8 +1005,8 @@ describe("tuktuk", () => {
       it("fails the run when a returned task has no free task id left", async () => {
         // The parent declares no free tasks but its program still returns one, so no id is left
         // to give it. The turner picks how many ids to supply, so this must fail the run rather
-        // than drop the child: otherwise a turner could truncate a task's children — including
-        // a recurring task's own reschedule — and still be paid.
+        // than drop the child: otherwise a turner could truncate a task's children (including
+        // a recurring task's own reschedule) and still be paid.
         const { parent, child } = await scheduleReturning(
           minCrankReward,
           false,
@@ -982,7 +1030,10 @@ describe("tuktuk", () => {
       it("fails the run when the free task account is not the id's PDA", async () => {
         // The turner picks the free-task accounts as well as the ids. Pairing a valid unused id
         // with a different (empty) task PDA must fail the run, not drop the child and pay out.
-        const { parent, child } = await scheduleReturning(minCrankReward, false);
+        const { parent, child } = await scheduleReturning(
+          minCrankReward,
+          false,
+        );
 
         const ixs = await runTask({
           program,
@@ -1020,17 +1071,25 @@ describe("tuktuk", () => {
           .null;
       });
 
-      it("rejects an above minimum returned task handed back in an account", async () => {
+      it("fails the run on an above minimum returned task handed back in an account", async () => {
         const { parent, child } = await scheduleReturning(
           minCrankReward.muln(2),
           true,
         );
 
         const before = await provider.connection.getBalance(taskQueue);
-        await crank(parent);
+        let failed = false;
+        try {
+          await crank(parent);
+        } catch (e) {
+          failed = true;
+        }
+        expect(failed).to.be.true;
         const after = await provider.connection.getBalance(taskQueue);
 
         expect(await program.account.taskV0.fetchNullable(child)).to.be.null;
+        expect(await program.account.taskV0.fetchNullable(parent)).to.not.be
+          .null;
         expect(after).to.eq(before);
       });
     });
