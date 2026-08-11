@@ -47,6 +47,33 @@ impl TasksAccountHeaderV0 {
 
 const MEMO_PROGRAM_ID: Pubkey = pubkey!("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
 
+/// Counts the bytes written to it and keeps none of them.
+#[derive(Default)]
+struct ByteCount(usize);
+
+impl std::io::Write for ByteCount {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0 += buf.len();
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// How many bytes a value serializes to, without building the serialization. The allocator
+/// hands memory out and never takes it back, so measuring by serializing charges the heap for
+/// a buffer that is read once for its length and dropped -- and borsh reaches that length by
+/// doubling, so the buffers it abandons on the way cost several times the value itself.
+fn serialized_len<T: AnchorSerialize>(value: &T) -> Result<usize> {
+    let mut count = ByteCount::default();
+    value
+        .serialize(&mut count)
+        .map_err(|_| error!(ErrorCode::InvalidDataIncrease))?;
+    Ok(count.0)
+}
+
 // Add new iterator struct for reading tasks
 pub struct TasksIterator<'a> {
     data: &'a mut &'a [u8],
@@ -412,8 +439,8 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             task_queue: task_queue_key,
             id: task_id,
             rent_refund: task_queue_key,
-            trigger: task.trigger.clone(),
-            transaction: task.transaction.clone(),
+            trigger: task.trigger,
+            transaction: task.transaction,
             crank_reward: task.crank_reward.unwrap_or(self.min_crank_reward),
             bump_seed,
             queued_at: Clock::get()?.unix_timestamp,
@@ -421,7 +448,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             rent_amount: 0,
         };
 
-        let task_size = task_data.try_to_vec()?.len() + 8 + 60;
+        let task_size = serialized_len(&task_data)? + 8 + 60;
         // The account is grown from nothing by the single realloc below, so a returned task has
         // to fit inside what one realloc may add.
         require_gte!(

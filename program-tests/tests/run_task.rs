@@ -383,9 +383,9 @@ fn run_task_named(
     ctx.svm.send_transaction(tx)
 }
 
-#[test]
-fn a_returned_tasks_account_is_read_once_however_often_it_is_named() {
-    let mut ctx = setup(100, 10_000, 100_000);
+/// Queue a task that hands one child back through an account the returning program owns, the
+/// child carrying `payload_len` bytes. Returns the accounts that task names.
+fn queue_returning_task(ctx: &mut Ctx, payload_len: u32, free_tasks: u8) -> Vec<AccountMeta> {
     let program = std::fs::read(so_path().replace("tuktuk.so", "return_example.so"))
         .expect("read return_example.so; run `anchor build` in solana-programs/");
     ctx.svm.add_program(return_example::ID, &program);
@@ -395,10 +395,9 @@ fn a_returned_tasks_account_is_read_once_however_often_it_is_named() {
     let (task_return_account, _) =
         Pubkey::find_program_address(&[b"task_return_account"], &return_example::ID);
     ctx.svm
-        .airdrop(&queue_authority, 1_000_000_000)
+        .airdrop(&queue_authority, 10_000_000_000)
         .expect("fund the account the return is written from");
 
-    // A task that hands its child back through an account the returning program owns.
     let transaction = CompiledTransactionV0 {
         num_rw_signers: 0,
         num_ro_signers: 0,
@@ -412,24 +411,33 @@ fn a_returned_tasks_account_is_read_once_however_often_it_is_named() {
         instructions: vec![CompiledInstructionV0 {
             program_id_index: 3,
             accounts: vec![0, 1, 2],
-            data: return_example::instruction::ReturnTaskWithPayload { payload_len: 32 }.data(),
+            data: return_example::instruction::ReturnTaskWithPayload { payload_len }.data(),
         }],
         signer_seeds: vec![],
     };
-    let _ = queue(&mut ctx, 0, TriggerV0::Now, transaction, 3).expect("queue the parent");
+    queue(ctx, 0, TriggerV0::Now, transaction, free_tasks).expect("queue the parent");
 
-    let turner = ctx.turner();
-    let named = vec![
+    vec![
         AccountMeta::new(queue_authority, false),
         AccountMeta::new(task_return_account, false),
         AccountMeta::new_readonly(system_program::ID, false),
         AccountMeta::new_readonly(return_example::ID, false),
-    ];
+    ]
+}
+
+#[test]
+fn a_returned_tasks_account_is_read_once_however_often_it_is_named() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    let named = queue_returning_task(&mut ctx, 32, 3);
+
+    let turner = ctx.turner();
     let (first, _) = task_pda(&ctx.task_queue, 1);
     let (second, _) = task_pda(&ctx.task_queue, 2);
 
     // The turner supplies one free task per id, and puts the account the child was returned in
     // where the third free task would go.
+    let (returned_in, _) =
+        Pubkey::find_program_address(&[b"task_return_account"], &return_example::ID);
     let queue_before = lamports(&ctx.svm, &ctx.task_queue);
     let result = run_task_named(
         &mut ctx,
@@ -437,7 +445,7 @@ fn a_returned_tasks_account_is_read_once_however_often_it_is_named() {
         &turner,
         named,
         vec![1, 2, 3],
-        vec![first, second, task_return_account],
+        vec![first, second, returned_in],
     );
     assert!(
         result.is_ok(),
@@ -699,5 +707,27 @@ fn a_signer_seed_over_the_length_limit_is_refused() {
         !aborted(&result),
         "a seed longer than the limit should be refused by name, not abort the program: {:?}",
         result.err().map(|e| e.err)
+    );
+}
+
+#[test]
+fn a_returned_task_of_a_few_kilobytes_is_created() {
+    // The size a returned task serializes to is measured, not built, so a task of real size
+    // costs its own bytes once rather than several times over.
+    let mut ctx = setup(100, 10_000, 100_000);
+    let named = queue_returning_task(&mut ctx, 4_000, 1);
+    let turner = ctx.turner();
+    let (child, _) = task_pda(&ctx.task_queue, 1);
+
+    let result = run_task_named(&mut ctx, 0, &turner, named, vec![1], vec![child]);
+
+    assert!(
+        result.is_ok(),
+        "run failed: {:?}",
+        result.as_ref().err().map(|e| &e.err)
+    );
+    assert!(
+        task_account_exists(&ctx.svm, &child),
+        "the returned task should have been created"
     );
 }
