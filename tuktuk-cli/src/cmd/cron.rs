@@ -107,6 +107,21 @@ impl CronArg {
     }
 }
 
+/// What the program's requeue gate will make of the task a cron job recorded.
+enum RequeueState {
+    /// Nothing holds the recorded address, so the gate admits a requeue.
+    Ready,
+    /// A task that is not this job's schedule holds it. Task ids are recycled as tasks close, so
+    /// the address has to be freed before the gate admits a requeue.
+    Occupied {
+        task: Pubkey,
+        id: u16,
+        rent_refund: Pubkey,
+    },
+    /// The job's own schedule task is live, so it is already on the queue.
+    Live,
+}
+
 impl CronCmd {
     async fn fund_cron_job_ix(
         client: &CliClient,
@@ -124,23 +139,30 @@ impl CronCmd {
     ///
     /// Task ids are reused as tasks close, so a task at the recorded address is not necessarily
     /// this job's. A schedule task names the cron job it advances, which is what separates the two.
-    async fn needs_requeue(
+    async fn requeue_state(
         client: &CliClient,
         cron_job_key: &Pubkey,
         cron_job: &CronJobV0,
-    ) -> Result<bool> {
+    ) -> Result<RequeueState> {
         if cron_job.next_schedule_task == Pubkey::default() {
-            return Ok(true);
+            return Ok(RequeueState::Ready);
         }
         let task: Option<TaskV0> = client
             .rpc_client
             .anchor_account(&cron_job.next_schedule_task)
             .await?;
         let Some(task) = task else {
-            return Ok(true);
+            return Ok(RequeueState::Ready);
         };
+        if Self::advances(&task, cron_job_key) {
+            return Ok(RequeueState::Live);
+        }
 
-        Ok(!Self::advances(&task, cron_job_key))
+        Ok(RequeueState::Occupied {
+            task: cron_job.next_schedule_task,
+            id: task.id,
+            rent_refund: task.rent_refund,
+        })
     }
 
     /// Whether a task carries the given cron job's schedule. The cron program compiles that task
@@ -152,6 +174,48 @@ impl CronCmd {
             }
             TransactionSourceV0::RemoteV0 { .. } => false,
         }
+    }
+
+    /// The instructions that put a cron job back on the queue. The program admits a requeue only
+    /// while nothing holds the address the job recorded, so when an unrelated task holds it that
+    /// task is closed first, in the same transaction: anchor's `close` assigns the account to the
+    /// system program and truncates it, so the requeue that follows reads it as empty, and no one
+    /// can take the id in between.
+    async fn requeue_ixs(
+        client: &CliClient,
+        cron_job_key: &Pubkey,
+        cron_job: &CronJobV0,
+        state: RequeueState,
+    ) -> Result<Vec<Instruction>> {
+        let mut ixs = Vec::new();
+
+        if let RequeueState::Occupied {
+            task,
+            id,
+            rent_refund,
+        } = state
+        {
+            // `dequeue_ix` derives the task from the id, so the id has to be the one that derives
+            // the address actually recorded. Anything else would close a different task.
+            let derived = tuktuk::task::key(&cron_job.task_queue, id);
+            if derived != task {
+                return Err(anyhow!(
+                    "task {task} recorded by cron job {cron_job_key} is not task {id} of queue {}",
+                    cron_job.task_queue
+                ));
+            }
+            println!("Freeing {task}, which holds the address this cron job recorded");
+            ixs.push(tuktuk::task::dequeue_ix(
+                cron_job.task_queue,
+                client.payer.pubkey(),
+                rent_refund,
+                id,
+            )?);
+        }
+
+        ixs.push(Self::requeue_cron_job_ix(client, cron_job_key).await?);
+
+        Ok(ixs)
     }
 
     async fn requeue_cron_job_ix(client: &CliClient, cron_job_key: &Pubkey) -> Result<Instruction> {
@@ -275,18 +339,19 @@ impl CronCmd {
                     .await?
                     .ok_or_else(|| anyhow::anyhow!("Cron job not found: {}", cron_job_key))?;
 
-                if *force || Self::needs_requeue(&client, &cron_job_key, &cron_job).await? {
-                    let ix = Self::requeue_cron_job_ix(&client, &cron_job_key).await?;
+                let state = Self::requeue_state(&client, &cron_job_key, &cron_job).await?;
+                if !*force && matches!(state, RequeueState::Live) {
+                    println!("Cron job does not need to be requeued");
+                } else {
+                    let ixs = Self::requeue_ixs(&client, &cron_job_key, &cron_job, state).await?;
                     send_instructions(
                         client.rpc_client.clone(),
                         &client.payer,
                         client.opts.ws_url().as_str(),
-                        &[ix],
+                        &ixs,
                         &[],
                     )
                     .await?;
-                } else {
-                    println!("Cron job does not need to be requeued");
                 }
             }
             Cmd::Fund { cron, amount } => {
@@ -304,8 +369,9 @@ impl CronCmd {
                 let fund_ix = Self::fund_cron_job_ix(&client, &cron_job_key, *amount).await?;
                 let mut ixs = vec![fund_ix];
 
-                if Self::needs_requeue(&client, &cron_job_key, &cron_job).await? {
-                    ixs.push(Self::requeue_cron_job_ix(&client, &cron_job_key).await?);
+                let state = Self::requeue_state(&client, &cron_job_key, &cron_job).await?;
+                if !matches!(state, RequeueState::Live) {
+                    ixs.extend(Self::requeue_ixs(&client, &cron_job_key, &cron_job, state).await?);
                 }
 
                 send_instructions(
