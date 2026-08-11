@@ -27,11 +27,20 @@ jobs:
         id: list_changed_programs
         run: |
           echo "Detecting changes in programs"
-          # Use git diff to get a list of changed programs and output it as JSON
+          # Use git diff to get a list of changed programs and output it as JSON.
+          # shared-utils is a library, and cpi-example and return-example are fixtures the test
+          # suites run against. None of the three is deployed, so a change to one names no program
+          # to deploy.
           changed_files=$(git diff --name-only ${{ (github.event_name == 'pull_request' && github.event.pull_request.base.sha) || github.event.before }} ${{ github.event.after }})
-          changed_programs=($(echo "$changed_files" | grep "^solana-programs/programs/" | grep -v "/shared-utils/" | grep -v "/cpi-example/" | cut -d '/' -f 3 | sort -u))
+          changed_programs=($(echo "$changed_files" | grep "^solana-programs/programs/" | grep -v "/shared-utils/" | grep -v "/cpi-example/" | grep -v "/return-example/" | cut -d '/' -f 3 | sort -u))
           echo "${changed_programs[@]}"
-          json="[$(printf "'%s'", "${changed_programs[@]}" | sed 's/,$//')]"
+          # `printf` prints its format once even with nothing to substitute, so an empty list has
+          # to be spelled out. The jobs below skip on `[]` and not on the `['']` it would produce.
+          if [ ${#changed_programs[@]} -eq 0 ]; then
+            json="[]"
+          else
+            json="[$(printf "'%s'", "${changed_programs[@]}" | sed 's/,$//')]"
+          fi
           echo $json
           echo "programs_with_changes=$json" >> $GITHUB_OUTPUT
   build_programs:
