@@ -77,7 +77,7 @@ pub fn handler(ctx: Context<QueueTaskV0>, args: QueueTaskArgsV0) -> Result<()> {
     );
     let crank_reward = args
         .crank_reward
-        .unwrap_or(task_queue.header().min_crank_reward);
+        .unwrap_or_else(|| task_queue.header().min_crank_reward);
     require_gte!(crank_reward, task_queue.header().min_crank_reward);
 
     let mut transaction = args.transaction;
