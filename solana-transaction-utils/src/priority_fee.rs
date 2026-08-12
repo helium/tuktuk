@@ -15,6 +15,25 @@ use crate::error::Error;
 pub const MAX_RECENT_PRIORITY_FEE_ACCOUNTS: usize = 128;
 pub const MIN_PRIORITY_FEE: u64 = 1;
 
+/// The most compute units a transaction may be granted. Asking for more is clamped to this
+/// silently, so a request is capped here instead of relying on that.
+pub const MAX_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
+
+/// Margin over what a simulation measured.
+pub const COMPUTE_MARGIN: f64 = 1.2;
+
+/// The compute budget to request for work a simulation measured at `units_consumed`.
+///
+/// `None` is not a measurement of zero: it means the simulation reported no consumption, so the
+/// whole budget is asked for rather than a margin over nothing.
+pub fn compute_budget_from_simulation(units_consumed: Option<u64>) -> u32 {
+    let Some(measured) = units_consumed else {
+        return MAX_COMPUTE_UNIT_LIMIT;
+    };
+
+    ((measured as f64 * COMPUTE_MARGIN) as u64).min(MAX_COMPUTE_UNIT_LIMIT as u64) as u32
+}
+
 pub async fn get_estimate<C: AsRef<RpcClient>>(
     client: &C,
     accounts: &[Pubkey],
@@ -102,7 +121,7 @@ pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>>(
                     .first()
         {
             ix.data = solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(
-                1900000,
+                MAX_COMPUTE_UNIT_LIMIT,
             )
             .data; // Replace limit
             has_compute_budget = true;
@@ -114,7 +133,9 @@ pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>>(
         // Prepend compute budget instruction if none was found
         updated_instructions.insert(
             0,
-            solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(1900000),
+            solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(
+                MAX_COMPUTE_UNIT_LIMIT,
+            ),
         );
     }
 
@@ -145,12 +166,19 @@ pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>>(
 
     // Simulate the transaction to get the actual compute used
     let simulation_result = client.as_ref().simulate_transaction(&snub_tx).await?;
-    if simulation_result.value.err.is_some() {
-        info!(?simulation_result.value.logs, "simulation error");
-    }
-    let actual_compute_used = simulation_result.value.units_consumed.unwrap_or(1000000);
-
-    let final_compute_budget = (actual_compute_used as f32 * compute_multiplier) as u32;
+    // A simulation that failed stopped partway, so what it consumed is not a measurement of the
+    // work: scaling it produces a budget too small for the transaction it is about to be spent on.
+    let final_compute_budget = if let Some(err) = &simulation_result.value.err {
+        info!(?err, ?simulation_result.value.logs, "simulation error");
+        MAX_COMPUTE_UNIT_LIMIT
+    } else {
+        let measured = simulation_result
+            .value
+            .units_consumed
+            .unwrap_or(MAX_COMPUTE_UNIT_LIMIT as u64);
+        ((measured as f64 * compute_multiplier as f64) as u64).min(MAX_COMPUTE_UNIT_LIMIT as u64)
+            as u32
+    };
     Ok((
         compute_budget_instruction(final_compute_budget),
         final_compute_budget,
@@ -248,4 +276,38 @@ pub async fn auto_compute_limit_and_price<C: AsRef<RpcClient>>(
     }
 
     auto_compute_price(client, &updated_instructions, payer, compute_limit).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_budget_leaves_the_margin_above_what_was_measured() {
+        // Measured against live traffic: a delegation claim simulates around 410,000 and the
+        // budget granted for it sits around 490,000, which is the margin and nothing else.
+        let budget = compute_budget_from_simulation(Some(410_000));
+        assert_eq!(budget, 492_000);
+        assert!(budget > 410_000);
+    }
+
+    #[test]
+    fn nothing_measured_asks_for_the_whole_budget() {
+        assert_eq!(compute_budget_from_simulation(None), MAX_COMPUTE_UNIT_LIMIT);
+    }
+
+    #[test]
+    fn a_budget_never_exceeds_what_a_transaction_may_be_granted() {
+        for measured in [
+            MAX_COMPUTE_UNIT_LIMIT as u64,
+            MAX_COMPUTE_UNIT_LIMIT as u64 * 2,
+            u64::MAX,
+        ] {
+            assert_eq!(
+                compute_budget_from_simulation(Some(measured)),
+                MAX_COMPUTE_UNIT_LIMIT,
+                "measured {measured} was not capped"
+            );
+        }
+    }
 }
