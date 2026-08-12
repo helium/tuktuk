@@ -192,7 +192,7 @@ pub fn handler(ctx: Context<InitializeCronJobV0>, args: InitializeCronJobArgsV0)
                 .accounts
                 .task_queue
                 .next_available_task_id()
-                .ok_or(error!(ErrorCode::TaskQueueFull))?,
+                .ok_or_else(|| error!(ErrorCode::TaskQueueFull))?,
             description: format!("queue {}", trunc_name),
         },
     )?;

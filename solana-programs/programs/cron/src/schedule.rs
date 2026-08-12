@@ -59,18 +59,19 @@ pub fn running_schedule_task(sysvar_instructions: &AccountInfo) -> Result<Pubkey
     Ok(ix
         .accounts
         .get(RUN_TASK_V0_TASK_ACCOUNT)
-        .ok_or(error!(ErrorCode::NotRunningAsScheduledTask))?
+        .ok_or_else(|| error!(ErrorCode::NotRunningAsScheduledTask))?
         .pubkey)
 }
 
 /// The first execution the schedule names strictly after `after`.
 pub fn next_exec_ts(schedule: &str, after: i64) -> Result<i64> {
     let schedule = Schedule::from_str(schedule).map_err(|_| error!(ErrorCode::InvalidSchedule))?;
-    let after = DateTime::from_timestamp(after, 0).ok_or(error!(ErrorCode::InvalidSchedule))?;
+    let after =
+        DateTime::from_timestamp(after, 0).ok_or_else(|| error!(ErrorCode::InvalidSchedule))?;
     schedule
         .next_after(&after)
         .map(|next| next.timestamp())
-        .ok_or(error!(ErrorCode::InvalidSchedule))
+        .ok_or_else(|| error!(ErrorCode::InvalidSchedule))
 }
 
 /// tuktuk caps a task description at 40 bytes, so descriptions carry a truncated name.

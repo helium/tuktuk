@@ -20,7 +20,9 @@ use tracing::info;
 use crate::{
     error::Error,
     pack::{PackedTransaction, MAX_TRANSACTION_SIZE},
-    priority_fee::{auto_compute_price, compute_budget_instruction},
+    priority_fee::{
+        auto_compute_price, compute_budget_from_simulation, compute_budget_instruction,
+    },
     sender::PackedTransactionWithTasks,
 };
 
@@ -95,6 +97,7 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
         Result<(Vec<Instruction>, Option<TransactionError>, u64), Error>,
     ) {
         let tasks = bundle.tasks;
+        let task_count = tasks.len();
         let result = async {
             let blockhash = rpc_client.get_latest_blockhash().await?;
             let message = v0::Message::try_compile(
@@ -115,9 +118,16 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                 info!(?err, ?sim_result.value.logs, "simulation error");
             }
 
-            // Scale up by 1.2 just to be sure it'll succeed.
-            let compute_units =
-                (sim_result.value.units_consumed.unwrap_or(1000000) as f64 * 1.2) as u32;
+            let compute_units = compute_budget_from_simulation(sim_result.value.units_consumed);
+            // The measurement is the only record of why a budget was what it was. A transaction
+            // that later runs out of compute cannot be explained without it, and a simulation that
+            // succeeded used to leave nothing behind at all.
+            info!(
+                measured = ?sim_result.value.units_consumed,
+                budget = compute_units,
+                tasks = task_count,
+                "compute budget from simulation"
+            );
             let mut updated_instructions = bundle.tx.instructions.clone();
             let compute_budget_ix = compute_budget_instruction(compute_units);
             // Replace or insert compute budget instruction

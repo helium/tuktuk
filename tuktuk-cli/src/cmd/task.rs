@@ -136,7 +136,7 @@ async fn simulate_task(client: &CliClient, task_key: Pubkey) -> Result<Option<Si
             // Create and simulate the transaction
             let mut updated_instructions = vec![
                 solana_sdk::compute_budget::ComputeBudgetInstruction::set_compute_unit_limit(
-                    1900000,
+                    solana_transaction_utils::priority_fee::MAX_COMPUTE_UNIT_LIMIT,
                 ),
             ];
             updated_instructions.extend(run_ix.instructions.clone());
