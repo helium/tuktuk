@@ -251,7 +251,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         // tasks are going to be appended at all. The heap never hands a reservation back.
         let program_id = remaining_accounts
             .get(ix.program_id_index as usize)
-            .ok_or(error!(ErrorCode::InvalidAccountIndex))?
+            .ok_or_else(|| error!(ErrorCode::InvalidAccountIndex))?
             .key;
         let takes_free_tasks = *program_id != MEMO_PROGRAM_ID;
         let capacity = ix.accounts.len().min(remaining_accounts.len())
@@ -270,7 +270,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             // turner chooses, so neither side of this bound is fixed by the program.
             let mut acct = remaining_accounts
                 .get(*i as usize)
-                .ok_or(error!(ErrorCode::InvalidAccountIndex))?
+                .ok_or_else(|| error!(ErrorCode::InvalidAccountIndex))?
                 .clone();
             // A task may only sign for this queue's own `b"custom"` PDAs. Signer privilege is
             // never inherited from the outer transaction: the crank turner is an arbitrary,
@@ -585,7 +585,7 @@ pub fn handler<'info>(
             // and can place this instruction first.
             let verify_ix_index = ix_index
                 .checked_sub(1)
-                .ok_or(error!(ErrorCode::MalformedRemoteTransaction))?;
+                .ok_or_else(|| error!(ErrorCode::MalformedRemoteTransaction))?;
             let ix: Instruction = load_instruction_at_checked(
                 verify_ix_index as usize,
                 &ctx.accounts.sysvar_instructions,

@@ -122,7 +122,7 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
     let accounts = ctx
         .remaining_accounts
         .get(..=num_tasks_per_queue_call)
-        .ok_or(error!(ErrorCode::NotEnoughAccounts))?;
+        .ok_or_else(|| error!(ErrorCode::NotEnoughAccounts))?;
     let next_schedule_task = accounts[num_tasks_per_queue_call].key();
 
     let max_num_tasks_remaining = cron_job
