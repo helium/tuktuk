@@ -27,11 +27,16 @@ pub const COMPUTE_MARGIN: f64 = 1.2;
 /// `None` is not a measurement of zero: it means the simulation reported no consumption, so the
 /// whole budget is asked for rather than a margin over nothing.
 pub fn compute_budget_from_simulation(units_consumed: Option<u64>) -> u32 {
+    compute_budget_from_simulation_with_margin(units_consumed, COMPUTE_MARGIN)
+}
+
+/// Same policy with a caller-chosen margin.
+pub fn compute_budget_from_simulation_with_margin(units_consumed: Option<u64>, margin: f64) -> u32 {
     let Some(measured) = units_consumed else {
         return MAX_COMPUTE_UNIT_LIMIT;
     };
 
-    ((measured as f64 * COMPUTE_MARGIN) as u64).min(MAX_COMPUTE_UNIT_LIMIT as u64) as u32
+    ((measured as f64 * margin) as u64).min(MAX_COMPUTE_UNIT_LIMIT as u64) as u32
 }
 
 pub async fn get_estimate<C: AsRef<RpcClient>>(
@@ -172,12 +177,10 @@ pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>>(
         info!(?err, ?simulation_result.value.logs, "simulation error");
         MAX_COMPUTE_UNIT_LIMIT
     } else {
-        let measured = simulation_result
-            .value
-            .units_consumed
-            .unwrap_or(MAX_COMPUTE_UNIT_LIMIT as u64);
-        ((measured as f64 * compute_multiplier as f64) as u64).min(MAX_COMPUTE_UNIT_LIMIT as u64)
-            as u32
+        compute_budget_from_simulation_with_margin(
+            simulation_result.value.units_consumed,
+            compute_multiplier as f64,
+        )
     };
     Ok((
         compute_budget_instruction(final_compute_budget),
@@ -289,6 +292,19 @@ mod tests {
         let budget = compute_budget_from_simulation(Some(410_000));
         assert_eq!(budget, 492_000);
         assert!(budget > 410_000);
+    }
+
+    #[test]
+    fn a_caller_chosen_margin_is_honoured() {
+        assert_eq!(
+            compute_budget_from_simulation_with_margin(Some(100_000), 1.5),
+            150_000
+        );
+        // The default is the same policy with the shared margin.
+        assert_eq!(
+            compute_budget_from_simulation(Some(100_000)),
+            compute_budget_from_simulation_with_margin(Some(100_000), COMPUTE_MARGIN)
+        );
     }
 
     #[test]
