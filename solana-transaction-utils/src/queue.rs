@@ -97,6 +97,7 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
         Result<(Vec<Instruction>, Option<TransactionError>, u64), Error>,
     ) {
         let tasks = bundle.tasks;
+        let task_count = tasks.len();
         let result = async {
             let blockhash = rpc_client.get_latest_blockhash().await?;
             let message = v0::Message::try_compile(
@@ -118,6 +119,15 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
             }
 
             let compute_units = compute_budget_from_simulation(sim_result.value.units_consumed);
+            // The measurement is the only record of why a budget was what it was. A transaction
+            // that later runs out of compute cannot be explained without it, and a simulation that
+            // succeeded used to leave nothing behind at all.
+            info!(
+                measured = ?sim_result.value.units_consumed,
+                budget = compute_units,
+                tasks = task_count,
+                "compute budget from simulation"
+            );
             let mut updated_instructions = bundle.tx.instructions.clone();
             let compute_budget_ix = compute_budget_instruction(compute_units);
             // Replace or insert compute budget instruction
