@@ -565,18 +565,11 @@ fn queue_nested_returning_task(ctx: &mut Ctx, id: u16, nested_data: Vec<u8>, fre
     add_fixture(ctx, return_example::ID, "return_example.so");
     add_fixture(ctx, cpi_example::ID, "cpi_example.so");
 
-    let transaction = CompiledTransactionV0 {
-        num_rw_signers: 0,
-        num_ro_signers: 0,
-        num_rw: 0,
-        accounts: vec![system_program::ID, cpi_example::ID, return_example::ID],
-        instructions: vec![CompiledInstructionV0 {
-            program_id_index: 2,
-            accounts: vec![0, 1],
-            data: return_example::instruction::CallThenReturnNothing { data: nested_data }.data(),
-        }],
-        signer_seeds: vec![],
-    };
+    let transaction = compile_readonly(
+        return_example::ID,
+        &[system_program::ID, cpi_example::ID],
+        return_example::instruction::CallThenReturnNothing { data: nested_data }.data(),
+    );
     queue(ctx, id, TriggerV0::Now, transaction, free_tasks).expect("queue the task");
 }
 
@@ -673,18 +666,11 @@ fn a_programs_own_return_data_that_is_not_a_task_return_fails_the_run() {
 
     // The invoked program returns the bool itself, so the slot is its own and one byte cannot be
     // read as a task return.
-    let transaction = CompiledTransactionV0 {
-        num_rw_signers: 0,
-        num_ro_signers: 0,
-        num_rw: 0,
-        accounts: vec![system_program::ID, return_example::ID],
-        instructions: vec![CompiledInstructionV0 {
-            program_id_index: 1,
-            accounts: vec![0],
-            data: return_example::instruction::ReturnNonTaskData.data(),
-        }],
-        signer_seeds: vec![],
-    };
+    let transaction = compile_readonly(
+        return_example::ID,
+        &[system_program::ID],
+        return_example::instruction::ReturnNonTaskData.data(),
+    );
     queue(&mut ctx, 0, TriggerV0::Now, transaction, 0).expect("queue the task");
 
     let turner = ctx.turner();
@@ -721,18 +707,11 @@ fn a_task_return_followed_by_trailing_bytes_fails_the_run() {
     let mut data = vec![0u8; 8];
     data.extend_from_slice(&[0xff; 16]);
 
-    let transaction = CompiledTransactionV0 {
-        num_rw_signers: 0,
-        num_ro_signers: 0,
-        num_rw: 0,
-        accounts: vec![system_program::ID, return_example::ID],
-        instructions: vec![CompiledInstructionV0 {
-            program_id_index: 1,
-            accounts: vec![0],
-            data: return_example::instruction::SetRawReturnData { data }.data(),
-        }],
-        signer_seeds: vec![],
-    };
+    let transaction = compile_readonly(
+        return_example::ID,
+        &[system_program::ID],
+        return_example::instruction::SetRawReturnData { data }.data(),
+    );
     queue(&mut ctx, 0, TriggerV0::Now, transaction, 0).expect("queue the task");
 
     let turner = ctx.turner();
@@ -764,21 +743,14 @@ fn a_task_return_followed_by_trailing_bytes_fails_the_run() {
 fn queue_child_returning_task(ctx: &mut Ctx, id: u16, free_tasks: u8) {
     add_fixture(ctx, cpi_example::ID, "cpi_example.so");
 
-    let transaction = CompiledTransactionV0 {
-        num_rw_signers: 0,
-        num_ro_signers: 0,
-        num_rw: 0,
-        accounts: vec![system_program::ID, cpi_example::ID],
-        instructions: vec![CompiledInstructionV0 {
-            program_id_index: 1,
-            accounts: vec![0],
-            data: cpi_example::instruction::ReturnTask {
-                args: cpi_example::ReturnTaskArgsV0 { crank_reward: None },
-            }
-            .data(),
-        }],
-        signer_seeds: vec![],
-    };
+    let transaction = compile_readonly(
+        cpi_example::ID,
+        &[system_program::ID],
+        cpi_example::instruction::ReturnTask {
+            args: cpi_example::ReturnTaskArgsV0 { crank_reward: None },
+        }
+        .data(),
+    );
     queue(ctx, id, TriggerV0::Now, transaction, free_tasks).expect("queue the task");
 }
 

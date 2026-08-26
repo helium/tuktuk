@@ -319,8 +319,10 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             if return_program_id == *program_id {
                 let returned = RunTaskReturnV0::try_from_slice(&return_data)
                     .inspect_err(|e| msg!("Return data could not be read: {:?}", e))?;
-                self.process_return_data(&return_program_id, returned, named)
+                self.process_return_data(program_id, returned, named)
                     .inspect_err(|e| msg!("Error processing return data: {:?}", e))?;
+            } else {
+                msg!("Return data was set by a program other than the one invoked; ignored");
             }
         }
 
@@ -419,12 +421,10 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         // Take the id before the account. Ids and free-task accounts are consumed one per created
         // task and their counts are equal, so an exhausted id list is what says there is no
         // account left to take either.
-        let task_id = match self.free_task_ids.pop() {
-            Some(id) => id,
-            None => {
-                return Err(error!(ErrorCode::TooManyReturnedTasks));
-            }
-        };
+        let task_id = self
+            .free_task_ids
+            .pop()
+            .ok_or_else(|| error!(ErrorCode::TooManyReturnedTasks))?;
 
         // `handler` requires the account count to equal the named accounts plus the free task ids,
         // and a task is created only after an id has been taken, so this index names one of the
