@@ -29,7 +29,8 @@ pub struct CronJobV0 {
     pub next_transaction_id: u32,
     // Deprecated: You should use the next_schedule_task instead
     // A cron job is removed from the queue when it no longer has enough lamports to fund tasks
-    // Once this is set, you need to requeue the cron job.
+    // Once this is set, the record holds nothing, which is the state a requeue and an adopting
+    // schedule run both answer to.
     pub removed_from_queue: bool,
     pub bump_seed: u8,
     // Pubkey::default() when no task scheduled

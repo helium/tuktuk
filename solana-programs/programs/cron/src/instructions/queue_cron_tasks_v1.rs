@@ -83,10 +83,9 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
     // needs `run_task_v0` to be the top-level instruction, which a caller that reaches it through
     // its own CPI does not give.
     //
-    // A record holds nothing in two spellings: the account is empty, or the record is
-    // `Pubkey::default()`. The default is the system program, which has data, so the emptiness
-    // test alone reads it as live and refuses the adoption this allows — the same reason
-    // `requeue_cron_task_v1` spells its default arm out.
+    // A record holds nothing when it is `Pubkey::default()` or its account is empty. The default
+    // is the system program, which has data, so the emptiness test alone does not answer it —
+    // `requeue_cron_task_v1` spells the same arm out.
     let record_holds_a_task = cron_job.next_schedule_task != Pubkey::default()
         && !ctx.accounts.recorded_schedule_task.data_is_empty();
     if record_holds_a_task {
@@ -284,8 +283,9 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
     }
 }
 
-/// The cron job cannot fund what this run would queue, so it leaves the queue and waits for a
-/// requeue. Clearing `next_schedule_task` is what lets the requeue adopt the chain.
+/// The cron job cannot fund what this run would queue, so it leaves the queue. Clearing
+/// `next_schedule_task` is what leaves the record holding nothing, which is the state a requeue
+/// and an adopting schedule run both answer to.
 fn stand_down(cron_job: &mut Account<CronJobV0>) -> Result<RunTaskReturnV0> {
     msg!(
         "Not enough lamports to fund tasks. Please requeue cron job when you have enough lamports. {}",
