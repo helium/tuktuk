@@ -219,6 +219,13 @@ pub mod cpi_example {
         })
     }
 
+    /// Returns a value that is not a task return. Reached as the nested call of another
+    /// program's instruction, this is what leaves the return-data slot holding bytes named for
+    /// a caller other than the run.
+    pub fn return_non_task_data(_ctx: Context<RecurringTask>) -> Result<bool> {
+        Ok(false)
+    }
+
     /// Terminal task: returns nothing, so a test's assertions are not disturbed by further
     /// rescheduling.
     pub fn noop_task(_ctx: Context<RecurringTask>) -> Result<tuktuk_program::RunTaskReturnV0> {

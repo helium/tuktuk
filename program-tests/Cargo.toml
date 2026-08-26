@@ -13,6 +13,9 @@ tuktuk = { path = "../solana-programs/programs/tuktuk", features = ["no-entrypoi
 return-example = { path = "../solana-programs/programs/return-example", features = [
   "no-entrypoint",
 ] }
+cpi-example = { path = "../solana-programs/programs/cpi-example", features = [
+  "no-entrypoint",
+] }
 anchor-lang = "=0.31.1"
 litesvm = "0.6"
 solana-sdk = "2.2"

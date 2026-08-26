@@ -828,6 +828,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
+name = "cpi-example"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "getrandom 0.2.17",
+ "solana-zk-sdk",
+ "tuktuk-program",
+]
+
+[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5317,7 +5328,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tuktuk"
-version = "0.2.8"
+version = "0.2.10"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
@@ -5338,6 +5349,7 @@ name = "tuktuk-program-tests"
 version = "0.0.0"
 dependencies = [
  "anchor-lang",
+ "cpi-example",
  "litesvm",
  "return-example",
  "solana-sdk",

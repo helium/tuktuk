@@ -67,11 +67,49 @@ pub mod return_example {
         })
     }
 
+    /// Returns a bool, so the run reads one byte where a task return is at least eight.
+    pub fn return_non_task_data(_ctx: Context<NoAccounts>) -> Result<bool> {
+        Ok(false)
+    }
+
+    /// Sets `data` as this program's own return data and returns nothing, so a test names the
+    /// exact bytes a run reads from the program it invoked. Anchor writes a return value after
+    /// the body, so returning unit is what leaves these bytes in place.
+    pub fn set_raw_return_data(_ctx: Context<NoAccounts>, data: Vec<u8>) -> Result<()> {
+        anchor_lang::solana_program::program::set_return_data(&data);
+
+        Ok(())
+    }
+
+    /// Invokes `target` with `data` and then returns nothing of its own, so the return-data slot
+    /// the run reads holds whatever that call left there rather than a value this program named.
+    pub fn call_then_return_nothing(
+        ctx: Context<CallThenReturnNothing>,
+        data: Vec<u8>,
+    ) -> Result<()> {
+        anchor_lang::solana_program::program::invoke(
+            &Instruction {
+                program_id: ctx.accounts.target.key(),
+                accounts: vec![AccountMeta::new_readonly(
+                    ctx.accounts.system_program.key(),
+                    false,
+                )],
+                data,
+            },
+            &[
+                ctx.accounts.system_program.to_account_info(),
+                ctx.accounts.target.to_account_info(),
+            ],
+        )?;
+
+        Ok(())
+    }
+
     /// Names the tasks account without holding it, so the only place a run could find it is
     /// among the accounts the crank turner appended. A tasks account is the program's to name
     /// out of the accounts its own instruction was given.
     pub fn return_tasks_account_without_naming_it(
-        _ctx: Context<ReturnTasksAccountWithoutNamingIt>,
+        _ctx: Context<NoAccounts>,
     ) -> Result<RunTaskReturnV0> {
         let (task_return_account, _) =
             Pubkey::find_program_address(&[b"task_return_account"], &crate::ID);
@@ -83,9 +121,17 @@ pub mod return_example {
     }
 }
 
+/// A context for the instructions that name no account of their own.
 #[derive(Accounts)]
-pub struct ReturnTasksAccountWithoutNamingIt<'info> {
+pub struct NoAccounts<'info> {
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct CallThenReturnNothing<'info> {
+    pub system_program: Program<'info, System>,
+    /// CHECK: the program to invoke, named by the caller
+    pub target: AccountInfo<'info>,
 }
 
 #[derive(Accounts)]

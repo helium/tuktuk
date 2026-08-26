@@ -175,17 +175,6 @@ struct TaskProcessor<'a, 'info> {
     // Changes to make to task queue
     tasks_to_set: Vec<u16>, // Task IDs to set as existing
     queue_lamports_needed: u64,
-    // Set when a returned task could not be created because of the free-task id or account the
-    // crank turner supplied. Errors raised while processing return data are swallowed, so this
-    // is carried out to `handler` and failed there. The turner picks both, and a task's children
-    // must not be droppable by picking them badly; a reward or description the returning program
-    // chose is that program's fault and is still dropped silently.
-    //
-    // A shortfall of ids also fails the run when the turner supplied every id the task declared
-    // and the returning program asked for more children than that. The run failing leaves the
-    // task queued rather than losing a child, which for a recurring task is its own next run, so
-    // the loud outcome is the one that can be diagnosed.
-    bad_free_task_input: bool,
 }
 
 impl<'a, 'info> TaskProcessor<'a, 'info> {
@@ -233,7 +222,6 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             capacity,
             tasks_to_set: Vec::new(),
             queue_lamports_needed: 0,
-            bad_free_task_input: false,
         })
     }
 
@@ -321,10 +309,21 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             // Only the accounts the instruction itself named. The free tasks appended above are
             // the crank turner's to choose, and a tasks account is the program's to name.
             let named = &accounts[..ix.accounts.len()];
-            // A run that cannot place a child it was handed fails, whoever caused it: the
-            // alternative is a task that reports success while the work it returned is gone.
-            self.process_return_data(&return_program_id, &return_data, named)
-                .inspect_err(|e| msg!("Error processing return data: {:?}", e))?;
+            // Return data is one slot, and the runtime attributes it to whichever program last
+            // set it. A call the invoked instruction made can therefore leave a value here that
+            // was named for its own caller, and a run has no claim on it: children come only
+            // from the program the run invoked. Read strictly, so a task list is exact rather
+            // than a prefix of some other program's bytes, and fail the run when the program's
+            // own return cannot be read or a child it named cannot be placed. The alternative
+            // is a task that reports success while the work it returned is gone.
+            if return_program_id == *program_id {
+                let returned = RunTaskReturnV0::try_from_slice(&return_data)
+                    .inspect_err(|e| msg!("Return data could not be read: {:?}", e))?;
+                self.process_return_data(program_id, returned, named)
+                    .inspect_err(|e| msg!("Error processing return data: {:?}", e))?;
+            } else {
+                msg!("Return data was set by a program other than the one invoked; ignored");
+            }
         }
 
         Ok(())
@@ -333,11 +332,9 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
     fn process_return_data(
         &mut self,
         return_program_id: &Pubkey,
-        return_data: &[u8],
+        queue_task_return: RunTaskReturnV0,
         accounts: &[AccountInfo<'info>],
     ) -> Result<()> {
-        let queue_task_return = RunTaskReturnV0::deserialize(&mut &return_data[..])?;
-
         let mut accounts_set = queue_task_return
             .tasks_accounts
             .into_iter()
@@ -424,13 +421,10 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         // Take the id before the account. Ids and free-task accounts are consumed one per created
         // task and their counts are equal, so an exhausted id list is what says there is no
         // account left to take either.
-        let task_id = match self.free_task_ids.pop() {
-            Some(id) => id,
-            None => {
-                self.bad_free_task_input = true;
-                return Err(error!(ErrorCode::TooManyReturnedTasks));
-            }
-        };
+        let task_id = self
+            .free_task_ids
+            .pop()
+            .ok_or_else(|| error!(ErrorCode::TooManyReturnedTasks))?;
 
         // `handler` requires the account count to equal the named accounts plus the free task ids,
         // and a task is created only after an id has been taken, so this index names one of the
@@ -441,14 +435,12 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
 
         // Verify the account is empty
         if !free_task_account.data_is_empty() {
-            self.bad_free_task_input = true;
             return Err(error!(ErrorCode::FreeTaskAccountNotEmpty));
         }
 
         let seeds = [b"task", task_queue_key.as_ref(), &task_id.to_le_bytes()];
         let (key, bump_seed) = Pubkey::find_program_address(&seeds, self.ctx.program_id);
         if key != free_task_account.key() {
-            self.bad_free_task_input = true;
             return Err(error!(ErrorCode::InvalidTaskPDA));
         }
 
@@ -520,10 +512,6 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         self.tasks_to_set.push(task_data.id);
 
         Ok(())
-    }
-
-    fn had_bad_free_task_input(&self) -> bool {
-        self.bad_free_task_input
     }
 
     fn get_tasks_to_set(&self) -> &[u16] {
@@ -715,12 +703,6 @@ pub fn handler<'info>(
         for ix in &transaction.instructions {
             processor.process_instruction(ix, remaining_accounts)?;
         }
-
-        // A child that failed on the turner's own id or account choice is not one they may drop.
-        require!(
-            !processor.had_bad_free_task_input(),
-            ErrorCode::InvalidTaskPDA
-        );
 
         // Get the changes we need to make
         let tasks_to_set = processor.get_tasks_to_set().to_vec();

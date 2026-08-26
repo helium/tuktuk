@@ -388,6 +388,18 @@ fn run_task_named(
     ctx.svm.send_transaction(tx)
 }
 
+/// Load one of the fixture programs built alongside tuktuk into the SVM.
+fn add_fixture(ctx: &mut Ctx, program_id: Pubkey, file: &str) {
+    let artifact = std::path::Path::new(&so_path())
+        .parent()
+        .expect("the built program has a directory")
+        .join(file);
+    let program = std::fs::read(&artifact).unwrap_or_else(|e| {
+        panic!("read {artifact:?} ({e}); run `anchor build` in solana-programs/")
+    });
+    ctx.svm.add_program(program_id, &program);
+}
+
 /// Queue a task that hands one child back through an account the returning program owns, the
 /// child carrying `payload_len` bytes. Returns the accounts that task names.
 fn queue_returning_task(
@@ -396,14 +408,7 @@ fn queue_returning_task(
     free_tasks: u8,
     names: Vec<u8>,
 ) -> Vec<AccountMeta> {
-    let artifact = std::path::Path::new(&so_path())
-        .parent()
-        .expect("the built program has a directory")
-        .join("return_example.so");
-    let program = std::fs::read(&artifact).unwrap_or_else(|e| {
-        panic!("read {artifact:?} ({e}); run `anchor build` in solana-programs/")
-    });
-    ctx.svm.add_program(return_example::ID, &program);
+    add_fixture(ctx, return_example::ID, "return_example.so");
 
     let (queue_authority, _) =
         Pubkey::find_program_address(&[b"queue_authority"], &return_example::ID);
@@ -551,6 +556,274 @@ fn a_tasks_account_the_instruction_did_not_name_is_not_read() {
         !task_account_exists(&ctx.svm, &second_child),
         "the tasks account reached this run only as a free-task account, so nothing should have \
          been queued out of it"
+    );
+}
+
+/// Queue a task whose instruction is `return_example::call_then_return_nothing`, invoking
+/// `cpi_example` with `nested_data` and returning nothing of its own.
+fn queue_nested_returning_task(ctx: &mut Ctx, id: u16, nested_data: Vec<u8>, free_tasks: u8) {
+    add_fixture(ctx, return_example::ID, "return_example.so");
+    add_fixture(ctx, cpi_example::ID, "cpi_example.so");
+
+    let transaction = compile_readonly(
+        return_example::ID,
+        &[system_program::ID, cpi_example::ID],
+        return_example::instruction::CallThenReturnNothing { data: nested_data }.data(),
+    );
+    queue(ctx, id, TriggerV0::Now, transaction, free_tasks).expect("queue the task");
+}
+
+fn nested_accounts() -> Vec<AccountMeta> {
+    vec![
+        AccountMeta::new_readonly(system_program::ID, false),
+        AccountMeta::new_readonly(cpi_example::ID, false),
+        AccountMeta::new_readonly(return_example::ID, false),
+    ]
+}
+
+#[test]
+fn a_nested_calls_return_data_is_not_read_as_a_task_return() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    // cpi_example returns a bool, so the slot the run reads holds one byte set by a program the
+    // run did not invoke.
+    queue_nested_returning_task(
+        &mut ctx,
+        0,
+        cpi_example::instruction::ReturnNonTaskData.data(),
+        0,
+    );
+
+    let turner = ctx.turner();
+    let (task, _) = task_pda(&ctx.task_queue, 0);
+    let queue_before = lamports(&ctx.svm, &ctx.task_queue);
+    let result = run_task_named(&mut ctx, 0, &turner, nested_accounts(), vec![], vec![]);
+
+    assert!(
+        result.is_ok(),
+        "a nested call's return data should not fail the run: {:?}",
+        result.err().map(|e| e.err)
+    );
+    assert!(
+        !task_account_exists(&ctx.svm, &task),
+        "the task should have been closed by the run"
+    );
+    assert_eq!(
+        lamports(&ctx.svm, &ctx.task_queue),
+        queue_before,
+        "no child was funded, so the queue should have spent nothing"
+    );
+}
+
+#[test]
+fn a_nested_calls_task_return_is_not_queued() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    // cpi_example hands back a real child. It is not the program the run invoked, so the child
+    // is not the run's to create even though the bytes deserialize.
+    queue_nested_returning_task(
+        &mut ctx,
+        0,
+        cpi_example::instruction::ReturnTask {
+            args: cpi_example::ReturnTaskArgsV0 { crank_reward: None },
+        }
+        .data(),
+        1,
+    );
+
+    let turner = ctx.turner();
+    // A free task id and its account are supplied, so the only thing between the returned child
+    // and a task account is the check this asserts.
+    let (child, _) = task_pda(&ctx.task_queue, 1);
+    let queue_before = lamports(&ctx.svm, &ctx.task_queue);
+    let result = run_task_named(
+        &mut ctx,
+        0,
+        &turner,
+        nested_accounts(),
+        vec![1],
+        vec![child],
+    );
+
+    assert!(
+        result.is_ok(),
+        "run failed: {:?}",
+        result.err().map(|e| e.err)
+    );
+    assert!(
+        !task_account_exists(&ctx.svm, &child),
+        "a child named by a program the run did not invoke should not be created"
+    );
+    assert_eq!(
+        lamports(&ctx.svm, &ctx.task_queue),
+        queue_before,
+        "no child was created, so the queue should have spent nothing"
+    );
+}
+
+#[test]
+fn a_programs_own_return_data_that_is_not_a_task_return_fails_the_run() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    add_fixture(&mut ctx, return_example::ID, "return_example.so");
+
+    // The invoked program returns the bool itself, so the slot is its own and one byte cannot be
+    // read as a task return.
+    let transaction = compile_readonly(
+        return_example::ID,
+        &[system_program::ID],
+        return_example::instruction::ReturnNonTaskData.data(),
+    );
+    queue(&mut ctx, 0, TriggerV0::Now, transaction, 0).expect("queue the task");
+
+    let turner = ctx.turner();
+    let (task, _) = task_pda(&ctx.task_queue, 0);
+    let result = run_task_named(
+        &mut ctx,
+        0,
+        &turner,
+        vec![
+            AccountMeta::new_readonly(system_program::ID, false),
+            AccountMeta::new_readonly(return_example::ID, false),
+        ],
+        vec![],
+        vec![],
+    );
+
+    assert!(
+        result.is_err(),
+        "the invoked program's own unreadable return data should fail the run"
+    );
+    assert!(
+        task_account_exists(&ctx.svm, &task),
+        "a failed run leaves the task queued"
+    );
+}
+
+#[test]
+fn a_task_return_followed_by_trailing_bytes_fails_the_run() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    add_fixture(&mut ctx, return_example::ID, "return_example.so");
+
+    // An empty task return is eight zero bytes. Anything after them is not part of the value, so
+    // these bytes are a task return only if the read stops before reaching the end of the slot.
+    let mut data = vec![0u8; 8];
+    data.extend_from_slice(&[0xff; 16]);
+
+    let transaction = compile_readonly(
+        return_example::ID,
+        &[system_program::ID],
+        return_example::instruction::SetRawReturnData { data }.data(),
+    );
+    queue(&mut ctx, 0, TriggerV0::Now, transaction, 0).expect("queue the task");
+
+    let turner = ctx.turner();
+    let (task, _) = task_pda(&ctx.task_queue, 0);
+    let result = run_task_named(
+        &mut ctx,
+        0,
+        &turner,
+        vec![
+            AccountMeta::new_readonly(system_program::ID, false),
+            AccountMeta::new_readonly(return_example::ID, false),
+        ],
+        vec![],
+        vec![],
+    );
+
+    assert!(
+        result.is_err(),
+        "a value the run only reaches by stopping short of the slot's end is not a task return"
+    );
+    assert!(
+        task_account_exists(&ctx.svm, &task),
+        "a failed run leaves the task queued"
+    );
+}
+
+/// Queue a task whose instruction is `cpi_example::return_task`, invoked directly so the child
+/// it names is the run's to create, declaring `free_tasks` children.
+fn queue_child_returning_task(ctx: &mut Ctx, id: u16, free_tasks: u8) {
+    add_fixture(ctx, cpi_example::ID, "cpi_example.so");
+
+    let transaction = compile_readonly(
+        cpi_example::ID,
+        &[system_program::ID],
+        cpi_example::instruction::ReturnTask {
+            args: cpi_example::ReturnTaskArgsV0 { crank_reward: None },
+        }
+        .data(),
+    );
+    queue(ctx, id, TriggerV0::Now, transaction, free_tasks).expect("queue the task");
+}
+
+fn child_returning_accounts() -> Vec<AccountMeta> {
+    vec![
+        AccountMeta::new_readonly(system_program::ID, false),
+        AccountMeta::new_readonly(cpi_example::ID, false),
+    ]
+}
+
+#[test]
+fn a_child_returned_beyond_the_declared_count_fails_the_run() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    // The task declares no children, so there is no id for the one its program names.
+    queue_child_returning_task(&mut ctx, 0, 0);
+
+    let turner = ctx.turner();
+    let (task, _) = task_pda(&ctx.task_queue, 0);
+    let result = run_task_named(
+        &mut ctx,
+        0,
+        &turner,
+        child_returning_accounts(),
+        vec![],
+        vec![],
+    );
+
+    assert_eq!(
+        refusal(&result),
+        code(tuktuk::error::ErrorCode::TooManyReturnedTasks),
+        "a child the task reserved no room for should fail the run rather than be dropped"
+    );
+    assert!(
+        task_account_exists(&ctx.svm, &task),
+        "a failed run leaves the task queued"
+    );
+}
+
+#[test]
+fn a_free_task_id_already_in_use_fails_the_run() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    queue_child_returning_task(&mut ctx, 0, 1);
+    // Id 1's account is the one the child would be written into, and it already holds a task.
+    queue_child_returning_task(&mut ctx, 1, 0);
+
+    let turner = ctx.turner();
+    let (task, _) = task_pda(&ctx.task_queue, 0);
+    let (occupied, _) = task_pda(&ctx.task_queue, 1);
+    assert!(
+        task_account_exists(&ctx.svm, &occupied),
+        "the fixture needs id 1 already in use"
+    );
+
+    let result = run_task_named(
+        &mut ctx,
+        0,
+        &turner,
+        child_returning_accounts(),
+        vec![1],
+        vec![occupied],
+    );
+
+    // The bitmap already marks id 1 as in use, and that is refused before the account behind it
+    // is read -- so `FreeTaskAccountNotEmpty` guards only the inverse state, an occupied account
+    // whose bit is clear, which no path produces.
+    assert_eq!(
+        refusal(&result),
+        code(tuktuk::error::ErrorCode::TaskIdAlreadyInUse),
+        "a free-task id the queue already records as in use should fail the run"
+    );
+    assert!(
+        task_account_exists(&ctx.svm, &task),
+        "a failed run leaves the task queued"
     );
 }
 
