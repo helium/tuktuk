@@ -1039,6 +1039,81 @@ describe("cron", () => {
         expectUnchanged(before, await snapshot(keys), keys);
       });
 
+      it("adopts a chain whose record a stand-down cleared to the default", async () => {
+        // A stand-down clears the record to `Pubkey::default()`, which is the system program and
+        // so has data. A schedule task still queued from before it adopts that vacancy, the same
+        // as it adopts a record account that is empty.
+        const { job: poor, taskId } = await createCronJobFor(makeid(10), 0);
+        await addCronTransaction(poor, 0);
+        await run(taskKey(taskQueue, taskId)[0], [90, 91]);
+
+        const stood_down = await cronProgram.account.cronJobV0.fetch(poor);
+        expect(
+          stood_down.nextScheduleTask.toBase58(),
+          "precondition: the record is the default"
+        ).to.eq(PublicKey.default.toBase58());
+
+        // Funded so that what the adoption then queues is not what fails.
+        await sendInstructions(provider, [
+          SystemProgram.transfer({
+            fromPubkey: me,
+            toPubkey: poor,
+            lamports: 10000000000,
+          }),
+        ]);
+
+        const [cronSigner, bump] = customSignerKey(taskQueue, [
+          Buffer.from("cron"),
+          poor.toBuffer(),
+        ]);
+        const ix = await cronProgram.methods
+          .queueCronTasksV1()
+          .accountsPartial({
+            cronJob: poor,
+            taskQueue,
+            cronSigner,
+            recordedScheduleTask: PublicKey.default,
+          })
+          .remainingAccounts([
+            {
+              pubkey: cronJobTransactionKey(poor, 0)[0],
+              isSigner: false,
+              isWritable: false,
+            },
+          ])
+          .instruction();
+        const bumpBuffer = Buffer.alloc(1);
+        bumpBuffer.writeUint8(bump);
+        const compiled = compileTransaction(
+          [ix],
+          [[Buffer.from("cron"), poor.toBuffer(), bumpBuffer]]
+        );
+        const adoptTask = taskKey(taskQueue, 9)[0];
+        await tuktukProgram.methods
+          .queueTaskV0({
+            id: 9,
+            trigger: { now: {} },
+            transaction: { compiledV0: [compiled.transaction] },
+            crankReward: null,
+            freeTasks: numTasksPerQueueCall + 1,
+            description: "adopt ended",
+          })
+          .remainingAccounts(compiled.remainingAccounts)
+          .accounts({ payer: me, taskQueue, task: adoptTask })
+          .rpc({ skipPreflight: true });
+
+        await run(adoptTask, [92, 93]);
+
+        const adopted = await cronProgram.account.cronJobV0.fetch(poor);
+        expect(
+          adopted.nextScheduleTask.toBase58(),
+          "the adopting run records its own successor"
+        ).to.eq(taskKey(taskQueue, 92)[0].toBase58());
+        isV1Schedule(
+          await tuktukProgram.account.taskV0.fetch(taskKey(taskQueue, 92)[0])
+        );
+      });
+
       it("refuses a schedule run that queues another cron job's transactions", async () => {
         // A record says which job it belongs to in its contents, and a schedule run queues
         // only the records belonging to the job whose funds pay for them.

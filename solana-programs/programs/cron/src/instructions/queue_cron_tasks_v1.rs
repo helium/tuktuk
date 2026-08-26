@@ -82,7 +82,14 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
     // does not depend on the run being one this program can identify. Reading the running task
     // needs `run_task_v0` to be the top-level instruction, which a caller that reaches it through
     // its own CPI does not give.
-    if !ctx.accounts.recorded_schedule_task.data_is_empty() {
+    //
+    // A record holds nothing in two spellings: the account is empty, or the record is
+    // `Pubkey::default()`. The default is the system program, which has data, so the emptiness
+    // test alone reads it as live and refuses the adoption this allows — the same reason
+    // `requeue_cron_task_v1` spells its default arm out.
+    let record_holds_a_task = cron_job.next_schedule_task != Pubkey::default()
+        && !ctx.accounts.recorded_schedule_task.data_is_empty();
+    if record_holds_a_task {
         require!(
             running_schedule_task(&ctx.accounts.sysvar_instructions)?
                 == cron_job.next_schedule_task,
