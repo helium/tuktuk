@@ -555,6 +555,61 @@ fn a_tasks_account_the_instruction_did_not_name_is_not_read() {
 }
 
 #[test]
+fn return_data_that_is_not_a_task_return_leaves_the_run_alone() {
+    let mut ctx = setup(100, 10_000, 100_000);
+
+    let artifact = std::path::Path::new(&so_path())
+        .parent()
+        .expect("the built program has a directory")
+        .join("return_example.so");
+    let program = std::fs::read(&artifact).unwrap_or_else(|e| {
+        panic!("read {artifact:?} ({e}); run `anchor build` in solana-programs/")
+    });
+    ctx.svm.add_program(return_example::ID, &program);
+
+    // The invoked instruction returns a bool, so the slot the run reads holds one byte: too
+    // short to be a task return, and named for the instruction's own caller rather than for
+    // the run. This is the shape a nested call leaves behind, and the run has no task list to
+    // act on either way.
+    let transaction = CompiledTransactionV0 {
+        num_rw_signers: 0,
+        num_ro_signers: 0,
+        num_rw: 0,
+        accounts: vec![system_program::ID, return_example::ID],
+        instructions: vec![CompiledInstructionV0 {
+            program_id_index: 1,
+            accounts: vec![0],
+            data: return_example::instruction::ReturnNonTaskData.data(),
+        }],
+        signer_seeds: vec![],
+    };
+    queue(&mut ctx, 0, TriggerV0::Now, transaction, 0).expect("queue the task");
+
+    let turner = ctx.turner();
+    let (task, _) = task_pda(&ctx.task_queue, 0);
+    let result = run_task_named(
+        &mut ctx,
+        0,
+        &turner,
+        vec![
+            AccountMeta::new_readonly(system_program::ID, false),
+            AccountMeta::new_readonly(return_example::ID, false),
+        ],
+        vec![],
+        vec![],
+    );
+    assert!(
+        result.is_ok(),
+        "a run whose instruction left non-task return data should still complete: {:?}",
+        result.err().map(|e| e.err)
+    );
+    assert!(
+        !task_account_exists(&ctx.svm, &task),
+        "the task should have been closed by the run"
+    );
+}
+
+#[test]
 fn a_matching_free_task_account_creates_the_child() {
     let mut ctx = setup(100, 10_000, 100_000);
     let _ = queue(&mut ctx, 0, TriggerV0::Now, returns(vec![child(None)]), 1)

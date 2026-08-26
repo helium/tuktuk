@@ -67,6 +67,13 @@ pub mod return_example {
         })
     }
 
+    /// Leaves return data behind that is not a task return. Return data is one slot the runtime
+    /// keeps set across nested calls, so a run reads whatever the last call to set it left there,
+    /// which may be a value another program named for its own caller and not a task list at all.
+    pub fn return_non_task_data(_ctx: Context<ReturnNonTaskData>) -> Result<bool> {
+        Ok(false)
+    }
+
     /// Names the tasks account without holding it, so the only place a run could find it is
     /// among the accounts the crank turner appended. A tasks account is the program's to name
     /// out of the accounts its own instruction was given.
@@ -85,6 +92,11 @@ pub mod return_example {
 
 #[derive(Accounts)]
 pub struct ReturnTasksAccountWithoutNamingIt<'info> {
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct ReturnNonTaskData<'info> {
     pub system_program: Program<'info, System>,
 }
 

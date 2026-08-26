@@ -321,10 +321,18 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             // Only the accounts the instruction itself named. The free tasks appended above are
             // the crank turner's to choose, and a tasks account is the program's to name.
             let named = &accounts[..ix.accounts.len()];
-            // A run that cannot place a child it was handed fails, whoever caused it: the
-            // alternative is a task that reports success while the work it returned is gone.
-            self.process_return_data(&return_program_id, &return_data, named)
-                .inspect_err(|e| msg!("Error processing return data: {:?}", e))?;
+            // Return data is one slot the runtime leaves set across nested calls, so what sits
+            // here may have been set by a call the invoked instruction made rather than named
+            // for this program. Bytes that are not a task return named no children and are
+            // skipped. Once they parse, a child that cannot be placed fails the run, whoever
+            // caused it: the alternative is a task that reports success while the work it
+            // returned is gone.
+            match RunTaskReturnV0::deserialize(&mut &return_data[..]) {
+                Ok(returned) => self
+                    .process_return_data(&return_program_id, returned, named)
+                    .inspect_err(|e| msg!("Error processing return data: {:?}", e))?,
+                Err(e) => msg!("Return data is not a task return, skipping: {:?}", e),
+            }
         }
 
         Ok(())
@@ -333,11 +341,9 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
     fn process_return_data(
         &mut self,
         return_program_id: &Pubkey,
-        return_data: &[u8],
+        queue_task_return: RunTaskReturnV0,
         accounts: &[AccountInfo<'info>],
     ) -> Result<()> {
-        let queue_task_return = RunTaskReturnV0::deserialize(&mut &return_data[..])?;
-
         let mut accounts_set = queue_task_return
             .tasks_accounts
             .into_iter()
