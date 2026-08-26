@@ -759,6 +759,102 @@ fn a_task_return_followed_by_trailing_bytes_fails_the_run() {
     );
 }
 
+/// Queue a task whose instruction is `cpi_example::return_task`, invoked directly so the child
+/// it names is the run's to create, declaring `free_tasks` children.
+fn queue_child_returning_task(ctx: &mut Ctx, id: u16, free_tasks: u8) {
+    add_fixture(ctx, cpi_example::ID, "cpi_example.so");
+
+    let transaction = CompiledTransactionV0 {
+        num_rw_signers: 0,
+        num_ro_signers: 0,
+        num_rw: 0,
+        accounts: vec![system_program::ID, cpi_example::ID],
+        instructions: vec![CompiledInstructionV0 {
+            program_id_index: 1,
+            accounts: vec![0],
+            data: cpi_example::instruction::ReturnTask {
+                args: cpi_example::ReturnTaskArgsV0 { crank_reward: None },
+            }
+            .data(),
+        }],
+        signer_seeds: vec![],
+    };
+    queue(ctx, id, TriggerV0::Now, transaction, free_tasks).expect("queue the task");
+}
+
+fn child_returning_accounts() -> Vec<AccountMeta> {
+    vec![
+        AccountMeta::new_readonly(system_program::ID, false),
+        AccountMeta::new_readonly(cpi_example::ID, false),
+    ]
+}
+
+#[test]
+fn a_child_returned_beyond_the_declared_count_fails_the_run() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    // The task declares no children, so there is no id for the one its program names.
+    queue_child_returning_task(&mut ctx, 0, 0);
+
+    let turner = ctx.turner();
+    let (task, _) = task_pda(&ctx.task_queue, 0);
+    let result = run_task_named(
+        &mut ctx,
+        0,
+        &turner,
+        child_returning_accounts(),
+        vec![],
+        vec![],
+    );
+
+    assert_eq!(
+        refusal(&result),
+        code(tuktuk::error::ErrorCode::TooManyReturnedTasks),
+        "a child the task reserved no room for should fail the run rather than be dropped"
+    );
+    assert!(
+        task_account_exists(&ctx.svm, &task),
+        "a failed run leaves the task queued"
+    );
+}
+
+#[test]
+fn a_free_task_id_already_in_use_fails_the_run() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    queue_child_returning_task(&mut ctx, 0, 1);
+    // Id 1's account is the one the child would be written into, and it already holds a task.
+    queue_child_returning_task(&mut ctx, 1, 0);
+
+    let turner = ctx.turner();
+    let (task, _) = task_pda(&ctx.task_queue, 0);
+    let (occupied, _) = task_pda(&ctx.task_queue, 1);
+    assert!(
+        task_account_exists(&ctx.svm, &occupied),
+        "the fixture needs id 1 already in use"
+    );
+
+    let result = run_task_named(
+        &mut ctx,
+        0,
+        &turner,
+        child_returning_accounts(),
+        vec![1],
+        vec![occupied],
+    );
+
+    // The bitmap already marks id 1 as in use, and that is refused before the account behind it
+    // is read -- so `FreeTaskAccountNotEmpty` guards only the inverse state, an occupied account
+    // whose bit is clear, which no path produces.
+    assert_eq!(
+        refusal(&result),
+        code(tuktuk::error::ErrorCode::TaskIdAlreadyInUse),
+        "a free-task id the queue already records as in use should fail the run"
+    );
+    assert!(
+        task_account_exists(&ctx.svm, &task),
+        "a failed run leaves the task queued"
+    );
+}
+
 #[test]
 fn a_matching_free_task_account_creates_the_child() {
     let mut ctx = setup(100, 10_000, 100_000);
