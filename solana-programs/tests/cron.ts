@@ -1039,6 +1039,67 @@ describe("cron", () => {
         expectUnchanged(before, await snapshot(keys), keys);
       });
 
+      it("adopts a chain a legacy handover named the default", async () => {
+        // `queue_cron_tasks_v0` reads `next_schedule_task` when it runs, so it is the one
+        // compiler that can name `Pubkey::default()` in the successor it hands over -- every
+        // other names the successor's own key. Running one against a job that has already stood
+        // down is therefore what produces a schedule task pointed at a record holding nothing.
+        const { job: poor, taskId } = await createCronJobFor(makeid(10), 0);
+        await addCronTransaction(poor, 0);
+
+        // Stand it down: it cannot fund the tasks its own chain owes.
+        await run(taskKey(taskQueue, taskId)[0], [90, 91]);
+        const stood_down = await cronProgram.account.cronJobV0.fetch(poor);
+        expect(
+          stood_down.nextScheduleTask.toBase58(),
+          "precondition: the stand-down left the record at the default"
+        ).to.eq(PublicKey.default.toBase58());
+
+        // Funded, so what the adoption queues is not what fails.
+        await sendInstructions(provider, [
+          SystemProgram.transfer({
+            fromPubkey: me,
+            toPubkey: poor,
+            lamports: 10000000000,
+          }),
+        ]);
+
+        // A legacy v0 task, of the kind still queued from before the handover.
+        const legacy = compileTransaction([legacyScheduleIx(poor)], []);
+        const legacyTask = taskKey(taskQueue, 9)[0];
+        await tuktukProgram.methods
+          .queueTaskV0({
+            id: 9,
+            trigger: { now: {} },
+            transaction: { compiledV0: [legacy.transaction] },
+            crankReward: null,
+            freeTasks: numTasksPerQueueCall + 1,
+            description: "legacy handover",
+          })
+          .remainingAccounts(legacy.remainingAccounts)
+          .accounts({ payer: me, taskQueue, task: legacyTask })
+          .rpc({ skipPreflight: true });
+
+        // It hands over a v1 schedule task, and names the default because that is what the
+        // stood-down job records.
+        await run(legacyTask, [92, 93]);
+        const handedOver = taskKey(taskQueue, 92)[0];
+        isV1Schedule(await tuktukProgram.account.taskV0.fetch(handedOver));
+
+        // Running that successor is the adoption.
+        await run(handedOver, [94, 95]);
+
+        const adopted = await cronProgram.account.cronJobV0.fetch(poor);
+        expect(
+          adopted.nextScheduleTask.toBase58(),
+          "the adopting run records its own successor"
+        ).to.eq(taskKey(taskQueue, 94)[0].toBase58());
+        expect(adopted.removedFromQueue, "back in the queue").to.be.false;
+        isV1Schedule(
+          await tuktukProgram.account.taskV0.fetch(taskKey(taskQueue, 94)[0])
+        );
+      });
+
       it("refuses a schedule run that queues another cron job's transactions", async () => {
         // A record says which job it belongs to in its contents, and a schedule run queues
         // only the records belonging to the job whose funds pay for them.
