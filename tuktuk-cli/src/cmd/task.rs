@@ -255,7 +255,7 @@ async fn handle_task_completion(client: &CliClient, task_key: Pubkey, task_id: u
                 &signature.parse()?,
                 RpcTransactionConfig {
                     encoding: Some(UiTransactionEncoding::Json),
-                    max_supported_transaction_version: Some(0),
+                    max_supported_transaction_version: Some(1),
                     ..Default::default()
                 },
             )

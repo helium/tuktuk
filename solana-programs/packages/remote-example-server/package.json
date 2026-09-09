@@ -39,7 +39,7 @@
     "@helium/tuktuk-idls": "^0.1.0",
     "@helium/tuktuk-sdk": "^0.1.0",
     "@solana/spl-token": "^0.3.8",
-    "@solana/web3.js": "^1.95.2",
+    "@solana/web3.js": "^1.99.0",
     "bn.js": "^5.2.0",
     "bs58": "^4.0.1",
     "fastify": "^4.13.0"

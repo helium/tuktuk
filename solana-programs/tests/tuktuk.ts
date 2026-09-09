@@ -589,7 +589,7 @@ describe("tuktuk", () => {
         // Get the transaction fee
         const txDetails = await provider.connection.getTransaction(txid, {
           commitment: "confirmed",
-          maxSupportedTransactionVersion: 0,
+          maxSupportedTransactionVersion: 1,
         });
         const txFee = txDetails?.meta?.fee || 0;
 
