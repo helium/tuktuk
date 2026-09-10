@@ -43,7 +43,7 @@
     "@helium/tuktuk-idls": "^0.0.8",
     "@helium/cron-sdk": "^0.0.8",
     "@solana/spl-token": "^0.3.9",
-    "@solana/web3.js": "^1.95.2",
+    "@solana/web3.js": "^1.99.0",
     "axios": "^1.8.4",
     "yargs": "^17.7.2"
   },

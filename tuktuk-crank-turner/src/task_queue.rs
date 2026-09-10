@@ -71,6 +71,8 @@ pub struct TaskQueue {
 }
 
 impl TaskQueue {
+    // SendError hands the 416-byte TimedTask back to the caller; boxing would change the API for no gain.
+    #[allow(clippy::result_large_err)]
     pub async fn add_task(&self, task: TimedTask) -> Result<(), SendError<TimedTask>> {
         TASKS_IN_QUEUE
             .with_label_values(&[task.task_queue_name.as_str()])
