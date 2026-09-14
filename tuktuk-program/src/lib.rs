@@ -2,8 +2,10 @@ use std::collections::HashMap;
 
 use anchor_lang::{prelude::*, solana_program::instruction::Instruction};
 
+pub mod verify_running_remote_task;
 pub mod write_return_tasks;
 
+pub use verify_running_remote_task::{verify_running_remote_task, VerifyRunningRemoteTaskError};
 pub use write_return_tasks::write_return_tasks;
 
 declare_program!(tuktuk);
