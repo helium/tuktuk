@@ -51,8 +51,8 @@ tracing-subscriber = { version = "0", default-features = false, features = [
   "registry",
   "fmt",
 ] }
-anchor-lang = "0.31.1"
-anchor-client = "0.31.1"
+anchor-lang = "0.32.1"
+anchor-client = "0.32.1"
 spl-associated-token-account = "6.0.0"
 spl-token = "4.0.0"
 itertools = "0.13"
