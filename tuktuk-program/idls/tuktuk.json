@@ -2,7 +2,7 @@
   "address": "tuktukUrfhXT6ZT77QTU8RQtvgL967uRuVagWF57zVA",
   "metadata": {
     "name": "tuktuk",
-    "version": "0.2.8",
+    "version": "0.2.11",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },
@@ -899,6 +899,11 @@
       "code": 6031,
       "name": "StaleTaskAgeCannotDecrease",
       "msg": "stale_task_age may only be increased"
+    },
+    {
+      "code": 6032,
+      "name": "TaskNotQueued",
+      "msg": "Task is not queued (already dequeued, or currently running)"
     }
   ],
   "types": [
