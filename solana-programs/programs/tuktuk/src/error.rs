@@ -67,4 +67,6 @@ pub enum ErrorCode {
     ReturnedTaskTooLarge,
     #[msg("stale_task_age may only be increased")]
     StaleTaskAgeCannotDecrease,
+    #[msg("Task is not queued (already dequeued, or currently running)")]
+    TaskNotQueued,
 }
