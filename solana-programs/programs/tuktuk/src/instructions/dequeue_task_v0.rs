@@ -1,6 +1,9 @@
 use anchor_lang::prelude::*;
 
-use crate::state::{TaskQueueAuthorityV0, TaskQueueDataWrapper, TaskV0};
+use crate::{
+    error::ErrorCode,
+    state::{TaskQueueAuthorityV0, TaskQueueDataWrapper, TaskV0},
+};
 
 #[derive(Accounts)]
 pub struct DequeuetaskV0<'info> {
@@ -29,6 +32,13 @@ pub fn handler(ctx: Context<DequeuetaskV0>) -> Result<()> {
     let task_queue_account_info = ctx.accounts.task_queue.to_account_info();
     let mut task_queue_data = task_queue_account_info.try_borrow_mut_data()?;
     let mut task_queue = TaskQueueDataWrapper::new(*task_queue_data)?;
+    // run_task_v0 clears the task's exists bit before running it, so a clear bit here means the task
+    // is mid-run (or already dequeued). Refusing keeps a running task from being closed and its PDA
+    // re-created as a different task within the same run, which would let a caller forge task shape.
+    require!(
+        task_queue.task_exists(ctx.accounts.task.id),
+        ErrorCode::TaskNotQueued
+    );
     task_queue.set_task_exists(ctx.accounts.task.id, false);
     Ok(())
 }

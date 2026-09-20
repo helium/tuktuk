@@ -411,6 +411,81 @@ describe("tuktuk", () => {
       expect(await provider.connection.getBalance(attacker.publicKey)).to.eq(0);
     });
 
+    it("does not let a running task dequeue and re-create itself", async () => {
+      // Register a program-derived queue authority the compiled task can sign as.
+      const authoritySeed = Buffer.from("dequeue-self");
+      const [attackerAuthority, authorityBump] = customSignerKey(taskQueue, [
+        authoritySeed,
+      ]);
+      await program.methods
+        .addQueueAuthorityV0()
+        .accounts({
+          payer: me,
+          updateAuthority: me,
+          queueAuthority: attackerAuthority,
+          taskQueue,
+        })
+        .rpc();
+
+      // A task whose only instruction dequeues the task that is running it, signed by that
+      // authority. run_task_v0 clears the task's exists bit before running it, so the dequeue must
+      // fail (TaskNotQueued) and revert the whole run rather than free the id for re-creation.
+      const selfId = 9;
+      const selfTask = taskKey(taskQueue, selfId)[0];
+      const [taskQueueAuthority] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("task_queue_authority"),
+          taskQueue.toBuffer(),
+          attackerAuthority.toBuffer(),
+        ],
+        program.programId,
+      );
+      const dequeueIx = await program.methods
+        .dequeueTaskV0()
+        .accounts({
+          queueAuthority: attackerAuthority,
+          rentRefund: me,
+          taskQueueAuthority,
+          taskQueue,
+          task: selfTask,
+        })
+        .instruction();
+
+      const bumpBuffer = Buffer.alloc(1);
+      bumpBuffer.writeUint8(authorityBump);
+      const { transaction: selfDequeueTx, remainingAccounts: selfDequeueAccounts } =
+        await compileTransaction([dequeueIx], [[authoritySeed, bumpBuffer]]);
+
+      await program.methods
+        .queueTaskV0({
+          id: selfId,
+          trigger: { now: {} },
+          transaction: { compiledV0: [selfDequeueTx] },
+          crankReward: null,
+          freeTasks: 0,
+          description: "dequeue self",
+        })
+        .remainingAccounts(selfDequeueAccounts)
+        .accounts({ payer: me, taskQueue, task: selfTask })
+        .rpc();
+
+      const ixs = await runTask({ program, task: selfTask, crankTurner: me });
+      const tx = toVersionedTx(
+        await populateMissingDraftInfo(provider.connection, {
+          feePayer: me,
+          instructions: ixs,
+        }),
+      );
+      const sim = await provider.connection.simulateTransaction(tx, {
+        sigVerify: false,
+        replaceRecentBlockhash: true,
+      });
+      expect(sim.value.err, "the run should have been rejected").to.not.be.null;
+      expect((sim.value.logs || []).join("\n")).to.include("TaskNotQueued");
+      // The run errors and reverts, so the task is neither dequeued nor closed.
+      expect(await program.account.taskV0.fetchNullable(selfTask)).to.not.be.null;
+    });
+
     it("allows closing a task queue", async () => {
       await program.methods
         .removeQueueAuthorityV0()

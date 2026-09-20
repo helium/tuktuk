@@ -27,14 +27,21 @@ pub enum VerifyRunningRemoteTaskError {
 }
 
 /// Proves the current top-level instruction is tuktuk `run_task_v0` executing `task`, and that
-/// `task` is a `RemoteV0` task whose transaction was signed by `expected_signer`.
+/// `task` currently deserializes as a `RemoteV0` task whose transaction was signed by
+/// `expected_signer`.
 ///
-/// tuktuk only checks the ed25519 instruction ahead of `run_task_v0` when the task it is running
-/// is `RemoteV0`, and its `verification_hash` binds that signature to the task account and the
-/// accounts passed. A program CPI'd by a task therefore cannot trust an ed25519 instruction on
-/// its own: it has to know the task being run is a remote one, which is what this proves. Once it
-/// holds, every instruction `run_task_v0` issues came out of a message `expected_signer` signed
-/// for this exact task.
+/// For a `RemoteV0` task, `run_task_v0` verifies the ed25519 instruction ahead of it and checks
+/// that its `verification_hash` binds the signature to the task account and the account list. This
+/// helper re-reads the task account to confirm it is that kind of task; `dequeue_task_v0` refuses
+/// to close the task `run_task_v0` is running, so the shape reported here cannot be forged mid-run
+/// by a `CompiledV0` task that re-creates its own account as a `RemoteV0` one.
+///
+/// This proves the *shape* of the running task, not the *content* of any one instruction. The
+/// `verification_hash` binds the task account and the account list, but not the instruction data,
+/// so a consumer that writes a value derived from task content (an amount, a chosen recipient) must
+/// additionally bind that value to the signed message -- re-deriving the `verification_hash` over
+/// the running task and its accounts, and requiring the signed transaction to carry the write it is
+/// making -- rather than trusting the shape alone.
 ///
 /// `run_task_v0` must be the top-level instruction. A flow that reaches it through a CPI fails
 /// with `NotRunningAsTask`, since the instructions sysvar only exposes top-level instructions.
