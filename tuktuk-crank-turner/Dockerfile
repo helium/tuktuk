@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.85-slim-bullseye as builder
+FROM rust:1.85-slim-bookworm AS builder
 
 # Install system dependencies and clean up in the same layer
 RUN apt-get update && \
@@ -28,13 +28,18 @@ RUN cargo build --release --package tuktuk-crank-turner && \
     rm -rf /usr/local/cargo/registry
 
 # Runtime stage
-FROM debian:bullseye-slim
+#
+# Bookworm, matching the builder: the binary links against the builder's OpenSSL, so the two
+# stages have to carry the same major version. Debian 11 is no longer an option -- its security
+# pool no longer serves libssl 1.1, so `apt-get install libssl-dev` 404s on any rebuild.
+FROM debian:bookworm-slim
 
-# Install runtime dependencies with minimal installation
+# Install runtime dependencies with minimal installation. libssl3 rather than libssl-dev: the
+# runtime needs the shared library, not the headers and static archives.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ca-certificates \
-    libssl-dev && \
+    libssl3 && \
     rm -rf /var/lib/apt/lists/* && \
     rm -rf /tmp/*
 
