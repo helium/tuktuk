@@ -231,6 +231,9 @@ impl TimedTask {
                 TransactionQueueError::FeeTooHigh => "FeeTooHigh",
                 TransactionQueueError::IxGroupTooLarge => "IxGroupTooLarge",
                 TransactionQueueError::RawSimulatedTransactionError(_) => "RawSimulated",
+                // Distinct from RawSimulated: the simulation was never read, so this counts a
+                // task the turner declined to send rather than one the chain refused.
+                TransactionQueueError::UndecodableSimulation(_) => "UndecodableSimulation",
                 TransactionQueueError::RpcError(_) => "RpcError",
                 TransactionQueueError::InstructionError(_) => "InstructionError",
                 TransactionQueueError::SerializationError(_) => "SerializationError",
@@ -239,6 +242,9 @@ impl TimedTask {
                 TransactionQueueError::StaleTransaction => "StaleTransaction",
                 TransactionQueueError::ChannelClosed => "ChannelClosed",
                 TransactionQueueError::MaxRetriesExceeded => "MaxRetriesExceeded",
+                // `Error` is non_exhaustive, so a variant added upstream counts here rather than
+                // failing this build. A label of its own is worth adding when one earns it.
+                _ => "Other",
             };
             TASKS_FAILED
                 .with_label_values(&[self.task_queue_name.as_str(), label])
@@ -308,7 +314,12 @@ impl TimedTask {
                 | TransactionQueueError::RpcError(_)
                 | TransactionQueueError::ChannelClosed
                 | TransactionQueueError::MaxRetriesExceeded
-                | TransactionQueueError::RawSimulatedTransactionError(_) => {
+                | TransactionQueueError::RawSimulatedTransactionError(_)
+                // Retries with RawSimulatedTransactionError: the simulation was unreadable,
+                // not refused, so the next attempt may read it. `Error` is non_exhaustive, so
+                // the compiler will not flag a variant missing from this list -- it falls to
+                // the `_` arm below and is never retried.
+                | TransactionQueueError::UndecodableSimulation(_) => {
                     if self.total_retries < self.max_retries && !self.is_cleanup_task {
                         let base_delay = 30 * (1 << self.total_retries);
                         let jitter = rand::random_range(0..60); // Jitter up to 1 minute to prevent conflicts with other turners

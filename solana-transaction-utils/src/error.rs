@@ -1,6 +1,10 @@
 use solana_sdk::{message::CompileError, transaction::TransactionError};
 
+/// Adding a variant is a breaking change for any caller that matches exhaustively, and this enum
+/// grows as new failures earn their own name. `non_exhaustive` makes the next one a patch: a
+/// caller keeps a catch-all arm and compiles through it.
 #[derive(Debug, thiserror::Error, Clone)]
+#[non_exhaustive]
 pub enum Error {
     #[error("RPC error: {0}")]
     RpcError(String),
@@ -22,6 +26,8 @@ pub enum Error {
     SimulatedTransactionError(TransactionError),
     #[error("Raw simulated transaction error: {0}")]
     RawSimulatedTransactionError(String),
+    #[error("simulation response could not be decoded: {0}")]
+    UndecodableSimulation(String),
     #[error("Raw transaction error: {0}")]
     RawTransactionError(String),
     #[error("Fee too high")]
