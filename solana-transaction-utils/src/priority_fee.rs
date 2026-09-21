@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_client::{client_error::ClientErrorKind, nonblocking::rpc_client::RpcClient};
 use solana_sdk::{
     address_lookup_table::AddressLookupTableAccount,
     instruction::Instruction,
@@ -169,18 +169,38 @@ pub async fn compute_budget_for_instructions<C: AsRef<RpcClient>>(
     let snub_tx =
         VersionedTransaction::try_new(message, null_signers.as_slice()).map_err(Error::signer)?;
 
-    // Simulate the transaction to get the actual compute used
-    let simulation_result = client.as_ref().simulate_transaction(&snub_tx).await?;
+    // Simulate the transaction to get the actual compute used.
+    //
+    // A response this client cannot deserialize is not a verdict on the transaction. The
+    // validator encodes `InstructionError` variants that the pinned `solana-client` does not
+    // model, so a real on-chain error arrives here as a decode failure, and treating that as
+    // fatal hides it behind a bare serde message. Budget the maximum and let the send report
+    // it: with preflight the node's own error text comes back, and with `skip_preflight` the
+    // transaction lands and fails legibly. Every other RPC failure still propagates.
+    let simulation_result = match client.as_ref().simulate_transaction(&snub_tx).await {
+        Ok(simulation_result) => Some(simulation_result),
+        Err(err) if matches!(err.kind(), ClientErrorKind::SerdeJson(_)) => {
+            info!(?err, "simulation response could not be decoded");
+            None
+        }
+        Err(err) => return Err(err.into()),
+    };
     // A simulation that failed stopped partway, so what it consumed is not a measurement of the
     // work: scaling it produces a budget too small for the transaction it is about to be spent on.
-    let final_compute_budget = if let Some(err) = &simulation_result.value.err {
-        info!(?err, ?simulation_result.value.logs, "simulation error");
-        MAX_COMPUTE_UNIT_LIMIT
-    } else {
-        compute_budget_from_simulation_with_margin(
+    let final_compute_budget = match &simulation_result {
+        None => MAX_COMPUTE_UNIT_LIMIT,
+        Some(simulation_result) if simulation_result.value.err.is_some() => {
+            info!(
+                err = ?simulation_result.value.err,
+                ?simulation_result.value.logs,
+                "simulation error"
+            );
+            MAX_COMPUTE_UNIT_LIMIT
+        }
+        Some(simulation_result) => compute_budget_from_simulation_with_margin(
             simulation_result.value.units_consumed,
             compute_multiplier as f64,
-        )
+        ),
     };
     Ok((
         compute_budget_instruction(final_compute_budget),
@@ -325,5 +345,84 @@ mod tests {
                 "measured {measured} was not capped"
             );
         }
+    }
+
+    /// A `simulateTransaction` response exactly as a mainnet validator returns it for a
+    /// `BorshIoError`. The validator encodes that variant as a unit, the pinned `solana-client`
+    /// models it as `BorshIoError(String)`, and the mismatch surfaces as a `SerdeJson` client
+    /// error rather than as the `value.err` it really is.
+    const UNDECODABLE_SIMULATION: &str = r#"{"jsonrpc":"2.0","result":{"context":{"apiVersion":"4.2.2","slot":449125701},"value":{"accounts":null,"err":{"InstructionError":[2,"BorshIoError"]},"logs":[],"unitsConsumed":132267,"returnData":null,"innerInstructions":null}},"id":1}"#;
+
+    /// A JSON-RPC error, which reaches the caller as `ClientErrorKind::RpcError` rather than a
+    /// decode failure, so it must still fail the budget.
+    const RPC_ERROR: &str = r#"{"jsonrpc":"2.0","error":{"code":-32005,"message":"Node is behind by 150 slots"},"id":1}"#;
+
+    /// Answers every RPC call on a loopback port with `body`. The pinned client sends one
+    /// request and no version probe, so one body covers the call under test.
+    fn serve(body: &'static str) -> String {
+        use std::io::{Read, Write};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let addr = listener.local_addr().expect("local addr");
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut buf = [0u8; 8192];
+                let _ = stream.read(&mut buf);
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(response.as_bytes());
+                let _ = stream.flush();
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn a_simulation_response_that_cannot_be_decoded_still_budgets() {
+        let client = std::sync::Arc::new(RpcClient::new(serve(UNDECODABLE_SIMULATION)));
+        let payer = Pubkey::new_unique();
+        let instruction = Instruction::new_with_bytes(Pubkey::new_unique(), &[], vec![]);
+
+        let (_, budget) = compute_budget_for_instructions(
+            &client,
+            &[instruction],
+            COMPUTE_MARGIN as f32,
+            &payer,
+            Some(solana_program::hash::Hash::default()),
+            None,
+        )
+        .await
+        .expect("a response the client cannot decode must not fail the budget");
+
+        assert_eq!(budget, MAX_COMPUTE_UNIT_LIMIT);
+    }
+
+    /// Without this, widening the guard to every `Err` would keep the suite green: a node that is
+    /// behind, rate limiting, or unreachable would be budgeted as if its answer were merely
+    /// undecodable, and the transaction sent against an unknown state.
+    #[tokio::test]
+    async fn an_rpc_error_still_fails_the_budget() {
+        let client = std::sync::Arc::new(RpcClient::new(serve(RPC_ERROR)));
+        let payer = Pubkey::new_unique();
+        let instruction = Instruction::new_with_bytes(Pubkey::new_unique(), &[], vec![]);
+
+        let result = compute_budget_for_instructions(
+            &client,
+            &[instruction],
+            COMPUTE_MARGIN as f32,
+            &payer,
+            Some(solana_program::hash::Hash::default()),
+            None,
+        )
+        .await;
+
+        assert!(
+            result.is_err(),
+            "an RPC error must not be budgeted as an undecodable simulation"
+        );
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "solana-transaction-utils"
-version = "0.4.3"
+version = "0.5.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -36,3 +36,8 @@ tracing = { workspace = true }
 
 [features]
 default = []
+
+[dev-dependencies]
+# Builds a real `ClientErrorKind::SerdeJson` for the decode-failure test; faking it with
+# another kind would exercise the branch the test exists to distinguish from.
+serde_json = "1"

@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use futures::stream::{FuturesUnordered, StreamExt};
 use itertools::Itertools;
-use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_client::{client_error::ClientErrorKind, nonblocking::rpc_client::RpcClient};
 use solana_sdk::{
     address_lookup_table::AddressLookupTableAccount,
     instruction::Instruction,
@@ -76,6 +76,28 @@ pub fn create_transaction_queue_handles<T: Send + Clone>(
 
 const MAX_PACKABLE_TX_SIZE: usize = 800;
 
+/// A response this client cannot deserialize is not a verdict on the transaction: the validator
+/// encodes `InstructionError` variants the pinned client does not model, so a real on-chain error
+/// arrives as a decode failure. `ClientError`'s Display for that case is a bare serde message
+/// naming nothing, which is what left a task skipped every cycle with no diagnosable cause.
+fn named_simulation_error(err: solana_client::client_error::ClientError) -> Error {
+    if matches!(err.kind(), ClientErrorKind::SerdeJson(_)) {
+        Error::UndecodableSimulation(err.to_string())
+    } else {
+        err.into()
+    }
+}
+
+/// What a task is told when its simulation did not produce a result. A named error survives;
+/// everything else keeps the string form callers already match on. Flattening every error here
+/// is what previously made `UndecodableSimulation` unreachable by any consumer.
+fn simulation_failure(err: Error) -> Error {
+    match err {
+        Error::UndecodableSimulation(_) => err,
+        err => Error::RawSimulatedTransactionError(err.to_string()),
+    }
+}
+
 pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
     args: TransactionQueueArgs<T>,
 ) -> Result<(), Error> {
@@ -112,7 +134,8 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                     &VersionedTransaction::try_new(VersionedMessage::V0(message), &[&*payer])
                         .map_err(Error::signer)?,
                 )
-                .await?;
+                .await
+                .map_err(named_simulation_error)?;
 
             if let Some(ref err) = sim_result.value.err {
                 info!(?err, ?sim_result.value.logs, "simulation error");
@@ -318,10 +341,12 @@ pub async fn create_transaction_queue<T: Send + Clone + 'static + Sync>(
                         }
                     }
                     Err(e) => {
-                        // Simulation failed, notify tasks
+                        // Simulation failed, notify tasks. A named error survives; everything
+                        // else keeps the string form callers already match on.
+                        let err = simulation_failure(e);
                         for task in tasks.iter() {
                             args.result_sender.send(CompletedTransactionTask {
-                                err: Some(Error::RawSimulatedTransactionError(e.to_string())),
+                                err: Some(err.clone()),
                                 task: task.clone(),
                                 fee: 0,
                             }).await?;
@@ -373,5 +398,39 @@ impl<T: Send + Clone> TaskBundle<T> {
         }
 
         Ok((len, added))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_undecodable_simulation_is_named_and_survives_to_the_task() {
+        // The shape a validator's unmodelled `InstructionError` actually arrives as.
+        let decode_failure: solana_client::client_error::ClientError = ClientErrorKind::SerdeJson(
+            serde_json::from_str::<u8>("\"not a u8\"").expect_err("a type error"),
+        )
+        .into();
+        let err = named_simulation_error(decode_failure);
+        assert!(
+            matches!(err, Error::UndecodableSimulation(_)),
+            "a decode failure must be named, got {err:?}"
+        );
+        // The bug this pins: flattening every error here left the variant unreachable, so the
+        // turner's label could never fire and the retry arm never saw it.
+        assert!(
+            matches!(simulation_failure(err), Error::UndecodableSimulation(_)),
+            "the named error must reach the task unflattened"
+        );
+    }
+
+    #[test]
+    fn every_other_simulation_failure_keeps_its_string_form() {
+        let err = simulation_failure(Error::FeeTooHigh);
+        assert!(
+            matches!(err, Error::RawSimulatedTransactionError(_)),
+            "callers match on the string form for everything unnamed, got {err:?}"
+        );
     }
 }
