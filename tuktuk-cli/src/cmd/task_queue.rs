@@ -76,6 +76,20 @@ pub enum Cmd {
         #[arg(long, help = "Amount to fund the task queue with, in lamports")]
         amount: u64,
     },
+    Withdraw {
+        #[command(flatten)]
+        task_queue: TaskQueueArg,
+        #[arg(
+            long,
+            help = "Amount to withdraw from the task queue, in lamports. The task queue keeps its rent-exempt minimum."
+        )]
+        amount: u64,
+        #[arg(
+            long,
+            help = "Queue authority of this task queue that receives the lamports"
+        )]
+        queue_authority: Pubkey,
+    },
     Close {
         #[command(flatten)]
         task_queue: TaskQueueArg,
@@ -277,6 +291,33 @@ impl TaskQueueCmd {
                     &client.payer,
                     client.opts.ws_url().as_str(),
                     &[fund_ix],
+                    &[],
+                )
+                .await?;
+            }
+            Cmd::Withdraw {
+                task_queue,
+                amount,
+                queue_authority,
+            } => {
+                let client = opts.client().await?;
+                let task_queue_key = task_queue.get_pubkey(&client).await?.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Must provide task-queue-name, task-queue-id, or task-queue-pubkey"
+                    )
+                })?;
+                let ix = tuktuk::task_queue::withdraw_task_queue_surplus(
+                    client.rpc_client.as_ref(),
+                    task_queue_key,
+                    *queue_authority,
+                    *amount,
+                )
+                .await?;
+                send_instructions(
+                    client.rpc_client.clone(),
+                    &client.payer,
+                    client.opts.ws_url().as_str(),
+                    &[ix],
                     &[],
                 )
                 .await?;

@@ -8,6 +8,7 @@ pub mod remove_queue_authority_v0;
 pub mod return_tasks_v0;
 pub mod run_task_v0;
 pub mod update_task_queue_v0;
+pub mod withdraw_task_queue_surplus_v0;
 
 pub use add_queue_authority_v0::*;
 pub use close_task_queue_v0::*;
@@ -19,3 +20,4 @@ pub use remove_queue_authority_v0::*;
 pub use return_tasks_v0::*;
 pub use run_task_v0::*;
 pub use update_task_queue_v0::*;
+pub use withdraw_task_queue_surplus_v0::*;
