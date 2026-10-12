@@ -71,6 +71,13 @@ pub mod tuktuk {
     ) -> Result<RunTaskReturnV0> {
         return_tasks_v0::handler(ctx, args)
     }
+
+    pub fn withdraw_task_queue_surplus_v0(
+        ctx: Context<WithdrawTaskQueueSurplusV0>,
+        args: WithdrawTaskQueueSurplusArgsV0,
+    ) -> Result<()> {
+        withdraw_task_queue_surplus_v0::handler(ctx, args)
+    }
 }
 
 #[derive(Accounts)]

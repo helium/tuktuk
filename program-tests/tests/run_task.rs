@@ -1911,3 +1911,223 @@ fn a_returned_task_of_several_kilobytes_takes_only_the_shortfall_from_the_task_q
 
     assert_queue_paid_the_shortfall(&ctx, queue_before, root_rent, &[returned]);
 }
+
+/// Register `authority` as a queue authority of `task_queue`, as the update authority.
+fn add_queue_authority(ctx: &mut Ctx, task_queue: Pubkey, authority: Pubkey) {
+    let auth = ctx.auth.insecure_clone();
+    let (task_queue_authority, _) = queue_authority_pda(&task_queue, &authority);
+    let ix = Instruction {
+        program_id: tuktuk::ID,
+        accounts: tuktuk::accounts::AddQueueAuthorityV0 {
+            payer: auth.pubkey(),
+            update_authority: auth.pubkey(),
+            queue_authority: authority,
+            task_queue_authority,
+            task_queue,
+            system_program: system_program::ID,
+        }
+        .to_account_metas(None),
+        data: tuktuk::instruction::AddQueueAuthorityV0.data(),
+    };
+    send(&mut ctx.svm, &[ix], &auth, &[&auth]).expect("add the queue authority");
+}
+
+/// A funded account registered as a queue authority of the context's task queue. It is not the
+/// fee payer of anything, so its lamports move only when the program moves them.
+fn withdrawal_destination(ctx: &mut Ctx) -> Pubkey {
+    let destination = Pubkey::new_unique();
+    ctx.svm
+        .airdrop(&destination, 1_000_000_000)
+        .expect("fund the destination");
+    add_queue_authority(ctx, ctx.task_queue, destination);
+    destination
+}
+
+/// Ask `update_authority` to move `amount` lamports from the context's task queue to
+/// `queue_authority`, proving the destination with `task_queue_authority`.
+fn withdraw(
+    ctx: &mut Ctx,
+    update_authority: &Keypair,
+    queue_authority: Pubkey,
+    task_queue_authority: Pubkey,
+    amount: u64,
+) -> SendResult {
+    let ix = Instruction {
+        program_id: tuktuk::ID,
+        accounts: tuktuk::accounts::WithdrawTaskQueueSurplusV0 {
+            update_authority: update_authority.pubkey(),
+            queue_authority,
+            task_queue_authority,
+            task_queue: ctx.task_queue,
+        }
+        .to_account_metas(None),
+        data: tuktuk::instruction::WithdrawTaskQueueSurplusV0 {
+            args: tuktuk::WithdrawTaskQueueSurplusArgsV0 { amount },
+        }
+        .data(),
+    };
+    send(&mut ctx.svm, &[ix], update_authority, &[update_authority])
+}
+
+#[test]
+fn the_update_authority_withdraws_part_of_the_float_to_a_queue_authority() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    let auth = ctx.auth.insecure_clone();
+    let destination = withdrawal_destination(&mut ctx);
+    let (proof, _) = queue_authority_pda(&ctx.task_queue, &destination);
+    let queue_before = ctx.svm.get_account(&ctx.task_queue).expect("task queue");
+    let destination_before = lamports(&ctx.svm, &destination);
+
+    let result = withdraw(&mut ctx, &auth, destination, proof, 400_000_000);
+
+    assert!(
+        result.is_ok(),
+        "withdraw failed: {:?}",
+        result.as_ref().err().map(|e| &e.err)
+    );
+    let queue_after = ctx.svm.get_account(&ctx.task_queue).expect("task queue");
+    assert_eq!(queue_after.lamports, queue_before.lamports - 400_000_000);
+    assert_eq!(
+        lamports(&ctx.svm, &destination),
+        destination_before + 400_000_000
+    );
+    assert_eq!(
+        queue_after.data, queue_before.data,
+        "a withdrawal moves lamports and nothing else"
+    );
+}
+
+#[test]
+fn a_withdrawal_cannot_take_the_task_queue_below_its_rent_exempt_minimum() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    let auth = ctx.auth.insecure_clone();
+    let destination = withdrawal_destination(&mut ctx);
+    let (proof, _) = queue_authority_pda(&ctx.task_queue, &destination);
+    let queue_before = ctx.svm.get_account(&ctx.task_queue).expect("task queue");
+    let destination_before = lamports(&ctx.svm, &destination);
+    let minimum = ctx
+        .svm
+        .minimum_balance_for_rent_exemption(queue_before.data.len());
+    let surplus = queue_before.lamports - minimum;
+
+    let too_much = withdraw(&mut ctx, &auth, destination, proof, surplus + 1);
+
+    assert_eq!(
+        refusal(&too_much),
+        code(tuktuk::error::ErrorCode::TaskQueueInsufficientFunds),
+        "one lamport past the surplus should be refused: {:?}",
+        too_much.as_ref().err().map(|e| &e.err)
+    );
+    assert_eq!(lamports(&ctx.svm, &ctx.task_queue), queue_before.lamports);
+    assert_eq!(lamports(&ctx.svm, &destination), destination_before);
+
+    // The minimum is the only reserve: the whole surplus can leave.
+    let all_of_it = withdraw(&mut ctx, &auth, destination, proof, surplus);
+
+    assert!(
+        all_of_it.is_ok(),
+        "withdraw failed: {:?}",
+        all_of_it.as_ref().err().map(|e| &e.err)
+    );
+    assert_eq!(lamports(&ctx.svm, &ctx.task_queue), minimum);
+    assert_eq!(
+        lamports(&ctx.svm, &destination),
+        destination_before + surplus
+    );
+}
+
+#[test]
+fn a_signer_that_is_not_the_update_authority_cannot_withdraw() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    let destination = withdrawal_destination(&mut ctx);
+    let (proof, _) = queue_authority_pda(&ctx.task_queue, &destination);
+    let stranger = ctx.turner();
+    let queue_before = lamports(&ctx.svm, &ctx.task_queue);
+    let destination_before = lamports(&ctx.svm, &destination);
+
+    let result = withdraw(&mut ctx, &stranger, destination, proof, 400_000_000);
+
+    assert_eq!(
+        refusal(&result),
+        Some(u32::from(anchor_lang::error::ErrorCode::ConstraintHasOne)),
+        "{:?}",
+        result.as_ref().err().map(|e| &e.err)
+    );
+    assert_eq!(lamports(&ctx.svm, &ctx.task_queue), queue_before);
+    assert_eq!(lamports(&ctx.svm, &destination), destination_before);
+}
+
+#[test]
+fn a_withdrawal_to_an_account_that_is_not_a_queue_authority_is_refused() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    let auth = ctx.auth.insecure_clone();
+    let destination = Pubkey::new_unique();
+    ctx.svm
+        .airdrop(&destination, 1_000_000_000)
+        .expect("fund the destination");
+    let (proof, _) = queue_authority_pda(&ctx.task_queue, &destination);
+    let queue_before = lamports(&ctx.svm, &ctx.task_queue);
+
+    let result = withdraw(&mut ctx, &auth, destination, proof, 400_000_000);
+
+    assert_eq!(
+        refusal(&result),
+        Some(u32::from(
+            anchor_lang::error::ErrorCode::AccountNotInitialized
+        )),
+        "{:?}",
+        result.as_ref().err().map(|e| &e.err)
+    );
+    assert_eq!(lamports(&ctx.svm, &ctx.task_queue), queue_before);
+    assert_eq!(lamports(&ctx.svm, &destination), 1_000_000_000);
+}
+
+#[test]
+fn a_withdrawal_to_a_queue_authority_of_a_different_task_queue_is_refused() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    let auth = ctx.auth.insecure_clone();
+    let (config, _) = config_pda();
+    let (other_queue, _) = task_queue_pda(&config, 1);
+    let (other_name_mapping, _) = name_mapping_pda(&config, "other");
+    let init = Instruction {
+        program_id: tuktuk::ID,
+        accounts: tuktuk::accounts::InitializeTaskQueueV0 {
+            payer: auth.pubkey(),
+            tuktuk_config: config,
+            update_authority: auth.pubkey(),
+            task_queue: other_queue,
+            task_queue_name_mapping: other_name_mapping,
+            system_program: system_program::ID,
+        }
+        .to_account_metas(None),
+        data: tuktuk::instruction::InitializeTaskQueueV0 {
+            args: tuktuk::InitializeTaskQueueArgsV0 {
+                min_crank_reward: 10_000,
+                name: "other".to_string(),
+                capacity: 100,
+                lookup_tables: vec![],
+                stale_task_age: 100_000,
+            },
+        }
+        .data(),
+    };
+    send(&mut ctx.svm, &[init], &auth, &[&auth]).expect("initialize the other task queue");
+    let destination = Pubkey::new_unique();
+    ctx.svm
+        .airdrop(&destination, 1_000_000_000)
+        .expect("fund the destination");
+    add_queue_authority(&mut ctx, other_queue, destination);
+    let (proof, _) = queue_authority_pda(&other_queue, &destination);
+    let queue_before = lamports(&ctx.svm, &ctx.task_queue);
+
+    let result = withdraw(&mut ctx, &auth, destination, proof, 400_000_000);
+
+    assert_eq!(
+        refusal(&result),
+        Some(u32::from(anchor_lang::error::ErrorCode::ConstraintSeeds)),
+        "{:?}",
+        result.as_ref().err().map(|e| &e.err)
+    );
+    assert_eq!(lamports(&ctx.svm, &ctx.task_queue), queue_before);
+    assert_eq!(lamports(&ctx.svm, &destination), 1_000_000_000);
+}
