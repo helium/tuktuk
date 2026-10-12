@@ -500,8 +500,8 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         // A returned task whose whole rent the running task supplies refunds where the running
         // task does. The crank reward is not part of the test: a running task has set its own
         // aside, so a successor of its size is always short by exactly that. The rent that a
-        // run attributes this way stays at or below the rent of the running task, so lamports
-        // from another source do not reach its rent refund.
+        // run attributes this way stays at or below the rent of the running task, so lamports sent
+        // to the task after it is queued do not reach its rent refund.
         if lamports_from_task >= rent_lamports
             && self.rent_attributed.saturating_add(rent_lamports)
                 <= self.ctx.accounts.task.rent_amount
@@ -733,7 +733,7 @@ pub fn handler<'info>(
                 task_queue_current_lamports
             );
         }
-        require_gt!(
+        require_gte!(
             task_queue_current_lamports.saturating_sub(queue_lamports_needed),
             task_queue_min_lamports,
             ErrorCode::TaskQueueInsufficientFunds

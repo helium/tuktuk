@@ -1443,6 +1443,50 @@ fn a_straddle_refunds_to_the_task_queue() {
     );
 }
 
+#[test]
+fn a_returned_task_short_of_rent_after_a_crank_reward_refunds_to_the_task_queue() {
+    // The padding that puts the rent of the root task at or above the rent of both returned
+    // tasks, and below that rent plus one crank reward.
+    const PADDING: usize = 86;
+
+    let mut ctx = setup(100, MIN_CRANK_REWARD, 100_000);
+    let payer = ctx.payer();
+    let turner = ctx.turner();
+
+    queue_paid_by(
+        &mut ctx,
+        &payer,
+        0,
+        TriggerV0::Now,
+        TransactionSourceV0::CompiledV0(returns_padded(vec![child(None), child(None)], PADDING)),
+        2,
+    )
+    .expect("queue the root task");
+    let (root, _) = task_pda(&ctx.task_queue, 0);
+    let (first, _) = task_pda(&ctx.task_queue, 1);
+    let (second, _) = task_pda(&ctx.task_queue, 2);
+    let queue_before = lamports(&ctx.svm, &ctx.task_queue);
+    let root_rent = rent_of(&ctx.svm, &root);
+
+    run_task(&mut ctx, 0, &turner, vec![1, 2], vec![first, second]).expect("run the root task");
+
+    let returned_rent = rent_of(&ctx.svm, &first);
+    assert_eq!(rent_of(&ctx.svm, &second), returned_rent);
+    assert!(
+        2 * returned_rent <= root_rent && root_rent < 2 * returned_rent + MIN_CRANK_REWARD,
+        "the fixture needs a root task whose rent covers the rent of both returned tasks and \
+         not the crank reward of the first as well"
+    );
+    assert_eq!(read_task(&ctx.svm, &first).rent_refund, payer.pubkey());
+    // The crank reward of the first returned task came out of the rent of the root task, so
+    // the root task supplies only part of the rent of the second.
+    assert_eq!(read_task(&ctx.svm, &second).rent_refund, ctx.task_queue);
+    assert_eq!(
+        lamports(&ctx.svm, &ctx.task_queue),
+        queue_before - (2 * (returned_rent + MIN_CRANK_REWARD) - root_rent)
+    );
+}
+
 /// A run of a root task that returned one task and paid the whole of it.
 struct FundedRun {
     ctx: Ctx,
@@ -2037,6 +2081,55 @@ fn a_withdrawal_cannot_take_the_task_queue_below_its_rent_exempt_minimum() {
 }
 
 #[test]
+fn a_task_runs_when_the_task_queue_holds_exactly_its_rent_exempt_minimum() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    let auth = ctx.auth.insecure_clone();
+    let turner = ctx.turner();
+    let destination = withdrawal_destination(&mut ctx);
+    let (proof, _) = queue_authority_pda(&ctx.task_queue, &destination);
+    let minimum = rent_of(&ctx.svm, &ctx.task_queue);
+    let surplus = lamports(&ctx.svm, &ctx.task_queue) - minimum;
+    withdraw(&mut ctx, &auth, destination, proof, surplus).expect("withdraw the whole surplus");
+    // A task that returns nothing, so its run needs nothing from the task queue.
+    queue(&mut ctx, 0, TriggerV0::Now, returns(vec![]), 0).expect("queue the task");
+    let (task, _) = task_pda(&ctx.task_queue, 0);
+    assert_eq!(lamports(&ctx.svm, &ctx.task_queue), minimum);
+
+    let result = run_task(&mut ctx, 0, &turner, vec![], vec![]);
+
+    assert!(
+        result.is_ok(),
+        "run failed: {:?}",
+        result.as_ref().err().map(|e| &e.err)
+    );
+    assert!(!task_account_exists(&ctx.svm, &task));
+    assert_eq!(lamports(&ctx.svm, &ctx.task_queue), minimum);
+}
+
+#[test]
+fn a_withdrawal_of_more_than_the_task_queue_holds_is_refused() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    let auth = ctx.auth.insecure_clone();
+    let destination = withdrawal_destination(&mut ctx);
+    let (proof, _) = queue_authority_pda(&ctx.task_queue, &destination);
+    let queue_before = lamports(&ctx.svm, &ctx.task_queue);
+    let destination_before = lamports(&ctx.svm, &destination);
+
+    for amount in [queue_before + 1, u64::MAX] {
+        let result = withdraw(&mut ctx, &auth, destination, proof, amount);
+
+        assert_eq!(
+            refusal(&result),
+            code(tuktuk::error::ErrorCode::TaskQueueInsufficientFunds),
+            "a withdrawal of {amount} should be refused by name: {:?}",
+            result.as_ref().err().map(|e| &e.err)
+        );
+        assert_eq!(lamports(&ctx.svm, &ctx.task_queue), queue_before);
+        assert_eq!(lamports(&ctx.svm, &destination), destination_before);
+    }
+}
+
+#[test]
 fn a_signer_that_is_not_the_update_authority_cannot_withdraw() {
     let mut ctx = setup(100, 10_000, 100_000);
     let destination = withdrawal_destination(&mut ctx);
@@ -2050,6 +2143,45 @@ fn a_signer_that_is_not_the_update_authority_cannot_withdraw() {
     assert_eq!(
         refusal(&result),
         Some(u32::from(anchor_lang::error::ErrorCode::ConstraintHasOne)),
+        "{:?}",
+        result.as_ref().err().map(|e| &e.err)
+    );
+    assert_eq!(lamports(&ctx.svm, &ctx.task_queue), queue_before);
+    assert_eq!(lamports(&ctx.svm, &destination), destination_before);
+}
+
+#[test]
+fn a_withdrawal_the_update_authority_did_not_sign_is_refused() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    let update_authority = ctx.auth.pubkey();
+    let destination = withdrawal_destination(&mut ctx);
+    let (proof, _) = queue_authority_pda(&ctx.task_queue, &destination);
+    let stranger = ctx.turner();
+    let queue_before = lamports(&ctx.svm, &ctx.task_queue);
+    let destination_before = lamports(&ctx.svm, &destination);
+
+    // The accounts are stated here and not built from the program's own account list, so this
+    // test and not the program says that the update authority is not a signer.
+    let ix = Instruction {
+        program_id: tuktuk::ID,
+        accounts: vec![
+            AccountMeta::new_readonly(update_authority, false),
+            AccountMeta::new(destination, false),
+            AccountMeta::new_readonly(proof, false),
+            AccountMeta::new(ctx.task_queue, false),
+        ],
+        data: tuktuk::instruction::WithdrawTaskQueueSurplusV0 {
+            args: tuktuk::WithdrawTaskQueueSurplusArgsV0 {
+                amount: 400_000_000,
+            },
+        }
+        .data(),
+    };
+    let result = send(&mut ctx.svm, &[ix], &stranger, &[&stranger]);
+
+    assert_eq!(
+        refusal(&result),
+        Some(u32::from(anchor_lang::error::ErrorCode::AccountNotSigner)),
         "{:?}",
         result.as_ref().err().map(|e| &e.err)
     );
