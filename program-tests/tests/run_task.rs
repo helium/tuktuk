@@ -2106,6 +2106,115 @@ fn a_task_runs_when_the_task_queue_holds_exactly_its_rent_exempt_minimum() {
     assert_eq!(lamports(&ctx.svm, &ctx.task_queue), minimum);
 }
 
+/// Queue, as task 0, a root task that returns `children` tasks. Returns the free task ids and
+/// accounts a turner passes to run it.
+fn queue_root_that_returns(ctx: &mut Ctx, children: u8) -> (Vec<u16>, Vec<Pubkey>) {
+    let returned = (0..children).map(|_| child(None)).collect();
+    queue(ctx, 0, TriggerV0::Now, returns(returned), children).expect("queue the root task");
+    let ids: Vec<u16> = (1..=u16::from(children)).collect();
+    let accounts = ids
+        .iter()
+        .map(|id| task_pda(&ctx.task_queue, *id).0)
+        .collect();
+    (ids, accounts)
+}
+
+/// The lamports one run of a root task that returns `children` tasks takes from the task queue,
+/// measured from a run against a task queue that keeps its full balance.
+fn lamports_a_run_takes_from_the_task_queue(children: u8) -> u64 {
+    let mut ctx = setup(100, 10_000, 100_000);
+    let turner = ctx.turner();
+    let (ids, accounts) = queue_root_that_returns(&mut ctx, children);
+    let queue_before = lamports(&ctx.svm, &ctx.task_queue);
+    run_task(&mut ctx, 0, &turner, ids, accounts).expect("run the root task");
+    queue_before - lamports(&ctx.svm, &ctx.task_queue)
+}
+
+/// Withdraw from the context's task queue until it holds exactly `balance` lamports.
+fn withdraw_down_to(ctx: &mut Ctx, balance: u64) {
+    let auth = ctx.auth.insecure_clone();
+    let destination = withdrawal_destination(ctx);
+    let (proof, _) = queue_authority_pda(&ctx.task_queue, &destination);
+    let amount = lamports(&ctx.svm, &ctx.task_queue) - balance;
+    withdraw(ctx, &auth, destination, proof, amount).expect("withdraw down to the balance");
+}
+
+#[test]
+fn a_task_runs_when_the_task_queue_holds_its_minimum_and_exactly_what_the_run_needs() {
+    // The rent of the root task pays for the first task it returns, so the task queue pays for
+    // the second.
+    let needed = lamports_a_run_takes_from_the_task_queue(2);
+    assert!(needed > 0, "the run should need the task queue's lamports");
+    let mut ctx = setup(100, 10_000, 100_000);
+    let turner = ctx.turner();
+    let (ids, accounts) = queue_root_that_returns(&mut ctx, 2);
+    let minimum = rent_of(&ctx.svm, &ctx.task_queue);
+    withdraw_down_to(&mut ctx, minimum + needed);
+    assert_eq!(lamports(&ctx.svm, &ctx.task_queue), minimum + needed);
+
+    let result = run_task(&mut ctx, 0, &turner, ids, accounts);
+
+    assert!(
+        result.is_ok(),
+        "run failed: {:?}",
+        result.as_ref().err().map(|e| &e.err)
+    );
+    assert_eq!(lamports(&ctx.svm, &ctx.task_queue), minimum);
+}
+
+#[test]
+fn a_run_that_would_leave_the_task_queue_one_lamport_below_its_minimum_is_refused() {
+    let needed = lamports_a_run_takes_from_the_task_queue(2);
+    assert!(needed > 0, "the run should need the task queue's lamports");
+    let mut ctx = setup(100, 10_000, 100_000);
+    let turner = ctx.turner();
+    let (ids, accounts) = queue_root_that_returns(&mut ctx, 2);
+    let (task, _) = task_pda(&ctx.task_queue, 0);
+    let minimum = rent_of(&ctx.svm, &ctx.task_queue);
+    withdraw_down_to(&mut ctx, minimum + needed - 1);
+    assert_eq!(lamports(&ctx.svm, &ctx.task_queue), minimum + needed - 1);
+    let task_before = ctx.svm.get_account(&task).expect("the root task");
+
+    let result = run_task(&mut ctx, 0, &turner, ids, accounts);
+
+    assert_eq!(
+        refusal(&result),
+        code(tuktuk::error::ErrorCode::TaskQueueInsufficientFunds),
+        "one lamport short of the run's needs should be refused: {:?}",
+        result.as_ref().err().map(|e| &e.err)
+    );
+    assert_eq!(lamports(&ctx.svm, &ctx.task_queue), minimum + needed - 1);
+    assert_eq!(
+        ctx.svm.get_account(&task).expect("the root task"),
+        task_before
+    );
+}
+
+#[test]
+fn a_run_that_needs_more_than_the_task_queue_holds_is_refused() {
+    let needed = lamports_a_run_takes_from_the_task_queue(4);
+    let mut ctx = setup(100, 10_000, 100_000);
+    let turner = ctx.turner();
+    let (ids, accounts) = queue_root_that_returns(&mut ctx, 4);
+    let minimum = rent_of(&ctx.svm, &ctx.task_queue);
+    withdraw_down_to(&mut ctx, minimum);
+    assert_eq!(lamports(&ctx.svm, &ctx.task_queue), minimum);
+    assert!(
+        needed > lamports(&ctx.svm, &ctx.task_queue),
+        "the run should need more than the whole balance: {needed} of {minimum}"
+    );
+
+    let result = run_task(&mut ctx, 0, &turner, ids, accounts);
+
+    assert_eq!(
+        refusal(&result),
+        code(tuktuk::error::ErrorCode::TaskQueueInsufficientFunds),
+        "{:?}",
+        result.as_ref().err().map(|e| &e.err)
+    );
+    assert_eq!(lamports(&ctx.svm, &ctx.task_queue), minimum);
+}
+
 #[test]
 fn a_withdrawal_of_more_than_the_task_queue_holds_is_refused() {
     let mut ctx = setup(100, 10_000, 100_000);

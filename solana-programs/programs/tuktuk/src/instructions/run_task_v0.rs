@@ -500,8 +500,9 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         // A returned task whose whole rent the running task supplies refunds where the running
         // task does. The crank reward is not part of the test: a running task has set its own
         // aside, so a successor of its size is always short by exactly that. The rent that a
-        // run attributes this way stays at or below the rent of the running task, so lamports sent
-        // to the task after it is queued do not reach its rent refund.
+        // run attributes this way stays at or below the `rent_amount` of the running task, so its
+        // rent refund gets back at most that amount through returned tasks. Lamports sent to the
+        // task after it is queued can still decide which returned tasks that budget covers.
         if lamports_from_task >= rent_lamports
             && self.rent_attributed.saturating_add(rent_lamports)
                 <= self.ctx.accounts.task.rent_amount
