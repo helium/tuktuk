@@ -984,6 +984,11 @@
       "code": 6032,
       "name": "TaskNotQueued",
       "msg": "Task is not queued (already dequeued, or currently running)"
+    },
+    {
+      "code": 6033,
+      "name": "TaskQueueBelowMinRemaining",
+      "msg": "Task queue would hold less than the minimum the caller asked to leave"
     }
   ],
   "types": [
@@ -1563,6 +1568,10 @@
         "fields": [
           {
             "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "min_remaining",
             "type": "u64"
           }
         ]

@@ -585,6 +585,7 @@ pub mod task_queue {
         queue_authority: Pubkey,
         update_authority: Pubkey,
         amount: u64,
+        min_remaining: u64,
     ) -> Result<Instruction, Error> {
         Ok(Instruction {
             program_id: tuktuk::ID,
@@ -596,7 +597,10 @@ pub mod task_queue {
             }
             .to_account_metas(None),
             data: tuktuk::client::args::WithdrawTaskQueueSurplusV0 {
-                args: WithdrawTaskQueueSurplusArgsV0 { amount },
+                args: WithdrawTaskQueueSurplusArgsV0 {
+                    amount,
+                    min_remaining,
+                },
             }
             .data(),
         })
@@ -607,6 +611,7 @@ pub mod task_queue {
         task_queue_key: Pubkey,
         queue_authority: Pubkey,
         amount: u64,
+        min_remaining: u64,
     ) -> Result<Instruction, Error> {
         let task_queue: TaskQueueV0 = client
             .anchor_account(&task_queue_key)
@@ -618,6 +623,7 @@ pub mod task_queue {
             queue_authority,
             task_queue.update_authority,
             amount,
+            min_remaining,
         )
     }
 

@@ -86,6 +86,11 @@ pub enum Cmd {
         amount: u64,
         #[arg(
             long,
+            help = "Least balance the task queue must hold after the withdrawal, in lamports. Nothing is sent when the withdrawal would leave less."
+        )]
+        min_remaining: u64,
+        #[arg(
+            long,
             help = "Queue authority of this task queue that receives the lamports"
         )]
         queue_authority: Pubkey,
@@ -138,6 +143,29 @@ impl TaskQueueArg {
             Ok(None)
         }
     }
+}
+
+/// The lamports a task queue holds after a withdrawal of `amount`, or the reason not to send it.
+fn balance_after_withdrawal(
+    balance: u64,
+    amount: u64,
+    min_remaining: u64,
+    rent_exempt_minimum: u64,
+) -> Result<u64> {
+    let balance_after = balance
+        .checked_sub(amount)
+        .ok_or_else(|| anyhow::anyhow!("The task queue holds less than the amount"))?;
+    if balance_after < min_remaining {
+        anyhow::bail!(
+            "Balance after would be {balance_after} lamports, below --min-remaining {min_remaining}"
+        );
+    }
+    if balance_after < rent_exempt_minimum {
+        anyhow::bail!(
+            "Balance after would be {balance_after} lamports, below the rent-exempt minimum {rent_exempt_minimum}"
+        );
+    }
+    Ok(balance_after)
 }
 
 impl TaskQueueCmd {
@@ -298,6 +326,7 @@ impl TaskQueueCmd {
             Cmd::Withdraw {
                 task_queue,
                 amount,
+                min_remaining,
                 queue_authority,
             } => {
                 let client = opts.client().await?;
@@ -306,11 +335,26 @@ impl TaskQueueCmd {
                         "Must provide task-queue-name, task-queue-id, or task-queue-pubkey"
                     )
                 })?;
+                let account = client.rpc_client.get_account(&task_queue_key).await?;
+                let rent_exempt_minimum = client
+                    .rpc_client
+                    .get_minimum_balance_for_rent_exemption(account.data.len())
+                    .await?;
+                println!("Balance now: {} lamports", account.lamports);
+                println!("Amount: {amount} lamports");
+                let balance_after = balance_after_withdrawal(
+                    account.lamports,
+                    *amount,
+                    *min_remaining,
+                    rent_exempt_minimum,
+                )?;
+                println!("Balance after: {balance_after} lamports");
                 let ix = tuktuk::task_queue::withdraw_task_queue_surplus(
                     client.rpc_client.as_ref(),
                     task_queue_key,
                     *queue_authority,
                     *amount,
+                    *min_remaining,
                 )
                 .await?;
                 send_instructions(
@@ -416,4 +460,36 @@ pub struct TaskQueue {
     pub min_crank_reward: u64,
     pub balance: u64,
     pub stale_task_age: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::balance_after_withdrawal;
+
+    #[test]
+    fn a_withdrawal_that_leaves_the_stated_least_balance_is_allowed() {
+        assert_eq!(balance_after_withdrawal(1_000, 400, 600, 100).unwrap(), 600);
+    }
+
+    #[test]
+    fn a_withdrawal_below_the_stated_least_balance_is_refused() {
+        let refusal = balance_after_withdrawal(1_000, 401, 600, 100).unwrap_err();
+
+        assert!(refusal.to_string().contains("--min-remaining"), "{refusal}");
+    }
+
+    #[test]
+    fn a_withdrawal_below_the_rent_exempt_minimum_is_refused() {
+        let refusal = balance_after_withdrawal(1_000, 901, 0, 100).unwrap_err();
+
+        assert!(
+            refusal.to_string().contains("rent-exempt minimum"),
+            "{refusal}"
+        );
+    }
+
+    #[test]
+    fn a_withdrawal_of_more_than_the_balance_is_refused() {
+        assert!(balance_after_withdrawal(1_000, 1_001, 0, 100).is_err());
+    }
 }

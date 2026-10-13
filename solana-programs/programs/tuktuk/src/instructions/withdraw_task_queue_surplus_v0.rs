@@ -8,6 +8,7 @@ use crate::{
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
 pub struct WithdrawTaskQueueSurplusArgsV0 {
     pub amount: u64,
+    pub min_remaining: u64,
 }
 
 #[derive(Accounts)]
@@ -34,13 +35,19 @@ pub fn handler(
 ) -> Result<()> {
     let task_queue_info = ctx.accounts.task_queue.to_account_info();
     let min_lamports = Rent::get()?.minimum_balance(task_queue_info.data_len());
+    let remaining = task_queue_info
+        .lamports()
+        .checked_sub(args.amount)
+        .ok_or(ErrorCode::TaskQueueInsufficientFunds)?;
     require_gte!(
-        task_queue_info
-            .lamports()
-            .checked_sub(args.amount)
-            .ok_or(ErrorCode::TaskQueueInsufficientFunds)?,
+        remaining,
         min_lamports,
         ErrorCode::TaskQueueInsufficientFunds
+    );
+    require_gte!(
+        remaining,
+        args.min_remaining,
+        ErrorCode::TaskQueueBelowMinRemaining
     );
 
     task_queue_info.sub_lamports(args.amount)?;

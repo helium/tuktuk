@@ -1988,13 +1988,15 @@ fn withdrawal_destination(ctx: &mut Ctx) -> Pubkey {
 }
 
 /// Ask `update_authority` to move `amount` lamports from the context's task queue to
-/// `queue_authority`, proving the destination with `task_queue_authority`.
-fn withdraw(
+/// `queue_authority`, proving the destination with `task_queue_authority`. The task queue must
+/// hold at least `min_remaining` lamports afterwards.
+fn withdraw_leaving(
     ctx: &mut Ctx,
     update_authority: &Keypair,
     queue_authority: Pubkey,
     task_queue_authority: Pubkey,
     amount: u64,
+    min_remaining: u64,
 ) -> SendResult {
     let ix = Instruction {
         program_id: tuktuk::ID,
@@ -2006,11 +2008,32 @@ fn withdraw(
         }
         .to_account_metas(None),
         data: tuktuk::instruction::WithdrawTaskQueueSurplusV0 {
-            args: tuktuk::WithdrawTaskQueueSurplusArgsV0 { amount },
+            args: tuktuk::WithdrawTaskQueueSurplusArgsV0 {
+                amount,
+                min_remaining,
+            },
         }
         .data(),
     };
     send(&mut ctx.svm, &[ix], update_authority, &[update_authority])
+}
+
+/// A withdrawal that states no least balance, so the rent-exempt minimum alone bounds it.
+fn withdraw(
+    ctx: &mut Ctx,
+    update_authority: &Keypair,
+    queue_authority: Pubkey,
+    task_queue_authority: Pubkey,
+    amount: u64,
+) -> SendResult {
+    withdraw_leaving(
+        ctx,
+        update_authority,
+        queue_authority,
+        task_queue_authority,
+        amount,
+        0,
+    )
 }
 
 #[test]
@@ -2077,6 +2100,47 @@ fn a_withdrawal_cannot_take_the_task_queue_below_its_rent_exempt_minimum() {
     assert_eq!(
         lamports(&ctx.svm, &destination),
         destination_before + surplus
+    );
+}
+
+#[test]
+fn a_withdrawal_cannot_take_the_task_queue_below_the_least_balance_the_caller_states() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    let auth = ctx.auth.insecure_clone();
+    let destination = withdrawal_destination(&mut ctx);
+    let (proof, _) = queue_authority_pda(&ctx.task_queue, &destination);
+    let queue_before = lamports(&ctx.svm, &ctx.task_queue);
+    let destination_before = lamports(&ctx.svm, &destination);
+    let amount = 400_000_000;
+    let remaining = queue_before - amount;
+    assert!(
+        remaining > rent_of(&ctx.svm, &ctx.task_queue),
+        "the withdrawal should leave the task queue above its rent-exempt minimum"
+    );
+
+    let one_short = withdraw_leaving(&mut ctx, &auth, destination, proof, amount, remaining + 1);
+
+    assert_eq!(
+        refusal(&one_short),
+        code(tuktuk::error::ErrorCode::TaskQueueBelowMinRemaining),
+        "one lamport below the stated least balance should be refused: {:?}",
+        one_short.as_ref().err().map(|e| &e.err)
+    );
+    assert_eq!(lamports(&ctx.svm, &ctx.task_queue), queue_before);
+    assert_eq!(lamports(&ctx.svm, &destination), destination_before);
+
+    // The stated least balance is a floor and not a margin: the task queue can end exactly on it.
+    let exact = withdraw_leaving(&mut ctx, &auth, destination, proof, amount, remaining);
+
+    assert!(
+        exact.is_ok(),
+        "withdraw failed: {:?}",
+        exact.as_ref().err().map(|e| &e.err)
+    );
+    assert_eq!(lamports(&ctx.svm, &ctx.task_queue), remaining);
+    assert_eq!(
+        lamports(&ctx.svm, &destination),
+        destination_before + amount
     );
 }
 
@@ -2282,6 +2346,7 @@ fn a_withdrawal_the_update_authority_did_not_sign_is_refused() {
         data: tuktuk::instruction::WithdrawTaskQueueSurplusV0 {
             args: tuktuk::WithdrawTaskQueueSurplusArgsV0 {
                 amount: 400_000_000,
+                min_remaining: 0,
             },
         }
         .data(),
