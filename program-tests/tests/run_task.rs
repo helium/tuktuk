@@ -2126,6 +2126,11 @@ fn a_withdrawal_cannot_take_the_task_queue_below_the_least_balance_the_caller_st
         "one lamport below the stated least balance should be refused: {:?}",
         one_short.as_ref().err().map(|e| &e.err)
     );
+    assert_eq!(
+        code(tuktuk::error::ErrorCode::TaskQueueBelowMinRemaining),
+        Some(6033),
+        "the refusal should keep the code that callers already know"
+    );
     assert_eq!(lamports(&ctx.svm, &ctx.task_queue), queue_before);
     assert_eq!(lamports(&ctx.svm, &destination), destination_before);
 
@@ -2142,6 +2147,29 @@ fn a_withdrawal_cannot_take_the_task_queue_below_the_least_balance_the_caller_st
         lamports(&ctx.svm, &destination),
         destination_before + amount
     );
+}
+
+#[test]
+fn a_withdrawal_below_both_the_minimum_and_the_stated_least_balance_is_refused_for_the_minimum() {
+    let mut ctx = setup(100, 10_000, 100_000);
+    let auth = ctx.auth.insecure_clone();
+    let destination = withdrawal_destination(&mut ctx);
+    let (proof, _) = queue_authority_pda(&ctx.task_queue, &destination);
+    let queue_before = lamports(&ctx.svm, &ctx.task_queue);
+    let destination_before = lamports(&ctx.svm, &destination);
+    let minimum = rent_of(&ctx.svm, &ctx.task_queue);
+    let surplus = queue_before - minimum;
+
+    let below_both = withdraw_leaving(&mut ctx, &auth, destination, proof, surplus + 1, minimum);
+
+    assert_eq!(
+        refusal(&below_both),
+        code(tuktuk::error::ErrorCode::TaskQueueInsufficientFunds),
+        "a balance below both floors should be refused for the rent-exempt minimum: {:?}",
+        below_both.as_ref().err().map(|e| &e.err)
+    );
+    assert_eq!(lamports(&ctx.svm, &ctx.task_queue), queue_before);
+    assert_eq!(lamports(&ctx.svm, &destination), destination_before);
 }
 
 #[test]

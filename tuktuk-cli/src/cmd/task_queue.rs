@@ -155,14 +155,14 @@ fn balance_after_withdrawal(
     let balance_after = balance
         .checked_sub(amount)
         .ok_or_else(|| anyhow::anyhow!("The task queue holds less than the amount"))?;
-    if balance_after < min_remaining {
-        anyhow::bail!(
-            "Balance after would be {balance_after} lamports, below --min-remaining {min_remaining}"
-        );
-    }
     if balance_after < rent_exempt_minimum {
         anyhow::bail!(
             "Balance after would be {balance_after} lamports, below the rent-exempt minimum {rent_exempt_minimum}"
+        );
+    }
+    if balance_after < min_remaining {
+        anyhow::bail!(
+            "Balance after would be {balance_after} lamports, below --min-remaining {min_remaining}"
         );
     }
     Ok(balance_after)
@@ -342,13 +342,15 @@ impl TaskQueueCmd {
                     .await?;
                 println!("Balance now: {} lamports", account.lamports);
                 println!("Amount: {amount} lamports");
-                let balance_after = balance_after_withdrawal(
+                if let Some(balance_after) = account.lamports.checked_sub(*amount) {
+                    println!("Balance after: {balance_after} lamports");
+                }
+                balance_after_withdrawal(
                     account.lamports,
                     *amount,
                     *min_remaining,
                     rent_exempt_minimum,
                 )?;
-                println!("Balance after: {balance_after} lamports");
                 let ix = tuktuk::task_queue::withdraw_task_queue_surplus(
                     client.rpc_client.as_ref(),
                     task_queue_key,
@@ -464,11 +466,80 @@ pub struct TaskQueue {
 
 #[cfg(test)]
 mod tests {
-    use super::balance_after_withdrawal;
+    use clap::{error::ErrorKind, Parser};
+    use solana_sdk::pubkey::Pubkey;
+
+    use super::{balance_after_withdrawal, Cmd};
+
+    #[derive(Debug, Parser)]
+    struct TaskQueueCli {
+        #[command(subcommand)]
+        cmd: Cmd,
+    }
+
+    fn withdraw_args(min_remaining: Option<&str>) -> Vec<String> {
+        let mut args = vec![
+            "task-queue".to_string(),
+            "withdraw".to_string(),
+            "--task-queue-id".to_string(),
+            "0".to_string(),
+            "--amount".to_string(),
+            "400".to_string(),
+            "--queue-authority".to_string(),
+            Pubkey::new_unique().to_string(),
+        ];
+        if let Some(min_remaining) = min_remaining {
+            args.extend(["--min-remaining".to_string(), min_remaining.to_string()]);
+        }
+        args
+    }
+
+    #[test]
+    fn a_withdrawal_that_does_not_state_the_least_balance_is_not_parsed() {
+        let refusal = TaskQueueCli::try_parse_from(withdraw_args(None)).unwrap_err();
+
+        assert_eq!(
+            refusal.kind(),
+            ErrorKind::MissingRequiredArgument,
+            "{refusal}"
+        );
+    }
+
+    #[test]
+    fn a_withdrawal_that_states_a_least_balance_of_zero_is_parsed() {
+        let cli = TaskQueueCli::try_parse_from(withdraw_args(Some("0"))).unwrap();
+
+        assert!(
+            matches!(
+                cli.cmd,
+                Cmd::Withdraw {
+                    min_remaining: 0,
+                    ..
+                }
+            ),
+            "{cli:?}"
+        );
+    }
 
     #[test]
     fn a_withdrawal_that_leaves_the_stated_least_balance_is_allowed() {
         assert_eq!(balance_after_withdrawal(1_000, 400, 600, 100).unwrap(), 600);
+    }
+
+    #[test]
+    fn a_withdrawal_that_leaves_the_rent_exempt_minimum_is_allowed() {
+        assert_eq!(balance_after_withdrawal(1_000, 900, 0, 100).unwrap(), 100);
+    }
+
+    #[test]
+    fn a_withdrawal_below_both_the_minimum_and_the_stated_least_balance_is_refused_for_the_minimum()
+    {
+        let refusal = balance_after_withdrawal(1_000, 950, 500, 100).unwrap_err();
+
+        assert!(
+            refusal.to_string().contains("rent-exempt minimum"),
+            "{refusal}"
+        );
     }
 
     #[test]
@@ -490,6 +561,11 @@ mod tests {
 
     #[test]
     fn a_withdrawal_of_more_than_the_balance_is_refused() {
-        assert!(balance_after_withdrawal(1_000, 1_001, 0, 100).is_err());
+        let refusal = balance_after_withdrawal(1_000, 1_001, 0, 100).unwrap_err();
+
+        assert!(
+            refusal.to_string().contains("holds less than the amount"),
+            "{refusal}"
+        );
     }
 }
