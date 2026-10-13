@@ -6,7 +6,7 @@ use solana_client::{
     send_and_confirm_transactions_in_parallel::{
         send_and_confirm_transactions_in_parallel_v2, SendAndConfirmConfigV2,
     },
-    tpu_client::TpuClientConfig,
+    tpu_client::{TpuClientConfig, TpuSenderError},
 };
 use solana_sdk::{
     commitment_config::CommitmentConfig, instruction::Instruction, message::Message,
@@ -43,12 +43,59 @@ impl CliClient {
     }
 }
 
+/// Times the sender signs a transaction. Each time after the first follows an expired blockhash.
+const SIGNING_COUNT: usize = 5;
+/// The sender signs one time, so one signature at most can land.
+const SINGLE_SIGNING_COUNT: usize = 1;
+
 pub async fn send_instructions(
     rpc_client: Arc<RpcClient>,
     payer: &Keypair,
     ws_url: &str,
     ixs: &[Instruction],
     extra_signers: &[Keypair],
+) -> Result<()> {
+    send_instructions_signed(rpc_client, payer, ws_url, ixs, extra_signers, SIGNING_COUNT).await
+}
+
+/// Sends instructions that must not land more than one time. An expired blockhash gives an
+/// error and no second signature.
+pub async fn send_instructions_signed_once(
+    rpc_client: Arc<RpcClient>,
+    payer: &Keypair,
+    ws_url: &str,
+    ixs: &[Instruction],
+    extra_signers: &[Keypair],
+) -> Result<()> {
+    send_instructions_signed(
+        rpc_client,
+        payer,
+        ws_url,
+        ixs,
+        extra_signers,
+        SINGLE_SIGNING_COUNT,
+    )
+    .await
+    .map_err(name_unconfirmed_send)
+}
+
+/// A sender error leaves the result of the transaction unknown. A transaction error does not.
+fn name_unconfirmed_send(err: anyhow::Error) -> anyhow::Error {
+    if err.downcast_ref::<TpuSenderError>().is_some() {
+        return err.context(
+            "The transaction is not confirmed. It can land later. Read the balance before a second run.",
+        );
+    }
+    err
+}
+
+async fn send_instructions_signed(
+    rpc_client: Arc<RpcClient>,
+    payer: &Keypair,
+    ws_url: &str,
+    ixs: &[Instruction],
+    extra_signers: &[Keypair],
+    signing_count: usize,
 ) -> Result<()> {
     let (blockhash, _) = rpc_client
         .as_ref()
@@ -97,7 +144,7 @@ pub async fn send_instructions(
         &keys,
         SendAndConfirmConfigV2 {
             with_spinner: true,
-            resign_txs_count: Some(5),
+            resign_txs_count: Some(signing_count),
             rpc_send_transaction_config: RpcSendTransactionConfig {
                 skip_preflight: true,
                 ..Default::default()
@@ -111,4 +158,38 @@ pub async fn send_instructions(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use solana_client::tpu_client::TpuSenderError;
+    use solana_sdk::transaction::TransactionError;
+
+    use super::name_unconfirmed_send;
+
+    #[test]
+    fn a_send_that_ends_unconfirmed_tells_the_operator_to_read_the_balance() {
+        let unconfirmed =
+            anyhow::Error::from(TpuSenderError::Custom("Max retries exceeded".into()));
+
+        let named = name_unconfirmed_send(unconfirmed);
+
+        assert!(named.to_string().contains("Read the balance"), "{named}");
+        assert!(
+            format!("{named:#}").contains("Max retries exceeded"),
+            "{named:#}"
+        );
+    }
+
+    #[test]
+    fn a_transaction_that_failed_on_chain_keeps_its_error() {
+        let failed = anyhow::Error::from(TransactionError::AccountNotFound);
+
+        let named = name_unconfirmed_send(failed);
+
+        assert_eq!(
+            named.to_string(),
+            TransactionError::AccountNotFound.to_string()
+        );
+    }
 }

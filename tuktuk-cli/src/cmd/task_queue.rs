@@ -10,7 +10,7 @@ use tuktuk_program::TaskQueueV0;
 use tuktuk_sdk::prelude::*;
 
 use crate::{
-    client::{send_instructions, CliClient},
+    client::{send_instructions, send_instructions_signed_once, CliClient},
     cmd::Opts,
     result::Result,
     serde::{print_json, serde_pubkey},
@@ -359,7 +359,7 @@ impl TaskQueueCmd {
                     *min_remaining,
                 )
                 .await?;
-                send_instructions(
+                send_instructions_signed_once(
                     client.rpc_client.clone(),
                     &client.payer,
                     client.opts.ws_url().as_str(),
