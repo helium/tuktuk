@@ -586,13 +586,13 @@ dependencies = [
 
 [[package]]
 name = "async-trait"
-version = "0.1.89"
+version = "0.1.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9035ad2d096bed7955a320ee7e2230574d28fd3c3a0f186cbea1ff3c7eed5dbb"
+checksum = "82f6aeea286b8eb4dd3431a1be1b59d290ace00f5bfd8e2a159bc2a05e2c1667"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.87",
+ "syn 3.0.9",
 ]
 
 [[package]]
@@ -6446,6 +6446,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn"
+version = "3.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d78c8dee4c7bf0e14673097256fed6142ce9d3b85a408189d07482442145823b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
+
+[[package]]
 name = "sync_wrapper"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6830,7 +6841,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tuktuk-cli"
-version = "0.2.17"
+version = "0.2.18"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -6897,14 +6908,14 @@ dependencies = [
 
 [[package]]
 name = "tuktuk-program"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "anchor-lang",
 ]
 
 [[package]]
 name = "tuktuk-sdk"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anchor-lang",
  "anyhow",

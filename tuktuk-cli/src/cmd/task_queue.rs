@@ -10,7 +10,7 @@ use tuktuk_program::TaskQueueV0;
 use tuktuk_sdk::prelude::*;
 
 use crate::{
-    client::{send_instructions, CliClient},
+    client::{send_instructions, send_instructions_signed_once, CliClient},
     cmd::Opts,
     result::Result,
     serde::{print_json, serde_pubkey},
@@ -76,6 +76,25 @@ pub enum Cmd {
         #[arg(long, help = "Amount to fund the task queue with, in lamports")]
         amount: u64,
     },
+    Withdraw {
+        #[command(flatten)]
+        task_queue: TaskQueueArg,
+        #[arg(
+            long,
+            help = "Amount to withdraw from the task queue, in lamports. The task queue keeps its rent-exempt minimum."
+        )]
+        amount: u64,
+        #[arg(
+            long,
+            help = "Least balance the task queue must hold after the withdrawal, in lamports. Nothing is sent when the withdrawal would leave less."
+        )]
+        min_remaining: u64,
+        #[arg(
+            long,
+            help = "Queue authority of this task queue that receives the lamports"
+        )]
+        queue_authority: Pubkey,
+    },
     Close {
         #[command(flatten)]
         task_queue: TaskQueueArg,
@@ -124,6 +143,29 @@ impl TaskQueueArg {
             Ok(None)
         }
     }
+}
+
+/// The lamports a task queue holds after a withdrawal of `amount`, or the reason not to send it.
+fn balance_after_withdrawal(
+    balance: u64,
+    amount: u64,
+    min_remaining: u64,
+    rent_exempt_minimum: u64,
+) -> Result<u64> {
+    let balance_after = balance
+        .checked_sub(amount)
+        .ok_or_else(|| anyhow::anyhow!("The task queue holds less than the amount"))?;
+    if balance_after < rent_exempt_minimum {
+        anyhow::bail!(
+            "Balance after would be {balance_after} lamports, below the rent-exempt minimum {rent_exempt_minimum}"
+        );
+    }
+    if balance_after < min_remaining {
+        anyhow::bail!(
+            "Balance after would be {balance_after} lamports, below --min-remaining {min_remaining}"
+        );
+    }
+    Ok(balance_after)
 }
 
 impl TaskQueueCmd {
@@ -281,6 +323,51 @@ impl TaskQueueCmd {
                 )
                 .await?;
             }
+            Cmd::Withdraw {
+                task_queue,
+                amount,
+                min_remaining,
+                queue_authority,
+            } => {
+                let client = opts.client().await?;
+                let task_queue_key = task_queue.get_pubkey(&client).await?.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Must provide task-queue-name, task-queue-id, or task-queue-pubkey"
+                    )
+                })?;
+                let account = client.rpc_client.get_account(&task_queue_key).await?;
+                let rent_exempt_minimum = client
+                    .rpc_client
+                    .get_minimum_balance_for_rent_exemption(account.data.len())
+                    .await?;
+                println!("Balance now: {} lamports", account.lamports);
+                println!("Amount: {amount} lamports");
+                if let Some(balance_after) = account.lamports.checked_sub(*amount) {
+                    println!("Balance after: {balance_after} lamports");
+                }
+                balance_after_withdrawal(
+                    account.lamports,
+                    *amount,
+                    *min_remaining,
+                    rent_exempt_minimum,
+                )?;
+                let ix = tuktuk::task_queue::withdraw_task_queue_surplus(
+                    client.rpc_client.as_ref(),
+                    task_queue_key,
+                    *queue_authority,
+                    *amount,
+                    *min_remaining,
+                )
+                .await?;
+                send_instructions_signed_once(
+                    client.rpc_client.clone(),
+                    &client.payer,
+                    client.opts.ws_url().as_str(),
+                    &[ix],
+                    &[],
+                )
+                .await?;
+            }
             Cmd::AddQueueAuthority {
                 task_queue,
                 queue_authority,
@@ -375,4 +462,110 @@ pub struct TaskQueue {
     pub min_crank_reward: u64,
     pub balance: u64,
     pub stale_task_age: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::{error::ErrorKind, Parser};
+    use solana_sdk::pubkey::Pubkey;
+
+    use super::{balance_after_withdrawal, Cmd};
+
+    #[derive(Debug, Parser)]
+    struct TaskQueueCli {
+        #[command(subcommand)]
+        cmd: Cmd,
+    }
+
+    fn withdraw_args(min_remaining: Option<&str>) -> Vec<String> {
+        let mut args = vec![
+            "task-queue".to_string(),
+            "withdraw".to_string(),
+            "--task-queue-id".to_string(),
+            "0".to_string(),
+            "--amount".to_string(),
+            "400".to_string(),
+            "--queue-authority".to_string(),
+            Pubkey::new_unique().to_string(),
+        ];
+        if let Some(min_remaining) = min_remaining {
+            args.extend(["--min-remaining".to_string(), min_remaining.to_string()]);
+        }
+        args
+    }
+
+    #[test]
+    fn a_withdrawal_that_does_not_state_the_least_balance_is_not_parsed() {
+        let refusal = TaskQueueCli::try_parse_from(withdraw_args(None)).unwrap_err();
+
+        assert_eq!(
+            refusal.kind(),
+            ErrorKind::MissingRequiredArgument,
+            "{refusal}"
+        );
+    }
+
+    #[test]
+    fn a_withdrawal_that_states_a_least_balance_of_zero_is_parsed() {
+        let cli = TaskQueueCli::try_parse_from(withdraw_args(Some("0"))).unwrap();
+
+        assert!(
+            matches!(
+                cli.cmd,
+                Cmd::Withdraw {
+                    min_remaining: 0,
+                    ..
+                }
+            ),
+            "{cli:?}"
+        );
+    }
+
+    #[test]
+    fn a_withdrawal_that_leaves_the_stated_least_balance_is_allowed() {
+        assert_eq!(balance_after_withdrawal(1_000, 400, 600, 100).unwrap(), 600);
+    }
+
+    #[test]
+    fn a_withdrawal_that_leaves_the_rent_exempt_minimum_is_allowed() {
+        assert_eq!(balance_after_withdrawal(1_000, 900, 0, 100).unwrap(), 100);
+    }
+
+    #[test]
+    fn a_withdrawal_below_both_the_minimum_and_the_stated_least_balance_is_refused_for_the_minimum()
+    {
+        let refusal = balance_after_withdrawal(1_000, 950, 500, 100).unwrap_err();
+
+        assert!(
+            refusal.to_string().contains("rent-exempt minimum"),
+            "{refusal}"
+        );
+    }
+
+    #[test]
+    fn a_withdrawal_below_the_stated_least_balance_is_refused() {
+        let refusal = balance_after_withdrawal(1_000, 401, 600, 100).unwrap_err();
+
+        assert!(refusal.to_string().contains("--min-remaining"), "{refusal}");
+    }
+
+    #[test]
+    fn a_withdrawal_below_the_rent_exempt_minimum_is_refused() {
+        let refusal = balance_after_withdrawal(1_000, 901, 0, 100).unwrap_err();
+
+        assert!(
+            refusal.to_string().contains("rent-exempt minimum"),
+            "{refusal}"
+        );
+    }
+
+    #[test]
+    fn a_withdrawal_of_more_than_the_balance_is_refused() {
+        let refusal = balance_after_withdrawal(1_000, 1_001, 0, 100).unwrap_err();
+
+        assert!(
+            refusal.to_string().contains("holds less than the amount"),
+            "{refusal}"
+        );
+    }
 }

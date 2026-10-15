@@ -175,6 +175,8 @@ struct TaskProcessor<'a, 'info> {
     // Changes to make to task queue
     tasks_to_set: Vec<u16>, // Task IDs to set as existing
     queue_lamports_needed: u64,
+    // Rent of the returned tasks of this run that took the rent refund of the running task
+    rent_attributed: u64,
 }
 
 impl<'a, 'info> TaskProcessor<'a, 'info> {
@@ -222,6 +224,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             capacity,
             tasks_to_set: Vec::new(),
             queue_lamports_needed: 0,
+            rent_attributed: 0,
         })
     }
 
@@ -494,6 +497,20 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         let lamports_from_task = task_remaining_lamports.min(lamports);
         let lamports_needed_from_queue = lamports.saturating_sub(lamports_from_task);
 
+        // A returned task whose whole rent the running task supplies refunds where the running
+        // task does. The crank reward is not part of the test: a running task has set its own
+        // aside, so a successor of its size is always short by exactly that. The rent that a
+        // run attributes this way stays at or below the `rent_amount` of the running task, so its
+        // rent refund gets back at most that amount through returned tasks. Lamports sent to the
+        // task after it is queued can still decide which returned tasks that budget covers.
+        if lamports_from_task >= rent_lamports
+            && self.rent_attributed.saturating_add(rent_lamports)
+                <= self.ctx.accounts.task.rent_amount
+        {
+            task_data.rent_refund = self.ctx.accounts.task.rent_refund;
+            self.rent_attributed += rent_lamports;
+        }
+
         if lamports_from_task > 0 {
             task_info.sub_lamports(lamports_from_task)?;
             free_task_account.add_lamports(lamports_from_task)?;
@@ -717,7 +734,7 @@ pub fn handler<'info>(
                 task_queue_current_lamports
             );
         }
-        require_gt!(
+        require_gte!(
             task_queue_current_lamports.saturating_sub(queue_lamports_needed),
             task_queue_min_lamports,
             ErrorCode::TaskQueueInsufficientFunds

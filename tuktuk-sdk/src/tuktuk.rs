@@ -392,7 +392,7 @@ pub mod cron_job_transaction {
 
 pub mod task_queue {
     use tuktuk::accounts::TuktukConfigV0;
-    use tuktuk_program::types::UpdateTaskQueueArgsV0;
+    use tuktuk_program::types::{UpdateTaskQueueArgsV0, WithdrawTaskQueueSurplusArgsV0};
 
     use self::tuktuk::types::InitializeTaskQueueArgsV0;
     use super::*;
@@ -577,6 +577,53 @@ pub mod task_queue {
             task_queue_key,
             queue_authority,
             task_queue.update_authority,
+        )
+    }
+
+    pub fn withdraw_task_queue_surplus_ix(
+        task_queue_key: Pubkey,
+        queue_authority: Pubkey,
+        update_authority: Pubkey,
+        amount: u64,
+        min_remaining: u64,
+    ) -> Result<Instruction, Error> {
+        Ok(Instruction {
+            program_id: tuktuk::ID,
+            accounts: tuktuk::client::accounts::WithdrawTaskQueueSurplusV0 {
+                task_queue: task_queue_key,
+                queue_authority,
+                update_authority,
+                task_queue_authority: task_queue_authority_key(&task_queue_key, &queue_authority),
+            }
+            .to_account_metas(None),
+            data: tuktuk::client::args::WithdrawTaskQueueSurplusV0 {
+                args: WithdrawTaskQueueSurplusArgsV0 {
+                    amount,
+                    min_remaining,
+                },
+            }
+            .data(),
+        })
+    }
+
+    pub async fn withdraw_task_queue_surplus<C: GetAnchorAccount>(
+        client: &C,
+        task_queue_key: Pubkey,
+        queue_authority: Pubkey,
+        amount: u64,
+        min_remaining: u64,
+    ) -> Result<Instruction, Error> {
+        let task_queue: TaskQueueV0 = client
+            .anchor_account(&task_queue_key)
+            .await?
+            .ok_or_else(|| Error::AccountNotFound)?;
+
+        withdraw_task_queue_surplus_ix(
+            task_queue_key,
+            queue_authority,
+            task_queue.update_authority,
+            amount,
+            min_remaining,
         )
     }
 

@@ -69,4 +69,6 @@ pub enum ErrorCode {
     StaleTaskAgeCannotDecrease,
     #[msg("Task is not queued (already dequeued, or currently running)")]
     TaskNotQueued,
+    #[msg("Task queue would hold less than the minimum the caller asked to leave")]
+    TaskQueueBelowMinRemaining,
 }
