@@ -501,9 +501,9 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         // pays the whole of a returned task, rent and crank reward, and the running task keeps
         // the rent it would have spent. That rent goes to the payer when the running task closes
         // at the end of this run, and the task queue gets the rent back when the returned task
-        // closes. The rent that a run funds this way stays at or below the `rent_amount` of the
-        // running task, so the payer gets back at most that amount. A returned task above that
-        // limit is funded by the running task first and by the task queue for the rest.
+        // closes. The task queue fronts at most `rent_amount` of rent for returned tasks in one
+        // run, and the running task keeps that rent for the payer. A returned task above that
+        // budget takes only what is left above it, and the task queue pays the rest.
         let funded_by_queue = self.ctx.accounts.task.rent_refund != task_queue_key
             && self.rent_attributed.saturating_add(rent_lamports)
                 <= self.ctx.accounts.task.rent_amount;
@@ -511,7 +511,9 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             self.rent_attributed += rent_lamports;
             0
         } else {
-            task_remaining_lamports.min(lamports)
+            task_remaining_lamports
+                .saturating_sub(self.rent_attributed)
+                .min(lamports)
         };
         let lamports_needed_from_queue = lamports.saturating_sub(lamports_from_task);
 

@@ -1658,6 +1658,64 @@ fn a_returned_task_after_one_above_the_budget_is_still_funded_by_the_task_queue(
 }
 
 #[test]
+fn an_over_budget_returned_task_does_not_take_the_rent_kept_for_the_payer() {
+    let mut ctx = setup(100, MIN_CRANK_REWARD, 100_000);
+    let payer = ctx.payer();
+    let turner = ctx.turner();
+    let start = lamports(&ctx.svm, &payer.pubkey());
+
+    // Two returned tasks in the budget, then one that goes above it. Nothing tops up the root.
+    queue_paid_by(
+        &mut ctx,
+        &payer,
+        0,
+        TriggerV0::Now,
+        TransactionSourceV0::CompiledV0(returns(vec![
+            child(None),
+            child(None),
+            child_of_size(300),
+        ])),
+        3,
+    )
+    .expect("queue the root task");
+    let (root, _) = task_pda(&ctx.task_queue, 0);
+    let returned: Vec<Pubkey> = (1..=3).map(|id| task_pda(&ctx.task_queue, id).0).collect();
+    let root_rent = rent_of(&ctx.svm, &root);
+    assert_eq!(read_task(&ctx.svm, &root).rent_amount, root_rent);
+    let queue_before = lamports(&ctx.svm, &ctx.task_queue);
+
+    run_task(&mut ctx, 0, &turner, vec![1, 2, 3], returned.clone()).expect("run the root task");
+
+    let rent: Vec<u64> = returned.iter().map(|k| rent_of(&ctx.svm, k)).collect();
+    assert!(
+        rent[0] + rent[1] <= root_rent,
+        "the fixture needs two returned tasks in the budget"
+    );
+    assert!(
+        rent[0] + rent[1] + rent[2] > root_rent,
+        "the fixture needs a third returned task that goes above the budget"
+    );
+    // The root task pays the third returned task only with the rent above what it keeps for
+    // the payer. The task queue pays the first two returned tasks and the rest of the third.
+    let root_paid = root_rent - rent[0] - rent[1];
+    assert_eq!(
+        queue_before - lamports(&ctx.svm, &ctx.task_queue),
+        rent[0] + rent[1] + 2 * MIN_CRANK_REWARD + rent[2] + MIN_CRANK_REWARD - root_paid
+    );
+
+    for id in 1..=3u16 {
+        run_task(&mut ctx, id, &turner, vec![], vec![]).expect("run a returned task");
+    }
+
+    // The payer gets back the rent the root task kept for it, and pays the crank reward of the
+    // root task and what the root task paid toward the third returned task.
+    assert_eq!(
+        lamports(&ctx.svm, &payer.pubkey()),
+        start - MIN_CRANK_REWARD - root_paid
+    );
+}
+
+#[test]
 fn lamports_from_another_account_do_not_raise_what_the_task_queue_pays() {
     let mut ctx = setup(100, MIN_CRANK_REWARD, 100_000);
     let payer = ctx.payer();
