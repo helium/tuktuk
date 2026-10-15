@@ -175,7 +175,8 @@ struct TaskProcessor<'a, 'info> {
     // Changes to make to task queue
     tasks_to_set: Vec<u16>, // Task IDs to set as existing
     queue_lamports_needed: u64,
-    // Rent of the returned tasks of this run that took the rent refund of the running task
+    // Rent of the returned tasks of this run that the task queue funded for the rent refund of
+    // the running task
     rent_attributed: u64,
 }
 
@@ -494,22 +495,25 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             .to_account_info()
             .lamports()
             .saturating_sub(self.ctx.accounts.task.crank_reward);
-        let lamports_from_task = task_remaining_lamports.min(lamports);
-        let lamports_needed_from_queue = lamports.saturating_sub(lamports_from_task);
 
-        // A returned task whose whole rent the running task supplies refunds where the running
-        // task does. The crank reward is not part of the test: a running task has set its own
-        // aside, so a successor of its size is always short by exactly that. The rent that a
-        // run attributes this way stays at or below the `rent_amount` of the running task, so its
-        // rent refund gets back at most that amount through returned tasks. Lamports sent to the
-        // task after it is queued can still decide which returned tasks that budget covers.
-        if lamports_from_task >= rent_lamports
+        // A returned task always refunds to the task queue, so its run carries no account beyond
+        // the task queue for its refund. When the running task refunds to a payer, the task queue
+        // pays the whole of a returned task, rent and crank reward, and the running task keeps
+        // the rent it would have spent. That rent goes to the payer when the running task closes
+        // at the end of this run, and the task queue gets the rent back when the returned task
+        // closes. The rent that a run funds this way stays at or below the `rent_amount` of the
+        // running task, so the payer gets back at most that amount. A returned task above that
+        // limit is funded by the running task first and by the task queue for the rest.
+        let funded_by_queue = self.ctx.accounts.task.rent_refund != task_queue_key
             && self.rent_attributed.saturating_add(rent_lamports)
-                <= self.ctx.accounts.task.rent_amount
-        {
-            task_data.rent_refund = self.ctx.accounts.task.rent_refund;
+                <= self.ctx.accounts.task.rent_amount;
+        let lamports_from_task = if funded_by_queue {
             self.rent_attributed += rent_lamports;
-        }
+            0
+        } else {
+            task_remaining_lamports.min(lamports)
+        };
+        let lamports_needed_from_queue = lamports.saturating_sub(lamports_from_task);
 
         if lamports_from_task > 0 {
             task_info.sub_lamports(lamports_from_task)?;
