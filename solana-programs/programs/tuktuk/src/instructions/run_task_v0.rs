@@ -175,8 +175,9 @@ struct TaskProcessor<'a, 'info> {
     // Changes to make to task queue
     tasks_to_set: Vec<u16>, // Task IDs to set as existing
     queue_lamports_needed: u64,
-    // Rent of the returned tasks of this run that took the rent refund of the running task
-    rent_attributed: u64,
+    // Rent of returned tasks the task queue fronted in this run; the running task keeps it for
+    // its rent refund.
+    rent_fronted: u64,
 }
 
 impl<'a, 'info> TaskProcessor<'a, 'info> {
@@ -224,7 +225,7 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             capacity,
             tasks_to_set: Vec::new(),
             queue_lamports_needed: 0,
-            rent_attributed: 0,
+            rent_fronted: 0,
         })
     }
 
@@ -494,22 +495,40 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             .to_account_info()
             .lamports()
             .saturating_sub(self.ctx.accounts.task.crank_reward);
-        let lamports_from_task = task_remaining_lamports.min(lamports);
-        let lamports_needed_from_queue = lamports.saturating_sub(lamports_from_task);
 
-        // A returned task whose whole rent the running task supplies refunds where the running
-        // task does. The crank reward is not part of the test: a running task has set its own
-        // aside, so a successor of its size is always short by exactly that. The rent that a
-        // run attributes this way stays at or below the `rent_amount` of the running task, so its
-        // rent refund gets back at most that amount through returned tasks. Lamports sent to the
-        // task after it is queued can still decide which returned tasks that budget covers.
-        if lamports_from_task >= rent_lamports
-            && self.rent_attributed.saturating_add(rent_lamports)
+        // A returned task always refunds to the task queue, so its run carries no account beyond
+        // the task queue for its refund. When the running task refunds to a payer, the task queue
+        // pays the whole of a returned task, rent and crank reward, and the running task keeps
+        // the rent it would have spent. That rent goes to the payer when the running task closes
+        // at the end of this run, and the task queue gets the rent back when the returned task
+        // closes. The task queue funds each returned task whose rent, added to the rent it already
+        // funded in this run, fits in `rent_amount`; the running task keeps that rent for the
+        // payer. A returned task over that budget takes only the running task's lamports above the
+        // rent kept so far, and the task queue pays the rest, so in one run the task queue can
+        // front more than `rent_amount`, and an over-budget task that comes first can take rent
+        // that would otherwise go to the payer. The task queue funds a returned task only while it
+        // can pay it; otherwise the running task pays, as for a returned task over the budget.
+        // What the task queue can pay is its surplus now; the check at the end of the run catches
+        // lamports taken from it later in the run.
+        let task_queue_info = self.ctx.accounts.task_queue.to_account_info();
+        let queue_surplus = task_queue_info
+            .lamports()
+            .saturating_sub(Rent::get()?.minimum_balance(task_queue_info.data_len()));
+        // A parent that refunds to the task queue gains nothing from fronting, and fronting would
+        // keep rent from a later over-budget child, which the queue would then pay a second time.
+        let funded_by_queue = self.ctx.accounts.task.rent_refund != task_queue_key
+            && self.rent_fronted.saturating_add(rent_lamports)
                 <= self.ctx.accounts.task.rent_amount
-        {
-            task_data.rent_refund = self.ctx.accounts.task.rent_refund;
-            self.rent_attributed += rent_lamports;
-        }
+            && self.queue_lamports_needed.saturating_add(lamports) <= queue_surplus;
+        let lamports_from_task = if funded_by_queue {
+            self.rent_fronted += rent_lamports;
+            0
+        } else {
+            task_remaining_lamports
+                .saturating_sub(self.rent_fronted)
+                .min(lamports)
+        };
+        let lamports_needed_from_queue = lamports.saturating_sub(lamports_from_task);
 
         if lamports_from_task > 0 {
             task_info.sub_lamports(lamports_from_task)?;
