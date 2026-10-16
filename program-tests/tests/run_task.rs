@@ -2473,6 +2473,218 @@ fn a_returned_task_pays_for_its_own_returned_task_when_the_task_queue_holds_its_
     );
 }
 
+/// Queue, as task 0, a root task that `payer` pays for and that returns `children` tasks. The
+/// root task is padded by `padding` bytes so that its rent covers the rent of the tasks it
+/// returns. Returns the root task, the free task ids, and the accounts a turner passes to run it.
+fn queue_paid_root_that_returns(
+    ctx: &mut Ctx,
+    payer: &Keypair,
+    children: u8,
+    padding: usize,
+) -> (Pubkey, Vec<u16>, Vec<Pubkey>) {
+    let returned = (0..children).map(|_| child(None)).collect();
+    queue_paid_by(
+        ctx,
+        payer,
+        0,
+        TriggerV0::Now,
+        TransactionSourceV0::CompiledV0(returns_padded(returned, padding)),
+        children,
+    )
+    .expect("queue the root task");
+    let ids: Vec<u16> = (1..=u16::from(children)).collect();
+    let accounts = ids
+        .iter()
+        .map(|id| task_pda(&ctx.task_queue, *id).0)
+        .collect();
+    (task_pda(&ctx.task_queue, 0).0, ids, accounts)
+}
+
+/// The rent and crank reward of one task that a root task returns, measured from a run in which
+/// the task queue keeps its full balance and so pays the whole of it.
+fn cost_of_a_returned_task() -> u64 {
+    let mut ctx = setup(100, MIN_CRANK_REWARD, 100_000);
+    let payer = ctx.payer();
+    let turner = ctx.turner();
+    let (_, ids, accounts) = queue_paid_root_that_returns(&mut ctx, &payer, 1, 200);
+    let queue_before = lamports(&ctx.svm, &ctx.task_queue);
+    run_task(&mut ctx, 0, &turner, ids, accounts.clone()).expect("run the root task");
+    let cost = queue_before - lamports(&ctx.svm, &ctx.task_queue);
+    assert_eq!(cost, rent_of(&ctx.svm, &accounts[0]) + MIN_CRANK_REWARD);
+    cost
+}
+
+#[test]
+fn the_task_queue_funds_a_returned_task_when_its_surplus_equals_the_task_cost() {
+    let cost = cost_of_a_returned_task();
+    let mut ctx = setup(100, MIN_CRANK_REWARD, 100_000);
+    let payer = ctx.payer();
+    let turner = ctx.turner();
+    let (root, ids, accounts) = queue_paid_root_that_returns(&mut ctx, &payer, 1, 200);
+    let minimum = rent_of(&ctx.svm, &ctx.task_queue);
+    withdraw_down_to(&mut ctx, minimum + cost);
+    let root_lamports = lamports(&ctx.svm, &root);
+    let payer_before = lamports(&ctx.svm, &payer.pubkey());
+
+    let result = run_task(&mut ctx, 0, &turner, ids, accounts.clone());
+
+    assert!(
+        result.is_ok(),
+        "run failed: {:?}",
+        result.as_ref().err().map(|e| &e.err)
+    );
+    // The task queue paid the whole of the returned task. The root task paid its own crank
+    // reward and closed to the payer with the rest.
+    assert_eq!(lamports(&ctx.svm, &ctx.task_queue), minimum);
+    assert_eq!(lamports(&ctx.svm, &accounts[0]), cost);
+    assert_eq!(
+        lamports(&ctx.svm, &payer.pubkey()),
+        payer_before + root_lamports - MIN_CRANK_REWARD
+    );
+}
+
+#[test]
+fn the_root_task_pays_its_returned_task_when_the_task_queue_surplus_is_one_lamport_below_the_task_cost(
+) {
+    let cost = cost_of_a_returned_task();
+    let mut ctx = setup(100, MIN_CRANK_REWARD, 100_000);
+    let payer = ctx.payer();
+    let turner = ctx.turner();
+    let (root, ids, accounts) = queue_paid_root_that_returns(&mut ctx, &payer, 1, 200);
+    let minimum = rent_of(&ctx.svm, &ctx.task_queue);
+    withdraw_down_to(&mut ctx, minimum + cost - 1);
+    let root_lamports = lamports(&ctx.svm, &root);
+    let payer_before = lamports(&ctx.svm, &payer.pubkey());
+
+    let result = run_task(&mut ctx, 0, &turner, ids, accounts.clone());
+
+    assert!(
+        result.is_ok(),
+        "run failed: {:?}",
+        result.as_ref().err().map(|e| &e.err)
+    );
+    // The task queue paid nothing. The root task paid the whole of its returned task and its own
+    // crank reward, and closed to the payer with the rest.
+    assert_eq!(lamports(&ctx.svm, &ctx.task_queue), minimum + cost - 1);
+    assert_eq!(lamports(&ctx.svm, &accounts[0]), cost);
+    assert_eq!(
+        lamports(&ctx.svm, &payer.pubkey()),
+        payer_before + root_lamports - MIN_CRANK_REWARD - cost
+    );
+}
+
+#[test]
+fn two_returned_tasks_share_the_task_queue_surplus() {
+    let cost = cost_of_a_returned_task();
+    let mut ctx = setup(100, MIN_CRANK_REWARD, 100_000);
+    let payer = ctx.payer();
+    let turner = ctx.turner();
+    let (root, ids, accounts) = queue_paid_root_that_returns(&mut ctx, &payer, 2, 400);
+    let minimum = rent_of(&ctx.svm, &ctx.task_queue);
+    withdraw_down_to(&mut ctx, minimum + 2 * cost - 1);
+    let budget = read_task(&ctx.svm, &root).rent_amount;
+    let root_lamports = lamports(&ctx.svm, &root);
+    let payer_before = lamports(&ctx.svm, &payer.pubkey());
+
+    let result = run_task(&mut ctx, 0, &turner, ids, accounts.clone());
+
+    assert!(
+        result.is_ok(),
+        "run failed: {:?}",
+        result.as_ref().err().map(|e| &e.err)
+    );
+    assert!(
+        2 * (cost - MIN_CRANK_REWARD) <= budget,
+        "the fixture needs a root task whose rent covers the rent of both tasks it returns"
+    );
+    // The surplus covers one returned task and not two. The task queue paid the first, and the
+    // root task paid the second and its own crank reward, and closed to the payer with the rest.
+    assert_eq!(lamports(&ctx.svm, &ctx.task_queue), minimum + cost - 1);
+    assert_eq!(lamports(&ctx.svm, &accounts[0]), cost);
+    assert_eq!(lamports(&ctx.svm, &accounts[1]), cost);
+    assert_eq!(
+        lamports(&ctx.svm, &payer.pubkey()),
+        payer_before + root_lamports - MIN_CRANK_REWARD - cost
+    );
+}
+
+/// Queue, as task 0, a root task that returns one task, which in turn returns two tasks. The
+/// returned task refunds to the task queue. Returns the returned task and the free task ids and
+/// accounts a turner passes to run it.
+fn queue_returned_task_that_returns_two(ctx: &mut Ctx) -> (Pubkey, Vec<u16>, Vec<Pubkey>) {
+    let turner = ctx.turner();
+    let returning = tuktuk::TaskReturnV0 {
+        transaction: TransactionSourceV0::CompiledV0(returns(vec![child(None), child(None)])),
+        free_tasks: 2,
+        ..child(None)
+    };
+    queue(ctx, 0, TriggerV0::Now, returns(vec![returning]), 1).expect("queue the root task");
+    let (returned, _) = task_pda(&ctx.task_queue, 1);
+    run_task(ctx, 0, &turner, vec![1], vec![returned]).expect("run the root task");
+    let ids = vec![2, 3];
+    let accounts = ids
+        .iter()
+        .map(|id| task_pda(&ctx.task_queue, *id).0)
+        .collect();
+    (returned, ids, accounts)
+}
+
+#[test]
+fn a_task_that_refunds_to_the_task_queue_pays_its_over_budget_returned_task_after_an_in_budget_one()
+{
+    // Measure the two tasks the returned task returns from a run against a task queue that keeps
+    // its full balance.
+    let (first_cost, second_cost) = {
+        let mut ctx = setup(100, MIN_CRANK_REWARD, 100_000);
+        let turner = ctx.turner();
+        let (_, ids, accounts) = queue_returned_task_that_returns_two(&mut ctx);
+        run_task(&mut ctx, 1, &turner, ids, accounts.clone()).expect("run the returned task");
+        (
+            lamports(&ctx.svm, &accounts[0]),
+            lamports(&ctx.svm, &accounts[1]),
+        )
+    };
+    let first_rent = first_cost - MIN_CRANK_REWARD;
+    let second_rent = second_cost - MIN_CRANK_REWARD;
+    let mut ctx = setup(100, MIN_CRANK_REWARD, 100_000);
+    let turner = ctx.turner();
+    let (returned, ids, accounts) = queue_returned_task_that_returns_two(&mut ctx);
+    assert_eq!(read_task(&ctx.svm, &returned).rent_refund, ctx.task_queue);
+    let budget = read_task(&ctx.svm, &returned).rent_amount;
+    assert_eq!(
+        lamports(&ctx.svm, &returned),
+        budget + MIN_CRANK_REWARD,
+        "a returned task holds its rent and crank reward"
+    );
+    assert!(
+        first_rent <= budget && first_rent + second_rent > budget,
+        "the fixture needs a first task inside the rent budget and a second over it"
+    );
+    // The returned task pays its whole rent toward the two tasks, so the task queue needs the
+    // rest. Had the task queue fronted the first task, the returned task would keep that rent
+    // and the task queue would need it as well. The surplus is one lamport short of that.
+    let needed = first_cost + second_cost - budget;
+    let minimum = rent_of(&ctx.svm, &ctx.task_queue);
+    withdraw_down_to(&mut ctx, minimum + needed + first_rent - 1);
+
+    let result = run_task(&mut ctx, 1, &turner, ids, accounts.clone());
+
+    assert!(
+        result.is_ok(),
+        "run failed: {:?}",
+        result.as_ref().err().map(|e| &e.err)
+    );
+    assert!(!task_account_exists(&ctx.svm, &returned));
+    assert_eq!(lamports(&ctx.svm, &accounts[0]), first_cost);
+    assert_eq!(lamports(&ctx.svm, &accounts[1]), second_cost);
+    // The task queue paid what the returned task could not, and the returned task closed to the
+    // task queue with nothing left after its crank reward.
+    assert_eq!(
+        lamports(&ctx.svm, &ctx.task_queue),
+        minimum + first_rent - 1
+    );
+}
+
 #[test]
 fn a_run_that_needs_more_than_the_task_queue_holds_is_refused() {
     let needed = lamports_a_run_takes_from_the_task_queue(4);

@@ -178,9 +178,6 @@ struct TaskProcessor<'a, 'info> {
     // Rent of returned tasks the task queue fronted in this run; the running task keeps it for
     // its rent refund.
     rent_fronted: u64,
-    // What the task queue held above its rent-exempt minimum when the run began, which is what
-    // the check at the end of the run lets it pay.
-    queue_surplus: u64,
 }
 
 impl<'a, 'info> TaskProcessor<'a, 'info> {
@@ -218,11 +215,6 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             })
             .collect::<Result<_>>()?;
 
-        let task_queue_info = ctx.accounts.task_queue.to_account_info();
-        let queue_surplus = task_queue_info
-            .lamports()
-            .saturating_sub(Rent::get()?.minimum_balance(task_queue_info.data_len()));
-
         Ok(Self {
             ctx,
             free_task_ids,
@@ -234,7 +226,6 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             tasks_to_set: Vec::new(),
             queue_lamports_needed: 0,
             rent_fronted: 0,
-            queue_surplus,
         })
     }
 
@@ -517,15 +508,14 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         // front more than `rent_amount`, and an over-budget task that comes first can take rent
         // that would otherwise go to the payer. The task queue funds a returned task only while it
         // can pay it; otherwise the running task pays, as for a returned task over the budget.
-        // What the task queue can pay is the lesser of its surplus when the run began and its
-        // surplus now, so lamports sent to it during the run do not count and lamports taken from
-        // it do.
+        // What the task queue can pay is its surplus now; the check at the end of the run catches
+        // lamports taken from it later in the run.
         let task_queue_info = self.ctx.accounts.task_queue.to_account_info();
-        let queue_surplus = self.queue_surplus.min(
-            task_queue_info
-                .lamports()
-                .saturating_sub(Rent::get()?.minimum_balance(task_queue_info.data_len())),
-        );
+        let queue_surplus = task_queue_info
+            .lamports()
+            .saturating_sub(Rent::get()?.minimum_balance(task_queue_info.data_len()));
+        // A parent that refunds to the task queue gains nothing from fronting, and fronting would
+        // keep rent from a later over-budget child, which the queue would then pay a second time.
         let funded_by_queue = self.ctx.accounts.task.rent_refund != task_queue_key
             && self.rent_fronted.saturating_add(rent_lamports)
                 <= self.ctx.accounts.task.rent_amount
