@@ -73,11 +73,17 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
     // A cron job carries one schedule chain, and records which task holds it. A run is that
     // task, or it adopts a record that holds nothing, which is the state a chain left behind
     // when it ended, and the state `requeue_cron_task_v1` also answers to.
-    require_keys_eq!(
-        ctx.accounts.recorded_schedule_task.key(),
-        cron_job.next_schedule_task,
-        ErrorCode::WrongScheduleTask
-    );
+    //
+    // A run compiled against another record belongs to a chain that has ended, for example a
+    // schedule task that outlived the job it was queued for. It completes with no tasks, like a
+    // run on a closed job, so it closes now instead of failing until the queue drops it.
+    if ctx.accounts.recorded_schedule_task.key() != cron_job.next_schedule_task {
+        msg!("Not the schedule task this cron job records, completing task");
+        return Ok(RunTaskReturnV0 {
+            tasks: vec![],
+            accounts: vec![],
+        });
+    }
     // Only a live record has to be matched against the running task, so adopting an ended chain
     // does not depend on the run being one this program can identify. Reading the running task
     // needs `run_task_v0` to be the top-level instruction, which a caller that reaches it through

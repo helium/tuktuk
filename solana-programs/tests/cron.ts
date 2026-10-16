@@ -815,7 +815,7 @@ describe("cron", () => {
         });
       });
 
-      it("refuses a schedule run that names a record the cron job does not hold", async () => {
+      it("completes without queueing a schedule run that names a record the cron job does not hold", async () => {
         // The record a schedule run is measured against is the cron job's own field, not an
         // account the run names.
         const [cronSigner, bump] = customSignerKey(taskQueue, [
@@ -865,20 +865,12 @@ describe("cron", () => {
 
         const keys = watched(cronJob);
         const before = await snapshot(keys);
-        const ixs = await runTask({
-          program: tuktukProgram,
-          task: mintTask,
-          crankTurner: me,
-          nextAvailableTaskIds: [84, 85],
-        });
-        await expectRefusal(
-          [ComputeBudgetProgram.setComputeUnitLimit({ units: 1000000 }), ...ixs],
-          {
-            program: cronProgram.programId,
-            error: "WrongScheduleTask",
-            code: 6012,
-          }
-        );
+        await run(mintTask, [84, 85]);
+        expect(await tuktukProgram.account.taskV0.fetchNullable(mintTask)).to.be.null;
+        expect(
+          await tuktukProgram.account.taskV0.fetchNullable(taskKey(taskQueue, 84)[0]),
+          "the run queues nothing"
+        ).to.be.null;
         expectUnchanged(before, await snapshot(keys), keys);
       });
 
@@ -1037,6 +1029,51 @@ describe("cron", () => {
           }
         );
         expectUnchanged(before, await snapshot(keys), keys);
+      });
+
+      it("completes a schedule task left behind by a cron job closed and created again", async () => {
+        // Closing a cron job leaves its pending schedule task queued, and the next job the same
+        // authority creates takes the same address. The old task then runs against a job that
+        // records another chain.
+        const name = makeid(10);
+        const first = await createCronJobFor(name, 0);
+        const orphan = taskKey(taskQueue, first.taskId)[0];
+        await cronProgram.methods
+          .closeCronJobV0()
+          .accounts({
+            rentRefund: me,
+            authority: me,
+            userCronJobs: userCronJobsKey(me)[0],
+            cronJob: first.job,
+            cronJobNameMapping: cronJobNameMappingKey(me, name)[0],
+          })
+          .rpc({ skipPreflight: true });
+        expect(
+          await tuktukProgram.account.taskV0.fetchNullable(orphan),
+          "precondition: the schedule task outlives its cron job"
+        ).to.not.be.null;
+
+        const second = await createCronJobFor(name, 0);
+        expect(second.job.toBase58(), "precondition: the new job reuses the address").to.eq(
+          first.job.toBase58()
+        );
+        const recorded = await recordedTask(second.job);
+        expect(recorded.toBase58()).to.not.eq(orphan.toBase58());
+
+        const keys = watched(second.job);
+        const before = await snapshot(keys);
+        await run(orphan, [86, 87]);
+
+        expect(
+          await tuktukProgram.account.taskV0.fetchNullable(orphan),
+          "the orphan closes on its first run"
+        ).to.be.null;
+        expect(
+          await tuktukProgram.account.taskV0.fetchNullable(taskKey(taskQueue, 86)[0]),
+          "the orphan queues nothing"
+        ).to.be.null;
+        expectUnchanged(before, await snapshot(keys), keys);
+        expect((await recordedTask(second.job)).toBase58()).to.eq(recorded.toBase58());
       });
 
       it("adopts a chain a legacy handover named the default", async () => {
