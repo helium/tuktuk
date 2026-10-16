@@ -1416,7 +1416,7 @@ fn the_run_of_a_returned_task_names_no_account_of_the_payer() {
         vec![],
         vec![],
     );
-    let tx = Transaction::new_with_payer(&[ix.clone()], Some(&turner.pubkey()));
+    let tx = Transaction::new_with_payer(std::slice::from_ref(&ix), Some(&turner.pubkey()));
 
     // The crank turner builds the run with the rent refund the task holds. That is the task
     // queue, which the run names already, so the transaction is no larger than a run that
@@ -2378,11 +2378,12 @@ fn a_run_that_would_leave_the_task_queue_one_lamport_below_its_minimum_is_refuse
 }
 
 #[test]
-fn a_run_whose_returned_task_the_task_queue_cannot_pay_is_refused() {
+fn a_root_task_pays_its_returned_task_when_the_task_queue_holds_its_minimum() {
     let mut ctx = setup(100, MIN_CRANK_REWARD, 100_000);
     let payer = ctx.payer();
     let turner = ctx.turner();
-    // The rent of the root task covers its returned task, and the task queue pays that task.
+    // The rent of the root task covers its returned task, so the task queue would pay that task
+    // if it could.
     queue_paid_by(
         &mut ctx,
         &payer,
@@ -2396,20 +2397,79 @@ fn a_run_whose_returned_task_the_task_queue_cannot_pay_is_refused() {
     let (returned, _) = task_pda(&ctx.task_queue, 1);
     let minimum = rent_of(&ctx.svm, &ctx.task_queue);
     withdraw_down_to(&mut ctx, minimum);
-    let root_before = ctx.svm.get_account(&root).expect("the root task");
+    let root_lamports = lamports(&ctx.svm, &root);
+    let payer_before = lamports(&ctx.svm, &payer.pubkey());
 
     let result = run_task(&mut ctx, 0, &turner, vec![1], vec![returned]);
 
-    assert_eq!(
-        refusal(&result),
-        code(tuktuk::error::ErrorCode::TaskQueueInsufficientFunds),
-        "{:?}",
+    assert!(
+        result.is_ok(),
+        "run failed: {:?}",
         result.as_ref().err().map(|e| &e.err)
     );
+    assert!(task_account_exists(&ctx.svm, &returned));
+    assert_eq!(read_task(&ctx.svm, &returned).rent_refund, ctx.task_queue);
+    // The task queue paid nothing. The root task paid the rent and crank reward of its returned
+    // task and its own crank reward, and closed to the payer with the rest.
     assert_eq!(lamports(&ctx.svm, &ctx.task_queue), minimum);
+    let returned_rent = rent_of(&ctx.svm, &returned);
     assert_eq!(
-        ctx.svm.get_account(&root).expect("the root task"),
-        root_before
+        lamports(&ctx.svm, &returned),
+        returned_rent + MIN_CRANK_REWARD
+    );
+    assert_eq!(
+        lamports(&ctx.svm, &payer.pubkey()),
+        payer_before + root_lamports - MIN_CRANK_REWARD - returned_rent - MIN_CRANK_REWARD
+    );
+}
+
+#[test]
+fn a_returned_task_pays_for_its_own_returned_task_when_the_task_queue_holds_its_minimum() {
+    let mut ctx = setup(100, MIN_CRANK_REWARD, 100_000);
+    let payer = ctx.payer();
+    let turner = ctx.turner();
+    // Padded so that the rent of the returned task covers the rent and crank reward of the task
+    // it returns in turn.
+    let returning = tuktuk::TaskReturnV0 {
+        transaction: TransactionSourceV0::CompiledV0(returns_padded(vec![child(None)], 200)),
+        free_tasks: 1,
+        ..child(None)
+    };
+    queue_paid_by(
+        &mut ctx,
+        &payer,
+        0,
+        TriggerV0::Now,
+        TransactionSourceV0::CompiledV0(returns(vec![returning])),
+        1,
+    )
+    .expect("queue the root task");
+    let (returned, _) = task_pda(&ctx.task_queue, 1);
+    let (grandchild, _) = task_pda(&ctx.task_queue, 2);
+    run_task(&mut ctx, 0, &turner, vec![1], vec![returned]).expect("run the root task");
+    assert_eq!(read_task(&ctx.svm, &returned).rent_refund, ctx.task_queue);
+    let budget = read_task(&ctx.svm, &returned).rent_amount;
+    let returned_lamports = lamports(&ctx.svm, &returned);
+    let minimum = rent_of(&ctx.svm, &ctx.task_queue);
+    withdraw_down_to(&mut ctx, minimum);
+
+    run_task(&mut ctx, 1, &turner, vec![2], vec![grandchild]).expect("run the returned task");
+
+    let grandchild_rent = rent_of(&ctx.svm, &grandchild);
+    assert!(
+        grandchild_rent + MIN_CRANK_REWARD <= budget,
+        "the fixture needs a returned task whose rent covers the task it returns"
+    );
+    assert_eq!(read_task(&ctx.svm, &grandchild).rent_refund, ctx.task_queue);
+    assert_eq!(
+        lamports(&ctx.svm, &grandchild),
+        grandchild_rent + MIN_CRANK_REWARD
+    );
+    // The returned task paid the whole of the task it returned, paid its crank reward, and
+    // closed to the task queue with the rest. The task queue paid nothing.
+    assert_eq!(
+        lamports(&ctx.svm, &ctx.task_queue),
+        minimum + returned_lamports - MIN_CRANK_REWARD - grandchild_rent - MIN_CRANK_REWARD
     );
 }
 

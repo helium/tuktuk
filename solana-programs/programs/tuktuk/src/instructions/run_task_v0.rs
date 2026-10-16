@@ -175,9 +175,12 @@ struct TaskProcessor<'a, 'info> {
     // Changes to make to task queue
     tasks_to_set: Vec<u16>, // Task IDs to set as existing
     queue_lamports_needed: u64,
-    // Rent of the returned tasks of this run that the task queue funded for the rent refund of
-    // the running task
-    rent_attributed: u64,
+    // Rent of returned tasks the task queue fronted in this run; the running task keeps it for
+    // its rent refund.
+    rent_fronted: u64,
+    // What the task queue held above its rent-exempt minimum when the run began, which is what
+    // the check at the end of the run lets it pay.
+    queue_surplus: u64,
 }
 
 impl<'a, 'info> TaskProcessor<'a, 'info> {
@@ -215,6 +218,11 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             })
             .collect::<Result<_>>()?;
 
+        let task_queue_info = ctx.accounts.task_queue.to_account_info();
+        let queue_surplus = task_queue_info
+            .lamports()
+            .saturating_sub(Rent::get()?.minimum_balance(task_queue_info.data_len()));
+
         Ok(Self {
             ctx,
             free_task_ids,
@@ -225,7 +233,8 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
             capacity,
             tasks_to_set: Vec::new(),
             queue_lamports_needed: 0,
-            rent_attributed: 0,
+            rent_fronted: 0,
+            queue_surplus,
         })
     }
 
@@ -501,18 +510,32 @@ impl<'a, 'info> TaskProcessor<'a, 'info> {
         // pays the whole of a returned task, rent and crank reward, and the running task keeps
         // the rent it would have spent. That rent goes to the payer when the running task closes
         // at the end of this run, and the task queue gets the rent back when the returned task
-        // closes. The task queue fronts at most `rent_amount` of rent for returned tasks in one
-        // run, and the running task keeps that rent for the payer. A returned task above that
-        // budget takes only what is left above it, and the task queue pays the rest.
+        // closes. The task queue funds each returned task whose rent, added to the rent it already
+        // funded in this run, fits in `rent_amount`; the running task keeps that rent for the
+        // payer. A returned task over that budget takes only the running task's lamports above the
+        // rent kept so far, and the task queue pays the rest, so in one run the task queue can
+        // front more than `rent_amount`, and an over-budget task that comes first can take rent
+        // that would otherwise go to the payer. The task queue funds a returned task only while it
+        // can pay it; otherwise the running task pays, as for a returned task over the budget.
+        // What the task queue can pay is the lesser of its surplus when the run began and its
+        // surplus now, so lamports sent to it during the run do not count and lamports taken from
+        // it do.
+        let task_queue_info = self.ctx.accounts.task_queue.to_account_info();
+        let queue_surplus = self.queue_surplus.min(
+            task_queue_info
+                .lamports()
+                .saturating_sub(Rent::get()?.minimum_balance(task_queue_info.data_len())),
+        );
         let funded_by_queue = self.ctx.accounts.task.rent_refund != task_queue_key
-            && self.rent_attributed.saturating_add(rent_lamports)
-                <= self.ctx.accounts.task.rent_amount;
+            && self.rent_fronted.saturating_add(rent_lamports)
+                <= self.ctx.accounts.task.rent_amount
+            && self.queue_lamports_needed.saturating_add(lamports) <= queue_surplus;
         let lamports_from_task = if funded_by_queue {
-            self.rent_attributed += rent_lamports;
+            self.rent_fronted += rent_lamports;
             0
         } else {
             task_remaining_lamports
-                .saturating_sub(self.rent_attributed)
+                .saturating_sub(self.rent_fronted)
                 .min(lamports)
         };
         let lamports_needed_from_queue = lamports.saturating_sub(lamports_from_task);
