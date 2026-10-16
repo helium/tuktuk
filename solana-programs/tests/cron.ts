@@ -433,7 +433,8 @@ describe("cron", () => {
       async function createCronJobFor(
         name: string,
         lamports: number,
-        perQueueCall: number = numTasksPerQueueCall
+        perQueueCall: number = numTasksPerQueueCall,
+        queue: PublicKey = taskQueue
       ) {
         const userCronJobsAcc =
           await cronProgram.account.userCronJobsV0.fetchNullable(
@@ -449,7 +450,7 @@ describe("cron", () => {
             }),
           ]);
         }
-        const queueAcc = await tuktukProgram.account.taskQueueV0.fetch(taskQueue);
+        const queueAcc = await tuktukProgram.account.taskQueueV0.fetch(queue);
         const taskId = nextAvailableTaskIds(
           queueAcc.taskBitmap,
           1,
@@ -470,9 +471,9 @@ describe("cron", () => {
             payer: me,
             authority: me,
             cronJobNameMapping: cronJobNameMappingKey(me, name)[0],
-            taskQueue,
+            taskQueue: queue,
             cronJob: job,
-            task: taskKey(taskQueue, taskId)[0],
+            task: taskKey(queue, taskId)[0],
           })
           .rpc({ skipPreflight: true });
         return { job, taskId };
@@ -874,7 +875,7 @@ describe("cron", () => {
         expectUnchanged(before, await snapshot(keys), keys);
       });
 
-      it("refuses a schedule run against a task queue the cron job does not name", async () => {
+      it("completes without queueing a schedule run against a task queue the cron job does not name", async () => {
         const recorded = await recordedTask(cronJob);
         const otherName = makeid(10);
         const config = await tuktukProgram.account.tuktukConfigV0.fetch(tuktukConfig);
@@ -948,20 +949,12 @@ describe("cron", () => {
         // from. The cron job names a different queue, and that is what the run is measured on.
         const keys = watched(cronJob);
         const before = await snapshot(keys);
-        const ixs = await runTask({
-          program: tuktukProgram,
-          task: otherTask,
-          crankTurner: me,
-          nextAvailableTaskIds: [10, 11],
-        });
-        await expectRefusal(
-          [ComputeBudgetProgram.setComputeUnitLimit({ units: 1000000 }), ...ixs],
-          {
-            program: cronProgram.programId,
-            error: "RequireEqViolated",
-            code: 2501,
-          }
-        );
+        await run(otherTask, [10, 11]);
+        expect(await tuktukProgram.account.taskV0.fetchNullable(otherTask)).to.be.null;
+        expect(
+          await tuktukProgram.account.taskV0.fetchNullable(taskKey(otherQueue, 10)[0]),
+          "the run queues nothing"
+        ).to.be.null;
         expectUnchanged(before, await snapshot(keys), keys);
       });
 
@@ -1074,6 +1067,89 @@ describe("cron", () => {
         ).to.be.null;
         expectUnchanged(before, await snapshot(keys), keys);
         expect((await recordedTask(second.job)).toBase58()).to.eq(recorded.toBase58());
+      });
+
+      it("completes a schedule task left behind by a cron job created again on another task queue", async () => {
+        // A cron job's address does not depend on its task queue, so a job closed while its
+        // schedule task is still queued can be created again at the same address on another
+        // queue. The old task then runs on a queue the job no longer names.
+        const otherName = makeid(10);
+        const config = await tuktukProgram.account.tuktukConfigV0.fetch(tuktukConfig);
+        const otherQueue = taskQueueKey(tuktukConfig, config.nextTaskQueueId)[0];
+        await tuktukProgram.methods
+          .initializeTaskQueueV0({
+            name: otherName,
+            minCrankReward: crankReward,
+            capacity: 100,
+            lookupTables: [],
+            staleTaskAge: 10000,
+          })
+          .accounts({
+            tuktukConfig,
+            payer: me,
+            updateAuthority: me,
+            taskQueue: otherQueue,
+            taskQueueNameMapping: taskQueueNameMappingKey(tuktukConfig, otherName)[0],
+          })
+          .rpc();
+        await tuktukProgram.methods
+          .addQueueAuthorityV0()
+          .accounts({ payer: me, queueAuthority: me, taskQueue: otherQueue })
+          .rpc();
+        await sendInstructions(provider, [
+          SystemProgram.transfer({
+            fromPubkey: me,
+            toPubkey: otherQueue,
+            lamports: 20000000000,
+          }),
+        ]);
+
+        const name = makeid(10);
+        const first = await createCronJobFor(name, 0);
+        const orphan = taskKey(taskQueue, first.taskId)[0];
+        await cronProgram.methods
+          .closeCronJobV0()
+          .accounts({
+            rentRefund: me,
+            authority: me,
+            userCronJobs: userCronJobsKey(me)[0],
+            cronJob: first.job,
+            cronJobNameMapping: cronJobNameMappingKey(me, name)[0],
+          })
+          .rpc({ skipPreflight: true });
+        expect(
+          await tuktukProgram.account.taskV0.fetchNullable(orphan),
+          "precondition: the schedule task outlives its cron job"
+        ).to.not.be.null;
+
+        const second = await createCronJobFor(name, 0, numTasksPerQueueCall, otherQueue);
+        expect(second.job.toBase58(), "precondition: the new job reuses the address").to.eq(
+          first.job.toBase58()
+        );
+        expect(
+          (await cronProgram.account.cronJobV0.fetch(second.job)).taskQueue.toBase58(),
+          "precondition: the new job names the other queue"
+        ).to.eq(otherQueue.toBase58());
+        const recorded = await recordedTask(second.job);
+
+        const keys = watched(second.job);
+        const before = await snapshot(keys);
+        await run(orphan, [88, 89]);
+
+        expect(
+          await tuktukProgram.account.taskV0.fetchNullable(orphan),
+          "the orphan closes on its first run"
+        ).to.be.null;
+        expect(
+          await tuktukProgram.account.taskV0.fetchNullable(taskKey(taskQueue, 88)[0]),
+          "the orphan queues nothing"
+        ).to.be.null;
+        expectUnchanged(before, await snapshot(keys), keys);
+        expect((await recordedTask(second.job)).toBase58()).to.eq(recorded.toBase58());
+        expect(
+          await tuktukProgram.account.taskV0.fetchNullable(recorded),
+          "the new job's schedule task is still queued"
+        ).to.not.be.null;
       });
 
       it("adopts a chain a legacy handover named the default", async () => {

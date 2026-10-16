@@ -66,9 +66,18 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
         });
     }
     let mut cron_job = try_from!(Account<CronJobV0>, &ctx.accounts.cron_job)?;
-    // The signer above is derived from the passed task queue, so this is what ties it to the
-    // queue the cron job actually runs on.
-    require_eq!(cron_job.task_queue, ctx.accounts.task_queue.key());
+    // The signer above is derived from the passed task queue, and tuktuk only signs for the queue
+    // the running task is on, so the passed queue is the task's own. A cron job's address does
+    // not depend on its queue, so a schedule task can outlive its job and run against one created
+    // again at the same address on another queue. Its chain has ended, so it completes with no
+    // tasks, like a run on a closed job, instead of failing until the queue drops it.
+    if cron_job.task_queue != ctx.accounts.task_queue.key() {
+        msg!("Not the task queue this cron job runs on, completing task");
+        return Ok(RunTaskReturnV0 {
+            tasks: vec![],
+            accounts: vec![],
+        });
+    }
 
     // A cron job carries one schedule chain, and records which task holds it. A run is that
     // task, or it adopts a record that holds nothing, which is the state a chain left behind
