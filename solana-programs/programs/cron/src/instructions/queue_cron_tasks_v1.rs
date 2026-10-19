@@ -85,7 +85,9 @@ pub fn handler(ctx: Context<QueueCronTasksV1>) -> Result<RunTaskReturnV0> {
     //
     // A run compiled against another record belongs to a chain that has ended, for example a
     // schedule task that outlived the job it was queued for. It completes with no tasks, like a
-    // run on a closed job, so it closes now instead of failing until the queue drops it.
+    // run on a closed job, so it closes now instead of failing until the queue drops it. The
+    // comparison also ties the passed account to the record, so the emptiness test below reads
+    // the account the cron job records.
     if ctx.accounts.recorded_schedule_task.key() != cron_job.next_schedule_task {
         msg!("Not the schedule task this cron job records, completing task");
         return Ok(RunTaskReturnV0 {
