@@ -1,0 +1,113 @@
+# Checks that the program exists and that its upgrade authority is the buffer authority, then
+# extends the programdata to hold the ELF when it is short. `buffer-deploy` calls it before every
+# buffer write, so every Squads proposal follows it.
+#
+# Under SIMD-0433 an upgrade resizes programdata to the ELF length, and a Squads CPI upgrade can
+# grow it by at most 10 KiB (the CPI realloc limit). So the extend runs top-level from the deployer
+# key. `ExtendProgram` needs no upgrade authority (SIMD-0431), so the proposal needs no vault SOL
+# transfer. SIMD-0431 also sets the 10,240 B minimum extend.
+#
+# Each run reads the data length again, so a second run with the same ELF does nothing.
+# The caller installs the Solana CLI first (`setup-anchor` does it).
+name: "Extend Program"
+description: "Checks the program's upgrade authority and extends the programdata so it holds solana-programs/target/deploy/<program>.so"
+inputs:
+  network:
+    description: "Solana RPC URL"
+    required: true
+  program:
+    description: "Program name (snake_case). The binary is solana-programs/target/deploy/<program>.so"
+    required: true
+  program-id:
+    description: "The program id of the program to upgrade"
+    required: true
+  keypair:
+    description: "The keypair that pays for the extend"
+    required: true
+  buffer-authority:
+    description: "The Squads vault. The program's upgrade authority must be this address."
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Check the program and extend it if needed
+      shell: bash
+      working-directory: solana-programs
+      run: |
+        set -euo pipefail
+        set +e
+        PROGRAM_INFO=$(solana program show "$PROGRAM_ID" -u "$NETWORK" 2>&1)
+        EXIT_CODE=$?
+        set -e
+        if [ "$EXIT_CODE" -ne 0 ]; then
+          # The RPC URL is a secret and the CLI puts it in some errors.
+          echo "${PROGRAM_INFO//"$NETWORK"/<rpc-url>}"
+          echo "::error title=$PROGRAM is not deployed on the target cluster::solana program show failed for $PROGRAM_ID, so there is nothing to upgrade. If the program does not exist there, deploy it once with its program keypair, then re-run."
+          exit 1
+        fi
+        CURRENT_SIZE=$(echo "$PROGRAM_INFO" | sed -nE 's/^Data Length: ([0-9]+).*/\1/p')
+        if ! [[ "$CURRENT_SIZE" =~ ^[0-9]+$ ]]; then
+          echo "::error::Could not read the data length of $PROGRAM_ID (got: $CURRENT_SIZE)"
+          exit 1
+        fi
+        UPGRADE_AUTHORITY=$(echo "$PROGRAM_INFO" | sed -nE 's/^Authority: ([1-9A-HJ-NP-Za-km-z]+)$/\1/p')
+        if [ -z "$BUFFER_AUTHORITY" ] || [ "$UPGRADE_AUTHORITY" != "$BUFFER_AUTHORITY" ]; then
+          echo "::error title=$PROGRAM upgrade authority is not the buffer authority::$PROGRAM_ID upgrade authority is ${UPGRADE_AUTHORITY:-unknown}, not the buffer authority, so the multisig cannot apply a buffer. Nothing was extended or written."
+          exit 1
+        fi
+
+        # `Data Length` already excludes the 45 B programdata header.
+        MIN_EXTEND_SIZE=10240
+        MAX_PERMITTED_DATA_LENGTH=10485760
+        PROGRAMDATA_METADATA_SIZE=45
+        MAX_PROGRAM_SIZE=$((MAX_PERMITTED_DATA_LENGTH - PROGRAMDATA_METADATA_SIZE))
+
+        REQUIRED_SIZE=$(wc -c < "./target/deploy/$PROGRAM.so" | tr -d ' ')
+        echo "Required size: $REQUIRED_SIZE"
+        echo "Current size: $CURRENT_SIZE"
+
+        if [ "$REQUIRED_SIZE" -gt "$MAX_PROGRAM_SIZE" ]; then
+          echo "::error::program size of $REQUIRED_SIZE bytes exceeds the maximum program size of $MAX_PROGRAM_SIZE bytes"
+          exit 1
+        fi
+
+        if [ "$REQUIRED_SIZE" -le "$CURRENT_SIZE" ]; then
+          echo "Program size is sufficient"
+          exit 0
+        fi
+
+        HEADROOM=$((MAX_PROGRAM_SIZE - CURRENT_SIZE))
+        if [ "$HEADROOM" -lt "$MIN_EXTEND_SIZE" ]; then
+          echo "Only $HEADROOM bytes of headroom to the maximum account size, so the SIMD-0431 minimum does not apply"
+          MIN_EXTEND_SIZE=$HEADROOM
+        fi
+        EXTEND_SIZE=$((REQUIRED_SIZE - CURRENT_SIZE))
+        if [ "$EXTEND_SIZE" -lt "$MIN_EXTEND_SIZE" ]; then
+          echo "Extend size of $EXTEND_SIZE bytes is below the SIMD-0431 minimum, so it extends by $MIN_EXTEND_SIZE bytes"
+          EXTEND_SIZE=$MIN_EXTEND_SIZE
+        fi
+        echo "Extending $PROGRAM_ID by $EXTEND_SIZE bytes from the deployer key"
+        KEYPAIR_FILE=$(mktemp ./extend-keypair.XXXXXX.json)
+        trap 'rm -f "$KEYPAIR_FILE"' EXIT
+        chmod 600 "$KEYPAIR_FILE"
+        echo "$DEPLOY_KEYPAIR" > "$KEYPAIR_FILE"
+        set +e
+        EXTEND_OUT=$(solana program extend "$PROGRAM_ID" "$EXTEND_SIZE" \
+          --keypair "$KEYPAIR_FILE" \
+          --url "$NETWORK" \
+          --commitment confirmed 2>&1)
+        EXIT_CODE=$?
+        set -e
+        # The RPC URL is a secret and the CLI puts it in some errors.
+        echo "${EXTEND_OUT//"$NETWORK"/<rpc-url>}"
+        if [ "$EXIT_CODE" -ne 0 ]; then
+          echo "::error::solana program extend failed for $PROGRAM_ID"
+          exit 1
+        fi
+      env:
+        PROGRAM: ${{ inputs.program }}
+        PROGRAM_ID: ${{ inputs.program-id }}
+        NETWORK: ${{ inputs.network }}
+        DEPLOY_KEYPAIR: ${{ inputs.keypair }}
+        BUFFER_AUTHORITY: ${{ inputs.buffer-authority }}

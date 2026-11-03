@@ -51,6 +51,16 @@ runs:
     - run: ls -l ./target/deploy/
       shell: bash
       working-directory: solana-programs
+    # Every Squads proposal follows this action, so the extend runs here once, with no `if:`. It
+    # must not share the buffer write's condition: a path that skips the write still reaches a
+    # proposal.
+    - uses: ./.github/actions/extend-program/
+      with:
+        network: ${{ inputs.network }}
+        program: ${{ inputs.program }}
+        program-id: ${{ inputs.program-id }}
+        keypair: ${{ inputs.keypair }}
+        buffer-authority: ${{ inputs.buffer-authority }}
     - name: Buffer Deploy
       if: steps.cache-buffer.outputs.cache-hit != 'true'
       id: buffer-deploy
