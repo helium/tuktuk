@@ -15,7 +15,7 @@ on:
       - '.github/actions/**'
   
 env:
-  SOLANA_CLI_VERSION: 2.1.6
+  SOLANA_CLI_VERSION: 4.3.2
   NODE_VERSION: 18.12.1
 
 jobs:
@@ -127,8 +127,9 @@ jobs:
       - uses: ./.github/actions/build-anchor/
         with:
           testing: true
-      # This crate is its own workspace, so it needs its own step.
-      - run: cargo test
+      # This crate is its own workspace, so it needs its own step. `--locked` keeps the lockfile's
+      # five8 -> five8_core 1.0.0 edge; see program-tests/Cargo.toml.
+      - run: cargo test --locked
         working-directory: program-tests
 
   test-contracts:

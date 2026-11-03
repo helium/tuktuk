@@ -35,8 +35,31 @@ runs:
       with:
         path: |
           ./solana-programs/target/
-        key: build-${{ runner.os }}-${{env.ANCHOR_VERSION}}-${{env.ANCHOR_SHA}}-v0003-${{ inputs.devnet }}-${{ inputs.testing }}-${{ hashFiles('./solana-programs/programs/**/**') }}-${{ inputs.program }}
-    - run: ${{ inputs.testing == 'true' && 'TESTING=true' || '' }} ~/.cargo/bin/anchor build ${{ (inputs.program != '' && '-p') || '' }} ${{ inputs.program || '' }} ${{ inputs.devnet == 'true' && '-- --features devnet' || '' }}
+        key: build-${{ runner.os }}-${{env.ANCHOR_VERSION}}-${{env.ANCHOR_SHA}}-solana-${{ env.SOLANA_CLI_VERSION }}-sbpf-v3-v0003-${{ inputs.devnet }}-${{ inputs.testing }}-${{ hashFiles('./solana-programs/programs/**/**') }}-${{ inputs.program }}
+    # `--arch v3` is explicit: cargo-build-sbf's default arch differs between agave releases, and
+    # the release ELF must be SBPF v3. `anchor build` hands its cargo args to the IDL's
+    # `cargo test` too, which rejects `--arch`, so the SBF build skips the IDL and
+    # `anchor idl build` writes it per program.
+    - run: |
+        set -euo pipefail
+        FEATURES=()
+        if [ "$DEVNET" = "true" ]; then FEATURES=(--features devnet); fi
+        if [ "$TESTING_BUILD" = "true" ]; then export TESTING=true; fi
+        if [ -n "$PROGRAM" ]; then
+          ~/.cargo/bin/anchor build --no-idl -p "$PROGRAM" -- --arch v3 "${FEATURES[@]}"
+          PROGRAMS=("$PROGRAM")
+        else
+          ~/.cargo/bin/anchor build --no-idl -- --arch v3 "${FEATURES[@]}"
+          mapfile -t PROGRAMS < <(~/.cargo/bin/anchor keys list | cut -d: -f1)
+        fi
+        mkdir -p target/idl target/types
+        for P in "${PROGRAMS[@]}"; do
+          ~/.cargo/bin/anchor idl build -p "$P" -o "target/idl/$P.json" -t "target/types/$P.ts" -- "${FEATURES[@]}"
+        done
       if: steps.cache-anchor-build.outputs.cache-hit != 'true'
       shell: bash
       working-directory: solana-programs
+      env:
+        DEVNET: ${{ inputs.devnet }}
+        TESTING_BUILD: ${{ inputs.testing }}
+        PROGRAM: ${{ inputs.program }}
