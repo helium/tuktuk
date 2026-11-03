@@ -25,3 +25,8 @@ unexpected_cfgs = { level = "warn", check-cfg = [
     'cfg(target_os, values("solana"))',
     'cfg(feature, values("custom-heap", "custom-panic", "anchor-debug"))',
 ] }
+# solana-verify picks its build image from this version. Without it, it falls back to the
+# solana-program version in Cargo.lock (2.2.1), whose image cannot build SBPF v3. 4.3.0 is the
+# newest image solana-verify 0.5.2 ships.
+[workspace.metadata.cli]
+solana = "4.3.0"
