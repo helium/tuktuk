@@ -8,20 +8,20 @@
 //! Requires the program to be built first: `anchor build` in `solana-programs/`, or set
 //! `TUKTUK_SO` to a specific artifact.
 
+mod svm;
+
 use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, ToAccountMetas};
-use litesvm::{
-    types::{FailedTransactionMetadata, TransactionMetadata},
-    LiteSVM,
-};
 use solana_sdk::{
     account::Account,
-    clock::Clock,
     compute_budget::ComputeBudgetInstruction,
-    instruction::{AccountMeta, Instruction, InstructionError},
+    instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
     signature::{Keypair, Signer},
     system_program, sysvar,
-    transaction::{Transaction, TransactionError},
+    transaction::Transaction,
+};
+use svm::{
+    FailedTransactionMetadata, InstructionError, LiteSVM, TransactionError, TransactionMetadata,
 };
 use tuktuk::state::{
     CompiledInstructionV0, CompiledTransactionV0, TaskV0, TransactionSourceV0, TriggerV0,
@@ -202,9 +202,9 @@ impl Ctx {
     }
 
     fn set_unix_timestamp(&mut self, ts: i64) {
-        let mut clock: Clock = self.svm.get_sysvar();
+        let mut clock = self.svm.clock();
         clock.unix_timestamp = ts;
-        self.svm.set_sysvar(&clock);
+        self.svm.set_clock(&clock);
     }
 }
 
@@ -217,7 +217,8 @@ fn setup(capacity: u16, min_crank_reward: u64, stale_task_age: u32) -> Ctx {
             so_path()
         )
     });
-    svm.add_program(tuktuk::ID, &program);
+    svm.add_program(tuktuk::ID, &program)
+        .expect("the tuktuk program loads");
 
     let auth = Keypair::new();
     svm.airdrop(&auth.pubkey(), 1_000_000_000_000)
@@ -466,7 +467,9 @@ fn add_fixture(ctx: &mut Ctx, program_id: Pubkey, file: &str) {
     let program = std::fs::read(&artifact).unwrap_or_else(|e| {
         panic!("read {artifact:?} ({e}); run `anchor build` in solana-programs/")
     });
-    ctx.svm.add_program(program_id, &program);
+    ctx.svm
+        .add_program(program_id, &program)
+        .expect("the program loads");
 }
 
 /// Queue a task that hands one child back through an account the returning program owns, the
@@ -1827,7 +1830,7 @@ fn a_successor_of_the_same_size_takes_only_its_crank_reward_from_the_task_queue(
         let named = named_accounts(&ctx.svm, &running);
         let queue_before = lamports(&ctx.svm, &ctx.task_queue);
         // A successor triggers one second after the run that returned it.
-        let now = ctx.svm.get_sysvar::<Clock>().unix_timestamp;
+        let now = ctx.svm.clock().unix_timestamp;
         ctx.set_unix_timestamp(now + 2);
 
         run_task_named(&mut ctx, id, &turner, named, vec![id + 1], vec![successor])
@@ -1854,7 +1857,7 @@ fn a_stale_root_task_closes_to_the_payer_with_its_full_rent() {
     let turner = ctx.turner();
     let start = lamports(&ctx.svm, &payer.pubkey());
 
-    let now = ctx.svm.get_sysvar::<Clock>().unix_timestamp;
+    let now = ctx.svm.clock().unix_timestamp;
     queue_paid_by(
         &mut ctx,
         &payer,

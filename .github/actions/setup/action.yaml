@@ -7,15 +7,15 @@ runs:
         shell: bash
       - run: sudo apt-get install -y pkg-config build-essential libudev-dev
         shell: bash
-      - run: echo "ANCHOR_VERSION=0.31.1" >> $GITHUB_ENV
+      - run: echo "ANCHOR_VERSION=0.31.2" >> $GITHUB_ENV
         shell: bash
-      - run: echo "ANCHOR_SHA=98396c0aeffb4745ab08fb9f45e0d31ad0bd1402" >> $GITHUB_ENV
+      - run: echo "ANCHOR_SHA=6f152a48f266eb187b2a3cc22f1cc7d1ae5bdbd3" >> $GITHUB_ENV
         shell: bash
       - run: git submodule update --init --recursive --depth 1
         shell: bash
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.82.0
+          toolchain: 1.89.0
       - uses: actions/cache@v3
         with:
           path: |

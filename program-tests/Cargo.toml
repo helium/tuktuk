@@ -17,5 +17,20 @@ cpi-example = { path = "../solana-programs/programs/cpi-example", features = [
   "no-entrypoint",
 ] }
 anchor-lang = "=0.31.1"
-litesvm = "0.6"
+litesvm = "0.13.1"
 solana-sdk = "2.2"
+# litesvm 0.13 is the first to load SBPF v3, and it speaks the agave 4.x type crates. The
+# programs stay on solana 2.2, so tests/svm/ converts between the two at the boundary.
+#
+# Cargo.lock points five8 1.0.0 at five8_core 1.0.0 by hand. A fresh resolve reuses five8_core
+# 0.1.2 (held by solana 2.2's five8_const), and solana-keypair 3 then fails to compile. After a
+# `cargo update`, redo that edge.
+solana-account = "3"
+solana-address = "2"
+solana-clock = "3"
+solana-hash = "4"
+solana-instruction-error = "2"
+solana-message = "3"
+solana-signature = "3"
+solana-transaction = "3"
+solana-transaction-error = "3"

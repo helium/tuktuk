@@ -1,7 +1,7 @@
 name: Release Program to Mainnet
 
 env:
-  SOLANA_CLI_VERSION: 2.1.6
+  SOLANA_CLI_VERSION: 4.3.2
   NODE_VERSION: 18.12.1
 
 on:
@@ -80,6 +80,47 @@ jobs:
         with:
           program: ${{ env.PROGRAM_NAME }}
           program-id: ${{ env.PROGRAM_ID }}
+
+      # Once SIMD-0500 activates, the cluster rejects new deploys of SBPF v0-v2 ELFs. This checks
+      # the ELF the next step uploads, after build-verified replaced it. It fails only when the
+      # gate is active and the ELF is not v3. A pending or unknown gate with a non-v3 ELF only
+      # warns. A v3 ELF passes in every gate state.
+      - name: Check SBPF version against the deploy gate
+        shell: bash
+        env:
+          RPC_URL: ${{ secrets.SOLANA_DEPLOY_URL }}
+          GATE: B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g
+        run: |
+          set -euo pipefail
+          ELF="target/deploy/${PROGRAM_NAME}.so"
+          # e_flags is the u32 at offset 0x30 of an ELF64 little-endian header. SBPF v3 is 3.
+          E_FLAGS=$(od -An -tu4 -j48 -N4 "$ELF" | tr -d ' ')
+          echo "${ELF}: e_flags ${E_FLAGS}"
+
+          # A feature account that does not exist is a gate nobody has proposed yet. Byte 0 of
+          # its data is 1 once the feature has activated, and 0 while it waits for the next epoch.
+          GATE_STATE=unknown
+          if RESPONSE=$(curl -sSf --max-time 30 -X POST -H 'Content-Type: application/json' \
+            -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getAccountInfo\",\"params\":[\"${GATE}\",{\"encoding\":\"base64\"}]}" \
+            "$RPC_URL"); then
+            # An RPC error body has no `result`, so it stays unknown.
+            GATE_STATE=$(echo "$RESPONSE" | jq -r '
+              if (.result | type) != "object" then "unknown"
+              elif .result.value == null then "unallocated"
+              elif (.result.value.data[0] | @base64d | explode[0]) == 1 then "active"
+              else "pending" end' || echo unknown)
+          fi
+          echo "SIMD-0500 gate ${GATE}: ${GATE_STATE}"
+
+          if [ "$E_FLAGS" != "3" ]; then
+            MESSAGE="${PROGRAM_NAME}.so is not SBPF v3 (e_flags ${E_FLAGS}) and the deploy gate is ${GATE_STATE}"
+            if [ "$GATE_STATE" = "active" ]; then
+              echo "::error::${MESSAGE}"
+              exit 1
+            elif [ "$GATE_STATE" != "unallocated" ]; then
+              echo "::warning::${MESSAGE}"
+            fi
+          fi
 
       - uses: ./.github/actions/buffer-deploy/
         id: buffer-deploy
