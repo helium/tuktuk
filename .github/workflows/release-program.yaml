@@ -84,12 +84,14 @@ jobs:
       # Once SIMD-0500 activates, the cluster rejects new deploys of SBPF v0-v2 ELFs. This checks
       # the ELF the next step uploads, after build-verified replaced it. It fails only when the
       # gate is active and the ELF is not v3. A pending or unknown gate with a non-v3 ELF only
-      # warns. A v3 ELF passes in every gate state.
+      # warns. A v3 ELF passes in every gate state. It also prints the SIMD-0433 gate, for
+      # information only: buffer-deploy extends the programdata whatever that gate's state.
       - name: Check SBPF version against the deploy gate
         shell: bash
         env:
           RPC_URL: ${{ secrets.SOLANA_DEPLOY_URL }}
           GATE: B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g
+          RESIZE_GATE: EhisBfVtGvEA8bVCVN5VMaYEaX6iTfoUrmcDi8LY7Kxy
         run: |
           set -euo pipefail
           ELF="target/deploy/${PROGRAM_NAME}.so"
@@ -99,18 +101,24 @@ jobs:
 
           # A feature account that does not exist is a gate nobody has proposed yet. Byte 0 of
           # its data is 1 once the feature has activated, and 0 while it waits for the next epoch.
-          GATE_STATE=unknown
-          if RESPONSE=$(curl -sSf --max-time 30 -X POST -H 'Content-Type: application/json' \
-            -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getAccountInfo\",\"params\":[\"${GATE}\",{\"encoding\":\"base64\"}]}" \
-            "$RPC_URL"); then
+          gate_state() {
+            local RESPONSE
+            if ! RESPONSE=$(curl -sSf --max-time 30 -X POST -H 'Content-Type: application/json' \
+              -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getAccountInfo\",\"params\":[\"$1\",{\"encoding\":\"base64\"}]}" \
+              "$RPC_URL"); then
+              echo unknown
+              return
+            fi
             # An RPC error body has no `result`, so it stays unknown.
-            GATE_STATE=$(echo "$RESPONSE" | jq -r '
+            echo "$RESPONSE" | jq -r '
               if (.result | type) != "object" then "unknown"
               elif .result.value == null then "unallocated"
               elif (.result.value.data[0] | @base64d | explode[0]) == 1 then "active"
-              else "pending" end' || echo unknown)
-          fi
+              else "pending" end' || echo unknown
+          }
+          GATE_STATE=$(gate_state "$GATE")
           echo "SIMD-0500 gate ${GATE}: ${GATE_STATE}"
+          echo "SIMD-0433 gate ${RESIZE_GATE}: $(gate_state "$RESIZE_GATE")"
 
           if [ "$E_FLAGS" != "3" ]; then
             MESSAGE="${PROGRAM_NAME}.so is not SBPF v3 (e_flags ${E_FLAGS}) and the deploy gate is ${GATE_STATE}"
