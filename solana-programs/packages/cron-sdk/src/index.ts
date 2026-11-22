@@ -1,14 +1,14 @@
 import { Cron } from "@helium/tuktuk-idls/lib/types/cron";
-import { cronJobKey, cronJobNameMappingKey, userCronJobsKey } from "./pdas";
+import { cronJobKey, cronJobNameMappingKey, userCronJobsKey } from "./pdas.js";
 import { IdlTypes, Program } from "@coral-xyz/anchor";
 import { ComputeBudgetProgram, PublicKey } from "@solana/web3.js";
 import { MethodsBuilder } from "@coral-xyz/anchor/dist/cjs/program/namespace/methods";
 import { Tuktuk } from "@helium/tuktuk-idls/lib/types/tuktuk";
 import { nextAvailableTaskIds, taskKey } from "@helium/tuktuk-sdk";
 
-export { init } from "./init"
-export * from "./constants"
-export * from "./pdas"
+export { init } from "./init.js"
+export * from "./constants.js"
+export * from "./pdas.js"
 
 export async function getCronJobForName(program: Program<Cron>, name: string): Promise<PublicKey | null> {
   const nameMapping = cronJobNameMappingKey(program.provider.wallet!.publicKey, name)[0];

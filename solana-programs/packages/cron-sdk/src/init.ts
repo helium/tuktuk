@@ -1,7 +1,7 @@
 import { Cron } from "@helium/tuktuk-idls/lib/types/cron";
 import { AnchorProvider, Idl, Program } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
-import { PROGRAM_ID } from "./constants";
+import { PROGRAM_ID } from "./constants.js";
 
 export const init = async (
   provider: AnchorProvider,
