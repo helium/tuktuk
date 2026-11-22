@@ -1,5 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import { PROGRAM_ID } from "./constants";
+import { PROGRAM_ID } from "./constants.js";
 import { sha256 } from "js-sha256";
 import BN from "bn.js";
 

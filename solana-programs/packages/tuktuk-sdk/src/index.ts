@@ -1,14 +1,14 @@
 import { IdlTypes, Program } from "@coral-xyz/anchor";
-import { customSignerKey, taskKey, taskQueueKey, taskQueueNameMappingKey, tuktukConfigKey } from "./pdas";
+import { customSignerKey, taskKey, taskQueueKey, taskQueueNameMappingKey, tuktukConfigKey } from "./pdas.js";
 import { Tuktuk } from "@helium/tuktuk-idls/lib/types/tuktuk";
 import { MethodsBuilder } from "@coral-xyz/anchor/dist/cjs/program/namespace/methods";
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
-import { compileTransaction, nextAvailableTaskIds } from "./transaction";
+import { compileTransaction, nextAvailableTaskIds } from "./transaction.js";
 
-export { init } from "./init"
-export * from "./constants"
-export * from "./pdas"
-export * from "./transaction"
+export { init } from "./init.js"
+export * from "./constants.js"
+export * from "./pdas.js"
+export * from "./transaction.js"
 
 export const TUKTUK_CONFIG = tuktukConfigKey()[0];
 

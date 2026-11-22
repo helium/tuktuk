@@ -16,7 +16,7 @@ import {
 } from "@solana/web3.js";
 import axios from "axios";
 import { sha256 } from "js-sha256";
-import { taskKey } from "./pdas";
+import { taskKey } from "./pdas.js";
 
 export function verificationHash(
   task: PublicKey,
